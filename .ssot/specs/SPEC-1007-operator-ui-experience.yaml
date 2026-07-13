@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1007"
+number: 1007
+slug: "operator-ui-experience"
+title: "Operator UI experience"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T23:00:26Z"
+references: []
+body: |-
+  The UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1001"
+  - "adr:1004"

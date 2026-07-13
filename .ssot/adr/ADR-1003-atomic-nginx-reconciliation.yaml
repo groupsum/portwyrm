@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1003"
+number: 1003
+slug: "atomic-nginx-reconciliation"
+title: "Atomic Nginx reconciliation"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: partial configuration writes or failed reloads can take every routed service offline. Decision: render complete immutable generations, run nginx -t, atomically select the candidate, reload, verify health, and retain the last-known-good generation. Consequences: desired and applied generations are tracked separately and failures expose retry and rollback. Governs: feat:runtime.nginx-reconciliation, feat:routing.proxy-hosts, feat:routing.streams."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T22:59:41Z"
+references: []
+body: |-
+  Context: partial configuration writes or failed reloads can take every routed service offline. Decision: render complete immutable generations, run nginx -t, atomically select the candidate, reload, verify health, and retain the last-known-good generation. Consequences: desired and applied generations are tracked separately and failures expose retry and rollback. Governs: feat:runtime.nginx-reconciliation, feat:routing.proxy-hosts, feat:routing.streams.

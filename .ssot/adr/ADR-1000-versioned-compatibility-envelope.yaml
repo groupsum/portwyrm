@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1000"
+number: 1000
+slug: "versioned-compatibility-envelope"
+title: "Versioned compatibility envelope"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: npmctl targets Nginx Proxy Manager behavior while upstream NPM continues to change. Decision: certify immutable compatibility profiles for NPM 2.10.4/npmctl and NPM 2.15.1; new upstream behavior enters a new profile rather than silently changing a certified one. Consequences: wire fixtures, defaults, errors, permissions, and OpenAPI are profile-scoped. Governs: feat:compat.npm-api, feat:compat.npmctl."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T22:59:39Z"
+references: []
+body: |-
+  Context: npmctl targets Nginx Proxy Manager behavior while upstream NPM continues to change. Decision: certify immutable compatibility profiles for NPM 2.10.4/npmctl and NPM 2.15.1; new upstream behavior enters a new profile rather than silently changing a certified one. Consequences: wire fixtures, defaults, errors, permissions, and OpenAPI are profile-scoped. Governs: feat:compat.npm-api, feat:compat.npmctl.

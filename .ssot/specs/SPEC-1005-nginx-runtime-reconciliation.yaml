@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1005"
+number: 1005
+slug: "nginx-runtime-reconciliation"
+title: "Nginx runtime reconciliation"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T23:00:25Z"
+references: []
+body: |-
+  Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority.
+spec_kind: "operational"
+adr_ids:
+  - "adr:1001"
+  - "adr:1003"

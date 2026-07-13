@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1002"
+number: 1002
+slug: "persistence-port-architecture"
+title: "Persistence port architecture"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: the product must support memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid deployments. Decision: define RepositorySet, UnitOfWork, BlobStore, SecretStore, LeaseStore, EventJournal, Outbox, and MigrationStore ports with adapter conformance tests. Consequences: backend limits are explicit and cross-backend migration uses a portable export bundle. Governs: feat:persistence.memory, feat:persistence.sqlite, feat:persistence.mysql, feat:persistence.postgresql, feat:persistence.filesystem, feat:persistence.hybrid."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T22:59:40Z"
+references: []
+body: |-
+  Context: the product must support memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid deployments. Decision: define RepositorySet, UnitOfWork, BlobStore, SecretStore, LeaseStore, EventJournal, Outbox, and MigrationStore ports with adapter conformance tests. Consequences: backend limits are explicit and cross-backend migration uses a portable export bundle. Governs: feat:persistence.memory, feat:persistence.sqlite, feat:persistence.mysql, feat:persistence.postgresql, feat:persistence.filesystem, feat:persistence.hybrid.

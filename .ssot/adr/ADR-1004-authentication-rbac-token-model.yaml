@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1004"
+number: 1004
+slug: "authentication-rbac-token-model"
+title: "Authentication, RBAC, and token model"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: NPM compatibility requires JWT, user visibility, section permissions, and TOTP while operators also require revocable automation credentials. Decision: preserve compatible JWT/RBAC/2FA behavior and add separately scoped opaque personal and service tokens stored only as hashes. Consequences: native tokens never alter compatibility JWT semantics and every privilege transition is audited. Governs: feat:identity.users-rbac, feat:identity.auth-2fa, feat:identity.access-tokens."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T22:59:41Z"
+references: []
+body: |-
+  Context: NPM compatibility requires JWT, user visibility, section permissions, and TOTP while operators also require revocable automation credentials. Decision: preserve compatible JWT/RBAC/2FA behavior and add separately scoped opaque personal and service tokens stored only as hashes. Consequences: native tokens never alter compatibility JWT semantics and every privilege transition is audited. Governs: feat:identity.users-rbac, feat:identity.auth-2fa, feat:identity.access-tokens.

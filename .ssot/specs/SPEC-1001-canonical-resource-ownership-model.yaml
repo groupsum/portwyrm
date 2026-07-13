@@ -1,0 +1,26 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1001"
+number: 1001
+slug: "canonical-resource-ownership-model"
+title: "Canonical resource and ownership model"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Canonical entities MUST model proxy, redirection, dead, and stream hosts, access lists, certificates, users, settings, audit events, desired generation, and applied generation independently from compatibility DTOs. Stable positive integer compatibility IDs and relationships MUST round-trip. meta.managed_by, meta.owner, and meta.resource_id MUST survive every adapter, export, import, and mutation; foreign-owned resources MUST remain conflict-safe."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T23:00:23Z"
+references: []
+body: |-
+  Canonical entities MUST model proxy, redirection, dead, and stream hosts, access lists, certificates, users, settings, audit events, desired generation, and applied generation independently from compatibility DTOs. Stable positive integer compatibility IDs and relationships MUST round-trip. meta.managed_by, meta.owner, and meta.resource_id MUST survive every adapter, export, import, and mutation; foreign-owned resources MUST remain conflict-safe.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1000"
+  - "adr:1001"
+  - "adr:1006"

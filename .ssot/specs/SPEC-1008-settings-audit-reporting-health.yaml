@@ -1,0 +1,26 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1008"
+number: 1008
+slug: "settings-audit-reporting-health"
+title: "Settings, audit, reporting, and health"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "draft"
+    note: "Proposed for Portwyrm contract review."
+    at: "2026-07-13T23:00:26Z"
+references: []
+body: |-
+  The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state.
+spec_kind: "operational"
+adr_ids:
+  - "adr:1001"
+  - "adr:1004"
+  - "adr:1005"
