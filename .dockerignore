@@ -1,0 +1,12 @@
+.git
+.github
+.ssot
+.venv
+.uv-cache
+.tmp
+.pytest-tmp-*
+__pycache__
+*.py[cod]
+tests
+dist
+build

@@ -11,10 +11,19 @@ async function json(path) {
   return response.json();
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function table(rows) {
   if (!rows.length) return `<div class="card"><h2>No resources yet</h2><p class="muted">Create the first resource when you are ready.</p></div>`;
   const keys = [...new Set(rows.flatMap(Object.keys))].slice(0, 6);
-  return `<div class="table-wrap"><table><thead><tr>${keys.map(k => `<th>${k}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${keys.map(k => `<td><code>${String(row[k] ?? "")}</code></td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr>${keys.map(k => `<th>${escapeHtml(k)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${keys.map(k => `<td><code>${escapeHtml(row[k] ?? "")}</code></td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
 async function render(name) {
@@ -29,14 +38,14 @@ async function render(name) {
       view.innerHTML = `<div class="grid">${families.map((f, i) => `<article class="card"><div class="muted">${labels[f]}</div><p class="metric">${values[i].length}</p></article>`).join("")}</div>`;
     } else if (name === "health") {
       const data = await json("/api/");
-      view.innerHTML = `<article class="card"><h2 class="ok">Control plane available</h2><pre>${JSON.stringify(data, null, 2)}</pre></article>`;
+      view.innerHTML = `<article class="card"><h2 class="ok">Control plane available</h2><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></article>`;
     } else {
       const prefix = ["users", "settings", "audit-log", "access-tokens"].includes(name) ? "/api" : "/api/nginx";
       const data = await json(`${prefix}/${name}`);
       view.innerHTML = table(Array.isArray(data) ? data : [data]);
     }
   } catch (error) {
-    view.innerHTML = `<article class="card"><h2 class="error">Unable to load this view</h2><p>${error.message}</p><p class="muted">Authenticate or retry after the control plane is ready.</p></article>`;
+    view.innerHTML = `<article class="card"><h2 class="error">Unable to load this view</h2><p>${escapeHtml(error.message)}</p><p class="muted">Authenticate or retry after the control plane is ready.</p></article>`;
     status.textContent = `Error loading ${title.textContent}`;
   } finally { view.setAttribute("aria-busy", "false"); }
 }
