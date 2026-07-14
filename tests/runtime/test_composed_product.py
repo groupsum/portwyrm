@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 from portwyrm import __main__ as cli
 from portwyrm.api import create_app
+from portwyrm.api.dependencies import create_default_repository
+from portwyrm.cli.commands import remote
 from portwyrm.persistence import SQLiteRepository
 from portwyrm.persistent import PersistentControlPlane
 from portwyrm.runtime.coordinator import RuntimeCoordinator
@@ -81,7 +83,7 @@ def test_cli_resource_commands_use_compatible_api_paths(monkeypatch) -> None:
         calls.append((method, path, payload))
         return {"ok": True}
 
-    monkeypatch.setattr(cli, "_request", request)
+    monkeypatch.setattr(remote, "request", request)
     args = argparse.Namespace(
         command="create",
         collection="proxy-hosts",
@@ -93,3 +95,16 @@ def test_cli_resource_commands_use_compatible_api_paths(monkeypatch) -> None:
     )
     assert cli.run(args) == {"ok": True}
     assert calls == [("POST", "/api/nginx/proxy-hosts", {"domain_names": ["cli.example.test"]})]
+
+
+def test_installed_server_defaults_to_durable_sqlite(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.delenv("PORTWYRM_DB_BACKEND", raising=False)
+    monkeypatch.delenv("PORTWYRM_SQLITE_PATH", raising=False)
+    monkeypatch.setenv("PORTWYRM_DATA_ROOT", str(tmp_path))
+
+    repository = create_default_repository()
+
+    assert isinstance(repository, SQLiteRepository)
+    assert repository.path == tmp_path / "portwyrm.sqlite"

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
+from portwyrm.persistence import MemoryRepository
 from portwyrm.security import (
     Principal,
     TokenStore,
@@ -273,7 +274,7 @@ def test_initial_setup_is_one_shot_casefolded_and_never_echoes_password(
         "INITIAL_ADMIN_PASSWORD",
     ):
         monkeypatch.delenv(name, raising=False)
-    client = TestClient(create_app())
+    client = TestClient(create_app(MemoryRepository()))
     assert client.get("/api/setup").json() == {"setup": False}
     password = "correct horse battery staple"
     created = client.post(
@@ -318,7 +319,7 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert "<pre>${escapeHtml(JSON.stringify(health.components" in script
     assert "<p>${escapeHtml(error.message)}" in script
 
-    app_client = TestClient(create_app())
+    app_client = TestClient(create_app(MemoryRepository()))
     page = app_client.get("/ui/")
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")

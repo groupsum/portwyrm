@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
+from portwyrm.persistence import MemoryRepository
 from portwyrm.security import Principal
 from portwyrm.service import ControlPlane
 
@@ -260,7 +261,7 @@ def test_facade_adapts_the_shared_control_plane_service() -> None:
 def test_packaged_factory_bootstraps_from_environment_and_mounts_ui(monkeypatch) -> None:
     monkeypatch.setenv("INITIAL_ADMIN_EMAIL", "owner@example.com")
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "environment-secret")
-    client = TestClient(create_app())
+    client = TestClient(create_app(MemoryRepository()))
     authenticated = client.post(
         "/api/tokens",
         json={"identity": "OWNER@example.com", "secret": "environment-secret", "scope": "user"},
@@ -278,7 +279,7 @@ def test_packaged_app_requires_explicit_first_admin(monkeypatch: pytest.MonkeyPa
         "INITIAL_ADMIN_PASSWORD",
     ):
         monkeypatch.delenv(name, raising=False)
-    client = TestClient(create_app())
+    client = TestClient(create_app(MemoryRepository()))
     assert client.get("/api/setup").json() == {"setup": False}
     created = client.post(
         "/api/setup",

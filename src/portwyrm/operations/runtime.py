@@ -6,6 +6,7 @@ import json
 import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 from portwyrm import __version__
@@ -16,12 +17,15 @@ from .health import HealthService
 
 def repository_config_from_environment() -> dict[str, Any]:
     backend = os.getenv("PORTWYRM_DB_BACKEND", "sqlite")
+    data_root = Path(os.getenv("PORTWYRM_DATA_ROOT", str(Path.cwd() / ".portwyrm")))
     config: dict[str, Any] = {
         "backend": backend,
-        "data_root": os.getenv("PORTWYRM_DATA_ROOT", "/data"),
-        "sqlite_path": os.getenv("PORTWYRM_SQLITE_PATH", "/data/portwyrm.sqlite"),
-        "filesystem_root": os.getenv("PORTWYRM_FILESYSTEM_ROOT", "/data/repository"),
-        "blob_root": os.getenv("PORTWYRM_BLOB_ROOT", "/data/blobs"),
+        "data_root": data_root,
+        "sqlite_path": Path(os.getenv("PORTWYRM_SQLITE_PATH", str(data_root / "portwyrm.sqlite"))),
+        "filesystem_root": Path(
+            os.getenv("PORTWYRM_FILESYSTEM_ROOT", str(data_root / "repository"))
+        ),
+        "blob_root": Path(os.getenv("PORTWYRM_BLOB_ROOT", str(data_root / "blobs"))),
     }
     prefix = "PORTWYRM_POSTGRES_" if backend == "postgresql" else "PORTWYRM_MYSQL_"
     if backend in {"postgresql", "mysql"}:
