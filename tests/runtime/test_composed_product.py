@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import bcrypt
 from fastapi.testclient import TestClient
 
 from portwyrm import __main__ as cli
@@ -165,6 +166,33 @@ def test_cli_resource_commands_use_compatible_api_paths(monkeypatch) -> None:
     assert calls == [("POST", "/api/nginx/proxy-hosts", {"domain_names": ["cli.example.test"]})]
 
 
+def test_cli_portability_commands_use_preview_and_explicit_apply(monkeypatch) -> None:
+    calls: list[tuple[str, str, object]] = []
+
+    def request(_args, method: str, path: str, payload=None):
+        calls.append((method, path, payload))
+        return {"ok": True}
+
+    monkeypatch.setattr(remote, "request", request)
+    args = argparse.Namespace(
+        command="npm-import",
+        data='{"user":[]}',
+        apply=False,
+        replace=False,
+        url="http://portwyrm:81",
+        timeout=10,
+        token="secret",
+    )
+    assert cli.run(args) == {"ok": True}
+    assert calls == [
+        (
+            "POST",
+            "/api/v2/migration/npm/import?dry_run=true&replace=false",
+            {"source": {"user": []}},
+        )
+    ]
+
+
 def test_installed_server_defaults_to_durable_sqlite(
     tmp_path: Path,
     monkeypatch,
@@ -177,3 +205,38 @@ def test_installed_server_defaults_to_durable_sqlite(
 
     assert isinstance(repository, SQLiteRepository)
     assert repository.path == tmp_path / "portwyrm.sqlite"
+
+
+def test_admin_portability_and_npm_cutover_endpoints_reload_live_service(tmp_path: Path) -> None:
+    client = TestClient(create_app(SQLiteRepository(tmp_path / "cutover.sqlite")))
+    assert (
+        client.post(
+            "/api/setup", json={"email": "admin@example.test", "password": "admin-password"}
+        ).status_code
+        == 201
+    )
+    headers = _login_with(client, "admin@example.test", "admin-password")
+    exported = client.get("/api/v2/export", headers=headers)
+    assert exported.status_code == 200
+    collections = {entry["collection"] for entry in exported.json()["records"]}
+    assert "_credentials" in collections
+    assert "_sessions" not in collections and "_personal_access_tokens" not in collections
+    assert (
+        client.post("/api/v2/import/preview", headers=headers, json=exported.json()).json()[
+            "unchanged"
+        ]
+        >= 2
+    )
+
+    migrated_hash = bcrypt.hashpw(b"migrated-password", bcrypt.gensalt()).decode()
+    source = {
+        "user": [{"id": 20, "email": "migrated@example.test", "is_disabled": 0}],
+        "auth": [{"id": 21, "user_id": 20, "type": "password", "secret": migrated_hash}],
+        "user_permission": [{"user_id": 20, "visibility": "all", "proxy_hosts": "manage"}],
+    }
+    applied = client.post(
+        "/api/v2/migration/npm/import?dry_run=false", headers=headers, json={"source": source}
+    )
+    assert applied.status_code == 200
+    assert applied.json()["created"] == 2
+    assert _login_with(client, "migrated@example.test", "migrated-password")

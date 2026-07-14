@@ -40,6 +40,17 @@ class PersistentControlPlane(ControlPlane):
                 str(row["id"]): str(row["password_hash"]) for row in tx.list("_credentials")
             }
 
+    def reload(self) -> None:
+        """Replace the in-memory projection after an external import transaction."""
+        with self._lock:
+            self.resources = {name: {} for name in COLLECTIONS}
+            self._next_ids = {name: 1 for name in COLLECTIONS}
+            self.audit_events = []
+            self._passwords = {}
+            self._hydrate()
+        if self.on_change is not None:
+            self.on_change("settings")
+
     def _persist_resource(self, collection: str, resource_id: int | str) -> None:
         with self.repository.transaction() as tx:
             tx.upsert(self._storage_collection(collection), self.resources[collection][resource_id])

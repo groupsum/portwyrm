@@ -16,7 +16,8 @@ from .health import HealthService
 
 
 def repository_config_from_environment() -> dict[str, Any]:
-    backend = os.getenv("PORTWYRM_DB_BACKEND", "sqlite")
+    backend = os.getenv("PORTWYRM_DB_BACKEND", "sqlite").lower()
+    backend = {"postgres": "postgresql", "mariadb": "mysql"}.get(backend, backend)
     data_root = Path(os.getenv("PORTWYRM_DATA_ROOT", str(Path.cwd() / ".portwyrm")))
     config: dict[str, Any] = {
         "backend": backend,

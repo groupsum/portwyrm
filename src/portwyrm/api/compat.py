@@ -8,6 +8,7 @@ import inspect
 import os
 import tempfile
 from collections.abc import Awaitable, Mapping
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
@@ -21,6 +22,8 @@ from portwyrm.certificates import (
     ChallengeType,
     CustomCertificateBundle,
 )
+from portwyrm.migration import import_npm, preflight_npm
+from portwyrm.persistence import Repository, export_bundle, import_bundle, preview_import
 from portwyrm.security import Principal, TokenStore
 
 Resource = dict[str, Any]
@@ -75,12 +78,14 @@ def create_compat_app(
     authenticator: Any | None = None,
     certificates: CertificateManager | None = None,
     lifespan: Any | None = None,
+    repository: Repository | None = None,
 ) -> FastAPI:
     token_store = tokens or TokenStore()
     app = FastAPI(title="Portwyrm NPM compatibility API", version="2.10.4", lifespan=lifespan)
     app.state.control_plane = service
     app.state.token_store = token_store
     app.state.certificate_manager = certificates
+    app.state.repository = repository
 
     async def principal_from_bearer(
         authorization: str | None = Header(default=None),
@@ -258,6 +263,66 @@ def create_compat_app(
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="token not found")
         token_store.revoke_pat(token_id)
+
+    @app.get("/api/v2/export")
+    async def export_state(principal: Principal = Depends(principal_from_bearer)) -> Resource:
+        _require_admin(principal)
+        if repository is None:
+            raise HTTPException(status_code=501, detail="state export unavailable")
+        return export_bundle(repository)
+
+    @app.post("/api/v2/import/preview")
+    async def preview_state_import(
+        payload: dict[str, Any],
+        replace: bool = Query(default=False),
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        _require_admin(principal)
+        if repository is None:
+            raise HTTPException(status_code=501, detail="state import unavailable")
+        return preview_import(repository, payload, replace=replace)
+
+    @app.post("/api/v2/import")
+    async def apply_state_import(
+        payload: dict[str, Any],
+        replace: bool = Query(default=False),
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        _require_admin(principal)
+        if repository is None:
+            raise HTTPException(status_code=501, detail="state import unavailable")
+        result = import_bundle(repository, payload, replace=replace)
+        await _reload_after_import(service)
+        return result
+
+    @app.post("/api/v2/migration/npm/preflight")
+    async def npm_preflight(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        _require_admin(principal)
+        source = payload.get("source")
+        if not isinstance(source, Mapping):
+            raise HTTPException(status_code=422, detail="source must be an NPM table mapping")
+        return preflight_npm(source, source_kind="api").to_dict(include_records=True)
+
+    @app.post("/api/v2/migration/npm/import")
+    async def npm_import(
+        payload: dict[str, Any],
+        replace: bool = Query(default=False),
+        dry_run: bool = Query(default=True),
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        _require_admin(principal)
+        if repository is None:
+            raise HTTPException(status_code=501, detail="NPM import unavailable")
+        source = payload.get("source")
+        if not isinstance(source, Mapping):
+            raise HTTPException(status_code=422, detail="source must be an NPM table mapping")
+        report = preflight_npm(source, source_kind="api")
+        result = asdict(import_npm(repository, report, dry_run=dry_run, replace=replace))
+        if not dry_run:
+            await _reload_after_import(service)
+        return result
 
     @app.get("/api/nginx/certificates/dns-providers")
     async def dns_providers(
@@ -650,6 +715,12 @@ async def _maybe_await[T](value: T | Awaitable[T]) -> T:
     if inspect.isawaitable(value):
         return await value
     return cast(T, value)
+
+
+async def _reload_after_import(service: CompatibilityService) -> None:
+    reload_service = getattr(service, "reload", None)
+    if reload_service is not None:
+        await _maybe_await(reload_service())
 
 
 def _control_plane_collection(collection: str) -> str:

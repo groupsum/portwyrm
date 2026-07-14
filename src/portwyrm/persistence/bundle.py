@@ -9,6 +9,7 @@ from typing import Any
 from .base import ConflictError, Repository, checksum, iter_records
 
 BUNDLE_VERSION = "portwyrm.export.v1"
+TRANSIENT_COLLECTIONS = {"_sessions", "_personal_access_tokens"}
 
 
 def export_bundle(repository: Repository) -> dict[str, Any]:
@@ -16,6 +17,7 @@ def export_bundle(repository: Repository) -> dict[str, Any]:
         records = [
             {"collection": collection, "resource": resource}
             for collection, resource in iter_records(tx)
+            if collection not in TRANSIENT_COLLECTIONS
         ]
     content = {
         "schema_version": BUNDLE_VERSION,

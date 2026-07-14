@@ -30,6 +30,17 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--email", required=True)
     setup.add_argument("--password", required=True)
     remote("schema", "print the compatibility OpenAPI schema")
+    remote("export", "export a checksummed portable state bundle")
+    state_import = remote("import", "preview or apply a portable state bundle")
+    state_import.add_argument("--data", required=True, help="bundle JSON or path")
+    state_import.add_argument("--replace", action="store_true")
+    state_import.add_argument("--apply", action="store_true")
+    npm_preflight = remote("npm-preflight", "validate an NPM table export without mutation")
+    npm_preflight.add_argument("--data", required=True, help="NPM table JSON or path")
+    npm_import = remote("npm-import", "preview or apply an NPM table export")
+    npm_import.add_argument("--data", required=True, help="NPM table JSON or path")
+    npm_import.add_argument("--replace", action="store_true")
+    npm_import.add_argument("--apply", action="store_true")
 
     for name in ("list", "get", "create", "update", "delete"):
         command = remote(name, f"{name} a control-plane resource")

@@ -75,6 +75,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         tokens=TokenStore(repository=repository),
         certificates=certificate_manager,
         lifespan=lifespan,
+        repository=repository,
     )
     app.state.repository = repository
     app.state.runtime = runtime

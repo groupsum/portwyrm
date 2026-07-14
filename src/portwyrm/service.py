@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from threading import RLock
 from typing import Any
 
+import bcrypt
 from argon2 import PasswordHasher
 
 from portwyrm.domain.routing import AccessClient, ProxyLocation, canonical_domains
@@ -105,7 +106,11 @@ class ControlPlane:
         if encoded is None:
             return None
         try:
-            self._password_hasher.verify(encoded, secret)
+            if encoded.startswith(("$2a$", "$2b$", "$2y$")):
+                if not bcrypt.checkpw(secret.encode(), encoded.encode()):
+                    return None
+            else:
+                self._password_hasher.verify(encoded, secret)
         except Exception:  # argon2 deliberately has several mismatch subclasses
             return None
         user = next(
