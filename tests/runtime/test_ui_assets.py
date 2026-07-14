@@ -16,7 +16,9 @@ def test_no_build_console_is_packaged_and_accessible() -> None:
     assert "System Health" in page.text
     assert 'aria-live="polite"' in page.text
     assert client.get("/ui/app.js").status_code == 200
-    assert client.get("/ui/styles.css").status_code == 200
+    stylesheet = client.get("/ui/styles.css")
+    assert stylesheet.status_code == 200
+    assert "[hidden]{display:none!important}" in stylesheet.text
 
 
 def test_root_redirects_to_console() -> None:

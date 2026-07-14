@@ -42,5 +42,15 @@ class NginxCommandHooks:
             ]
         )
 
-    def reload(self, _generation: Path) -> None:
-        self._run([self.nginx_binary, "-s", "reload"])
+    def reload(self, generation: Path) -> None:
+        self._run(
+            [
+                self.nginx_binary,
+                "-c",
+                str(generation / "nginx.conf"),
+                "-p",
+                f"{generation}{Path('/')}",
+                "-s",
+                "reload",
+            ]
+        )

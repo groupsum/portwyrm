@@ -31,6 +31,20 @@ Run the development control plane and open `http://localhost:81/ui/`:
 uv run portwyrm --host 127.0.0.1 --port 81
 ```
 
+The same package includes an operator CLI. It speaks the npmctl-compatible API, accepts a
+token through `--token` or `PORTWYRM_TOKEN`, and prints stable JSON for automation:
+
+```shell
+uv run portwyrm setup --email admin@example.com --password 'change-me-now'
+uv run portwyrm login --email admin@example.com --password 'change-me-now'
+uv run portwyrm status
+uv run portwyrm list proxy-hosts --token "$PORTWYRM_TOKEN"
+uv run portwyrm create proxy-hosts --token "$PORTWYRM_TOKEN" --data proxy-host.json
+```
+
+`serve`, `status`, `schema`, `setup`, `login`, `list`, `get`, `create`, `update`, and
+`delete` are available without Node.js or npm.
+
 The UI is packaged as standards-based browser assets. Node.js and npm are not required to
 build, install, deploy, or operate Portwyrm.
 

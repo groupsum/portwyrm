@@ -4,36 +4,65 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark light">
-    <title>Portwyrm</title>
+    <meta name="description" content="Portwyrm reverse proxy control plane">
+    <title>Portwyrm Control Plane</title>
     <link rel="stylesheet" href="/ui/styles.css">
   </head>
   <body>
     <a class="skip" href="#content">Skip to content</a>
-    <aside>
-      <div class="brand"><span aria-hidden="true">◈</span> Portwyrm</div>
+    <aside id="sidebar">
+      <div class="brand"><span aria-hidden="true">◈</span><span>Portwyrm</span></div>
+      <p class="product-note">Reverse proxy control plane</p>
       <nav aria-label="Primary">
-        <button data-view="dashboard">Dashboard</button>
-        <button data-view="proxy-hosts">Proxy Hosts</button>
+        <button data-view="dashboard">Overview</button>
+        <button data-view="proxy-hosts">Proxy hosts</button>
         <button data-view="redirection-hosts">Redirections</button>
-        <button data-view="dead-hosts">Dead Hosts</button>
+        <button data-view="dead-hosts">404 hosts</button>
         <button data-view="streams">Streams</button>
         <button data-view="certificates">Certificates</button>
-        <button data-view="access-lists">Access Lists</button>
-        <button data-view="users">Users</button>
-        <button data-view="access-tokens">Access Tokens</button>
-        <button data-view="audit-log">Activity</button>
-        <button data-view="settings">Settings</button>
+        <button data-view="access-lists">Access lists</button>
+        <button data-view="users" data-admin>Users</button>
+        <button data-view="settings" data-admin>Settings</button>
+        <button data-view="audit-log" data-admin>Activity</button>
         <button data-view="health">System Health</button>
       </nav>
+      <div class="sidebar-footer">
+        <span id="session-label">Not signed in</span>
+        <button id="session-action" class="button secondary">Sign in</button>
+      </div>
     </aside>
     <main id="content" tabindex="-1">
       <header>
-        <div><p class="eyebrow">Reverse proxy control plane</p><h1 id="title">Dashboard</h1></div>
-        <button id="theme" aria-label="Switch color theme">Theme</button>
+        <div><p class="eyebrow" id="context">Control plane</p><h1 id="title">Overview</h1></div>
+        <div class="header-actions">
+          <button id="theme" class="icon-button" aria-label="Switch color theme">◐</button>
+          <button id="create" class="button" hidden>New resource</button>
+        </div>
       </header>
-      <section id="status" role="status" aria-live="polite"></section>
+      <section id="status" class="notice" role="status" aria-live="polite" hidden></section>
       <section id="view" aria-busy="true"><div class="skeleton"></div></section>
     </main>
+
+    <dialog id="auth-dialog" aria-labelledby="auth-title">
+      <form id="auth-form">
+        <div class="dialog-heading"><div><p class="eyebrow">Welcome</p><h2 id="auth-title">Sign in</h2></div><button type="button" class="icon-button close" aria-label="Close">×</button></div>
+        <p id="auth-copy" class="muted">Use your Portwyrm administrator or operator account.</p>
+        <label>Email<input name="email" type="email" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
+        <p id="auth-error" class="error" role="alert"></p>
+        <button class="button" type="submit">Continue</button>
+      </form>
+    </dialog>
+
+    <dialog id="editor-dialog" aria-labelledby="editor-title">
+      <form id="editor-form">
+        <div class="dialog-heading"><div><p class="eyebrow" id="editor-context">Resource</p><h2 id="editor-title">New resource</h2></div><button type="button" class="icon-button close" aria-label="Close">×</button></div>
+        <div id="editor-fields" class="form-grid"></div>
+        <details><summary>Advanced JSON</summary><label>Additional fields<textarea id="advanced-json" rows="7" spellcheck="false">{}</textarea></label></details>
+        <p id="editor-error" class="error" role="alert"></p>
+        <div class="dialog-actions"><button type="button" class="button secondary close">Cancel</button><button class="button" type="submit">Save resource</button></div>
+      </form>
+    </dialog>
     <script type="module" src="/ui/app.js"></script>
   </body>
 </html>

@@ -1,0 +1,21 @@
+{
+  "schema_version": "portwyrm.test-execution.v1",
+  "executed_at": "2026-07-14T01:31:43Z",
+  "image": "portwyrm:cli-api-uix",
+  "image_manifest": "sha256:ff8c94ba54660419b0ae6574fba6a00119346ef2904ecc536fe26cf054f7e964",
+  "result": "passed",
+  "checks": {
+    "container_health": "healthy",
+    "api_health": 200,
+    "api_root": 200,
+    "uix": 200,
+    "nginx_default_site": 200,
+    "cli_status": 0,
+    "authenticated_proxy_create": 201,
+    "nginx_validation": 0,
+    "websocket_directive": true,
+    "cache_directive": true,
+    "restart_credentials_persisted": true,
+    "restart_proxy_host_persisted": true
+  }
+}

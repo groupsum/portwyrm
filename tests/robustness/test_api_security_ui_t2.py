@@ -313,8 +313,9 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert 'localStorage.getItem("portwyrm.token")' in script
     assert json.dumps("correct horse battery staple") not in html + script
     assert "function escapeHtml(value)" in script
-    assert "<td><code>${escapeHtml(row[k]" in script
-    assert "<pre>${escapeHtml(JSON.stringify(data" in script
+    assert "function displayValue(key, value)" in script
+    assert "displayValue(key, row[key])" in script
+    assert "<pre>${escapeHtml(JSON.stringify(health.components" in script
     assert "<p>${escapeHtml(error.message)}" in script
 
     app_client = TestClient(create_app())

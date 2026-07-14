@@ -8,6 +8,11 @@ import sys
 import time
 from pathlib import Path
 
+from portwyrm.operations.runtime import repository_config_from_environment
+from portwyrm.persistence import create_repository
+from portwyrm.persistent import PersistentControlPlane
+from portwyrm.runtime.coordinator import RuntimeCoordinator
+
 
 def main() -> int:
     for directory in (
@@ -18,9 +23,35 @@ def main() -> int:
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
+    repository = create_repository(repository_config_from_environment())
+    control_plane = PersistentControlPlane(repository)
+    RuntimeCoordinator(control_plane, "/data/nginx", validate=True, reload=False).reconcile()
+
     children = [
-        subprocess.Popen([sys.executable, "-m", "portwyrm.operations.runtime"]),
-        subprocess.Popen(["nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]),
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "portwyrm.api:create_app",
+                "--factory",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "81",
+            ]
+        ),
+        subprocess.Popen(
+            [
+                "nginx",
+                "-c",
+                "/data/nginx/current/nginx.conf",
+                "-p",
+                "/data/nginx/current/",
+                "-g",
+                "daemon off;",
+            ]
+        ),
     ]
     stopping = False
 

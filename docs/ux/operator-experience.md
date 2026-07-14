@@ -6,6 +6,11 @@ Review date: 2026-07-13
 Portwyrm is a dense, calm operator console. It retains familiar workflows without copying
 NPM branding or trade dress.
 
+The console, compatibility API, native health endpoints, and `portwyrm` CLI are views over
+one persistent control plane. A successful routing mutation is not complete until its
+desired state has produced a validated active Nginx generation. The CLI emits JSON so the
+same workflows remain usable in terminals and automation without requiring npm.
+
 ## Navigation
 
 1. Dashboard

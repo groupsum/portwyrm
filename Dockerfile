@@ -3,7 +3,7 @@ FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates nginx \
+    && apt-get install --no-install-recommends -y ca-certificates nginx libnginx-mod-stream \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -11,12 +11,14 @@ COPY . /app
 RUN uv pip install --system --no-cache . "psycopg[binary]>=3.2,<4" "pymysql>=1.1,<2"
 
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
-RUN mkdir -p /data/nginx /data/logs /etc/letsencrypt
+RUN mkdir -p /data/nginx /data/logs /etc/letsencrypt /var/lib/nginx/cache/public
 
 ENV PYTHONUNBUFFERED=1 \
     PORTWYRM_DB_BACKEND=sqlite \
     PORTWYRM_DATA_ROOT=/data \
-    PORTWYRM_ADMIN_PORT=81
+    PORTWYRM_ADMIN_PORT=81 \
+    PORTWYRM_NGINX_RUNTIME=1 \
+    PORTWYRM_NGINX_ROOT=/data/nginx
 
 VOLUME ["/data", "/etc/letsencrypt"]
 EXPOSE 80 81 443

@@ -1,5 +1,6 @@
 """Nginx rendering and failure-safe reconciliation."""
 
+from .coordinator import RuntimeCoordinator
 from .nginx import NginxRenderer, PlatformConfig, RenderedConfiguration
 from .reconcile import (
     GenerationStore,
@@ -16,4 +17,5 @@ __all__ = [
     "ReconcileResult",
     "Reconciler",
     "RenderedConfiguration",
+    "RuntimeCoordinator",
 ]

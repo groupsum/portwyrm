@@ -342,7 +342,9 @@ def test_runtime_identity_configuration_and_container_artifacts_are_consistent(
     assert "HEALTHCHECK" in dockerfile and "/health/ready" in dockerfile
     assert "portwyrm-data:/data" in compose
     assert "portwyrm-certificates:/etc/letsencrypt" in compose
-    assert 'subprocess.Popen(["nginx"' in supervisor
-    assert '"portwyrm.operations.runtime"' in supervisor
+    assert '"uvicorn"' in supervisor
+    assert '"nginx",' in supervisor
+    assert '"/data/nginx/current/nginx.conf"' in supervisor
+    assert '"portwyrm.api:create_app"' in supervisor
     assert "linux/amd64,linux/arm64" in workflow
     assert "provenance: mode=max" in workflow and "sbom: true" in workflow
