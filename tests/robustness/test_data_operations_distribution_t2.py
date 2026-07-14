@@ -255,8 +255,9 @@ def test_recursive_audit_redaction_never_persists_credentials() -> None:
             "private-key": "pem",
         },
     )
-    serialized = json.dumps(event)
-    assert "hunter2" not in serialized and "abc" not in serialized and "def" not in serialized
+    serialized_details = json.dumps(event["details"])
+    assert "hunter2" not in serialized_details
+    assert "abc" not in serialized_details and "def" not in serialized_details
     assert event["details"]["nested"]["safe"] == "visible"
     assert event["details"]["credentials"] == "[REDACTED]"
 

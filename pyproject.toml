@@ -52,7 +52,7 @@ where = ["src"]
 portwyrm = ["ui/*.html", "ui/*.css", "ui/*.js"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --import-mode=importlib --basetemp=.tmp/pytest -p no:cacheprovider"
+addopts = "-ra --import-mode=importlib -p no:cacheprovider"
 testpaths = ["tests"]
 
 [tool.ruff]
