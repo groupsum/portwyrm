@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1001"
+number: 1001
+slug: "control-plane-data-plane-separation"
+title: "Control-plane and data-plane separation"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: NPM compatibility quirks, native product behavior, and Nginx runtime concerns have different change and failure boundaries. Decision: separate the compatibility facade, native API and UI, application/domain services, and Nginx data plane. Consequences: compatibility DTOs never become canonical domain models and runtime failures remain recoverable. Governs: feat:compat.npm-api, feat:runtime.nginx-reconciliation, feat:experience.operator-ui."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    at: "2026-07-13T22:59:40Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
+    at: "2026-07-13T23:15:39Z"
+references: []
+body: |-
+  Context: NPM compatibility quirks, native product behavior, and Nginx runtime concerns have different change and failure boundaries. Decision: separate the compatibility facade, native API and UI, application/domain services, and Nginx data plane. Consequences: compatibility DTOs never become canonical domain models and runtime failures remain recoverable. Governs: feat:compat.npm-api, feat:runtime.nginx-reconciliation, feat:experience.operator-ui.

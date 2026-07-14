@@ -1,0 +1,8 @@
+{
+  "schema_version": "portwyrm.test-execution.v1",
+  "executed_at": "2026-07-14T01:39:00Z",
+  "command": "uv run pytest tests/runtime/test_composed_product.py -q",
+  "result": "passed",
+  "tests_passed": 3,
+  "tests_failed": 0
+}

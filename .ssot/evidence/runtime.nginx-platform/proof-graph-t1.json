@@ -1,0 +1,1 @@
+{"claim_ids":["clm:runtime.nginx-platform.t0","clm:runtime.nginx-platform.t1"],"feature_id":"feat:runtime.nginx-platform","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T1","test_ids":["tst:pytest.runtime.nginx-platform.t0.proof-graph","tst:pytest.runtime.nginx-platform.t1.proof-graph"]}

@@ -1,0 +1,39 @@
+services:
+  portwyrm:
+    image: ghcr.io/groupsum/portwyrm:edge
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORTWYRM_DB_BACKEND: mysql
+      PORTWYRM_MYSQL_HOST: mysql
+      PORTWYRM_MYSQL_DATABASE: portwyrm
+      PORTWYRM_MYSQL_USER: portwyrm
+      PORTWYRM_MYSQL_PASSWORD: ${PORTWYRM_MYSQL_PASSWORD:?set PORTWYRM_MYSQL_PASSWORD}
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - portwyrm-data:/data
+      - portwyrm-certificates:/etc/letsencrypt
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: portwyrm
+      MYSQL_USER: portwyrm
+      MYSQL_PASSWORD: ${PORTWYRM_MYSQL_PASSWORD:?set PORTWYRM_MYSQL_PASSWORD}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uportwyrm", "--password=$$MYSQL_PASSWORD"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  portwyrm-data:
+  portwyrm-certificates:
+  mysql-data:

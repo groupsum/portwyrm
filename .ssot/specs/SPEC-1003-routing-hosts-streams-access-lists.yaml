@@ -1,0 +1,30 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1003"
+number: 1003
+slug: "routing-hosts-streams-access-lists"
+title: "Hosts, streams, and access lists"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The product MUST implement proxy hosts, redirection hosts, dead hosts, TCP and UDP streams, and access lists. Proxy behavior MUST cover domains, upstream scheme/host/port, forced SSL, HSTS, HTTP/2, WebSocket upgrade, NPM-compatible static-asset caching, exploit blocking, custom locations, advanced configuration, enablement, certificates, and access-list linkage. Permissions and visibility MUST apply to list, get, expansion, search, mutation, and toggle operations."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    at: "2026-07-13T23:00:24Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    at: "2026-07-13T23:17:12Z"
+references: []
+body: |-
+  The product MUST implement proxy hosts, redirection hosts, dead hosts, TCP and UDP streams, and access lists. Proxy behavior MUST cover domains, upstream scheme/host/port, forced SSL, HSTS, HTTP/2, WebSocket upgrade, NPM-compatible static-asset caching, exploit blocking, custom locations, advanced configuration, enablement, certificates, and access-list linkage. Permissions and visibility MUST apply to list, get, expansion, search, mutation, and toggle operations.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1000"
+  - "adr:1001"
+  - "adr:1003"

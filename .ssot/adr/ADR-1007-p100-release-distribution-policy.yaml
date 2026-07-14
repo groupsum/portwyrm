@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1007"
+number: 1007
+slug: "p100-release-distribution-policy"
+title: "P100 release and distribution policy"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: partial parity must not be labeled as the finished replacement. Decision: define 1.0.0 as the p100 MVP and require signed amd64/arm64 OCI images, SBOM, provenance, vulnerability evidence, recovery drills, and certified compatibility profiles. Consequences: prereleases are delivery milestones and every matrix row must be implemented, explicitly excluded from the frozen profile, or block GA. Governs: feat:distribution.oci and every feature in prf:portwyrm.p100."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    at: "2026-07-13T22:59:43Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
+    at: "2026-07-13T23:15:50Z"
+references: []
+body: |-
+  Context: partial parity must not be labeled as the finished replacement. Decision: define 1.0.0 as the p100 MVP and require signed amd64/arm64 OCI images, SBOM, provenance, vulnerability evidence, recovery drills, and certified compatibility profiles. Consequences: prereleases are delivery milestones and every matrix row must be implemented, explicitly excluded from the frozen profile, or block GA. Governs: feat:distribution.oci and every feature in prf:portwyrm.p100.

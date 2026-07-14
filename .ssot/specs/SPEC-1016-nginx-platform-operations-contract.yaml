@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1016"
+number: 1016
+slug: "nginx-platform-operations-contract"
+title: "Nginx platform and operations contract"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access/error logs, rotation/retention/reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:54Z"
+references: []
+body: |-
+  The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access/error logs, rotation/retention/reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1003"
+  - "adr:1010"

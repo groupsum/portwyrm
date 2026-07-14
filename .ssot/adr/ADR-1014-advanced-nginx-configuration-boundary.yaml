@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1014"
+number: 1014
+slug: "advanced-nginx-configuration-boundary"
+title: "Advanced Nginx configuration trust boundary"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: NPM parity allows raw Nginx directives that can escape ordinary product invariants. Decision: only administrators with the advanced_config capability may submit snippets; every snippet is preserved, audited, rendered in isolation, syntax-tested, and activated only through last-known-good reconciliation. Consequences: strict safe mode may deny dangerous directives while an explicit unrestricted compatibility mode remains available."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:21Z"
+references: []
+body: |-
+  Context: NPM parity allows raw Nginx directives that can escape ordinary product invariants. Decision: only administrators with the advanced_config capability may submit snippets; every snippet is preserved, audited, rendered in isolation, syntax-tested, and activated only through last-known-good reconciliation. Consequences: strict safe mode may deny dangerous directives while an explicit unrestricted compatibility mode remains available.

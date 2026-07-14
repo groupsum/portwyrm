@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1006"
+number: 1006
+slug: "npm-migration-strategy"
+title: "NPM migration strategy"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: zero-touch npmctl cutover requires stable IDs, relationships, certificate material, and exact ownership metadata. Decision: migrate through versioned API and export/import contracts, shadow-render before cutover, quiesce writes for the final delta, and verify a no-drift npmctl plan. Consequences: direct coupling to the NPM database is importer-only and rollback is rehearsed. Governs: feat:migration.npm, feat:compat.npmctl."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    at: "2026-07-13T22:59:42Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
+    at: "2026-07-13T23:15:48Z"
+references: []
+body: |-
+  Context: zero-touch npmctl cutover requires stable IDs, relationships, certificate material, and exact ownership metadata. Decision: migrate through versioned API and export/import contracts, shadow-render before cutover, quiesce writes for the final delta, and verify a no-drift npmctl plan. Consequences: direct coupling to the NPM database is importer-only and rollback is rehearsed. Governs: feat:migration.npm, feat:compat.npmctl.

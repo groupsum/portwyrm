@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1013"
+number: 1013
+slug: "advanced-nginx-security-contract"
+title: "Advanced Nginx configuration security contract"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Raw Nginx snippets SHALL require administrator advanced_config permission, preserve exact text, generate immutable audit events, reject denied directives in safe mode, render and syntax-test in isolation, never expose secrets in diagnostics, and preserve the last-known-good generation on failure."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:45Z"
+references: []
+body: |-
+  Raw Nginx snippets SHALL require administrator advanced_config permission, preserve exact text, generate immutable audit events, reject denied directives in safe mode, render and syntax-test in isolation, never expose secrets in diagnostics, and preserve the last-known-good generation on failure.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1003"
+  - "adr:1014"

@@ -1,0 +1,228 @@
+"""Nginx Proxy Manager discovery, validation, and import."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from collections import Counter
+from collections.abc import Iterable, Mapping
+from contextlib import suppress
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
+
+from portwyrm.persistence import Repository
+
+MIGRATION_VERSION = "portwyrm.npm-import.v1"
+
+TABLE_COLLECTIONS = {
+    "user": "users",
+    "certificate": "certificates",
+    "access_list": "access_lists",
+    "proxy_host": "proxy_hosts",
+    "redirection_host": "redirection_hosts",
+    "dead_host": "dead_hosts",
+    "stream": "streams",
+    "setting": "settings",
+    "audit_log": "audit_log",
+}
+
+JSON_FIELDS = {
+    "domain_names",
+    "meta",
+    "roles",
+    "permissions",
+    "items",
+    "clients",
+    "locations",
+}
+
+
+@dataclass(frozen=True)
+class QuarantinedRecord:
+    collection: str
+    source_id: str
+    reason: str
+    resource: dict[str, Any]
+
+
+@dataclass
+class PreflightReport:
+    schema_version: str = MIGRATION_VERSION
+    source_kind: str = "mapping"
+    counts: dict[str, int] = field(default_factory=dict)
+    records: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    quarantine: list[QuarantinedRecord] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def importable(self) -> int:
+        return sum(len(records) for records in self.records.values())
+
+    def to_dict(self, *, include_records: bool = False) -> dict[str, Any]:
+        result = {
+            "schema_version": self.schema_version,
+            "source_kind": self.source_kind,
+            "counts": self.counts,
+            "importable": self.importable,
+            "quarantine": [asdict(item) for item in self.quarantine],
+            "warnings": self.warnings,
+        }
+        if include_records:
+            result["records"] = self.records
+        return result
+
+
+@dataclass(frozen=True)
+class ImportResult:
+    created: int
+    replaced: int
+    unchanged: int
+    quarantined: int
+    dry_run: bool
+
+
+def _decode_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    resource = dict(row)
+    for field_name in JSON_FIELDS.intersection(resource):
+        value = resource[field_name]
+        if isinstance(value, str) and value:
+            with suppress(json.JSONDecodeError):
+                resource[field_name] = json.loads(value)
+    return resource
+
+
+def load_npm_sqlite(path: str | Path) -> dict[str, list[dict[str, Any]]]:
+    """Read supported NPM tables without mutating the source database."""
+
+    connection = sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        available = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        result: dict[str, list[dict[str, Any]]] = {}
+        for table in TABLE_COLLECTIONS:
+            if table not in available:
+                continue
+            rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY id').fetchall()
+            result[table] = [dict(row) for row in rows]
+        return result
+    finally:
+        connection.close()
+
+
+def preflight_npm(
+    source: Mapping[str, Iterable[Mapping[str, Any]]], *, source_kind: str = "mapping"
+) -> PreflightReport:
+    report = PreflightReport(source_kind=source_kind)
+    seen: dict[str, set[str]] = {}
+    for table, rows in source.items():
+        collection = TABLE_COLLECTIONS.get(
+            table, table if table in TABLE_COLLECTIONS.values() else None
+        )
+        if collection is None:
+            report.warnings.append(f"unsupported source table ignored: {table}")
+            continue
+        bucket: list[dict[str, Any]] = []
+        seen.setdefault(collection, set())
+        for raw in rows:
+            resource = _decode_row(raw)
+            source_id = str(resource.get("id", ""))
+            reason = None
+            if not source_id:
+                reason = "missing id"
+            elif source_id in seen[collection]:
+                reason = "duplicate id"
+            elif resource.get("is_deleted") in (1, True, "1"):
+                reason = "soft-deleted source record"
+            if reason:
+                report.quarantine.append(
+                    QuarantinedRecord(collection, source_id or "unknown", reason, resource)
+                )
+                continue
+            seen[collection].add(source_id)
+            bucket.append(resource)
+        report.records.setdefault(collection, []).extend(bucket)
+
+    _quarantine_broken_references(report)
+    report.counts = dict(
+        sorted(Counter({key: len(value) for key, value in report.records.items()}).items())
+    )
+    return report
+
+
+def preflight_npm_sqlite(path: str | Path) -> PreflightReport:
+    return preflight_npm(load_npm_sqlite(path), source_kind="sqlite")
+
+
+def _quarantine_broken_references(report: PreflightReport) -> None:
+    existing = {
+        collection: {str(resource["id"]) for resource in resources}
+        for collection, resources in report.records.items()
+    }
+    reference_rules = {
+        "certificate_id": "certificates",
+        "access_list_id": "access_lists",
+        "owner_user_id": "users",
+    }
+    for collection in ("proxy_hosts", "redirection_hosts", "dead_hosts", "streams"):
+        accepted: list[dict[str, Any]] = []
+        for resource in report.records.get(collection, []):
+            broken = []
+            for field_name, target in reference_rules.items():
+                value = resource.get(field_name)
+                if value not in (None, 0, "0", "") and str(value) not in existing.get(
+                    target, set()
+                ):
+                    broken.append(f"{field_name}={value} does not resolve in {target}")
+            if broken:
+                report.quarantine.append(
+                    QuarantinedRecord(collection, str(resource["id"]), "; ".join(broken), resource)
+                )
+            else:
+                accepted.append(resource)
+        report.records[collection] = accepted
+
+
+def import_npm(
+    repository: Repository,
+    report: PreflightReport,
+    *,
+    dry_run: bool = True,
+    replace: bool = False,
+) -> ImportResult:
+    created = replaced = unchanged = conflicts = 0
+    with repository.transaction() as tx:
+        for collection in _ordered_collections(report.records):
+            for resource in report.records[collection]:
+                existing = tx.get(collection, resource["id"])
+                if existing == resource:
+                    unchanged += 1
+                elif existing is not None and not replace:
+                    conflicts += 1
+                else:
+                    if existing is None:
+                        created += 1
+                    else:
+                        replaced += 1
+                    if not dry_run:
+                        tx.upsert(collection, resource)
+    return ImportResult(created, replaced, unchanged, len(report.quarantine) + conflicts, dry_run)
+
+
+def _ordered_collections(records: Mapping[str, object]) -> list[str]:
+    preferred = [
+        "users",
+        "certificates",
+        "access_lists",
+        "proxy_hosts",
+        "redirection_hosts",
+        "dead_hosts",
+        "streams",
+        "settings",
+        "audit_log",
+    ]
+    known = [name for name in preferred if name in records]
+    return [*known, *sorted(set(records) - set(known))]

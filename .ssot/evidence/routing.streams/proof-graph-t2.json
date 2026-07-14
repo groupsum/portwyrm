@@ -1,0 +1,1 @@
+{"claim_ids":["clm:routing.streams.t0","clm:routing.streams.t1","clm:routing.streams.t2"],"feature_id":"feat:routing.streams","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.routing.streams.t0.proof-graph","tst:pytest.routing.streams.t1.proof-graph","tst:pytest.routing.streams.t2.proof-graph"]}

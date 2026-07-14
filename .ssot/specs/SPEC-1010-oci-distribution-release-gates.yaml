@@ -1,0 +1,30 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1010"
+number: 1010
+slug: "oci-distribution-release-gates"
+title: "OCI distribution and release gates"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Releases MUST publish immutable linux/amd64 and linux/arm64 OCI images with pinned Compose examples for supported deployment modes. Published artifacts MUST include checksums, SBOM, provenance, vulnerability results, and signatures. The 1.0.0 release MUST certify every p100 feature against its linked tests and evidence, pass npmctl end-to-end verification, and complete backup, migration, failed-reload, certificate-renewal, and last-known-good rollback drills."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    at: "2026-07-13T23:00:27Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    at: "2026-07-13T23:17:29Z"
+references: []
+body: |-
+  Releases MUST publish immutable linux/amd64 and linux/arm64 OCI images with pinned Compose examples for supported deployment modes. Published artifacts MUST include checksums, SBOM, provenance, vulnerability results, and signatures. The 1.0.0 release MUST certify every p100 feature against its linked tests and evidence, pass npmctl end-to-end verification, and complete backup, migration, failed-reload, certificate-renewal, and last-known-good rollback drills.
+spec_kind: "governance"
+adr_ids:
+  - "adr:1007"
+  - "adr:1002"
+  - "adr:1003"

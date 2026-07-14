@@ -1,0 +1,1 @@
+{"claim_ids":["clm:routing.proxy-hosts.t0","clm:routing.proxy-hosts.t1","clm:routing.proxy-hosts.t2"],"feature_id":"feat:routing.proxy-hosts","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.routing.proxy-hosts.t0.proof-graph","tst:pytest.routing.proxy-hosts.t1.proof-graph","tst:pytest.routing.proxy-hosts.t2.proof-graph"]}

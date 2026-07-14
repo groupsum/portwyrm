@@ -1,0 +1,27 @@
+[policy]
+interactive = false
+fail_closed = true
+
+[commands.feature.create]
+auto_scaffold_proof_graph = true
+
+[sync]
+docs = "manual"
+templates = "manual"
+upstream_packages = "manual"
+
+[validate]
+after_registry_change = "automatic"
+
+[generation]
+mode = "manual"
+formats = ["json"]
+
+[generation.targets]
+graphs = false
+
+[generation.graphs]
+mode = "manual"
+formats = ["json"]
+output_dir = ".ssot/graphs"
+basename = "registry.graph"

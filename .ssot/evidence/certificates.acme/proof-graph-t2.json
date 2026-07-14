@@ -1,0 +1,1 @@
+{"claim_ids":["clm:certificates.acme.t0","clm:certificates.acme.t1","clm:certificates.acme.t2"],"feature_id":"feat:certificates.acme","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.certificates.acme.t0.proof-graph","tst:pytest.certificates.acme.t1.proof-graph","tst:pytest.certificates.acme.t2.proof-graph"]}

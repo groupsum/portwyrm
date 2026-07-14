@@ -1,0 +1,14 @@
+{
+  "mode": "command",
+  "argv": ["uv", "run", "pytest", "tests/runtime", "-q"],
+  "cwd": ".",
+  "env": {
+    "UV_CACHE_DIR": ".tmp/uv-cache",
+    "UV_LINK_MODE": "copy"
+  },
+  "timeout_seconds": 600,
+  "success": {
+    "type": "exit_code",
+    "expected": 0
+  }
+}

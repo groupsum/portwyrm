@@ -1,0 +1,1 @@
+{"claim_ids":["clm:compat.api-transport.t0","clm:compat.api-transport.t1"],"feature_id":"feat:compat.api-transport","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T1","test_ids":["tst:pytest.compat.api-transport.t0.proof-graph","tst:pytest.compat.api-transport.t1.proof-graph"]}

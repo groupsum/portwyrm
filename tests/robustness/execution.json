@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "uv",
+    "run",
+    "pytest",
+    "tests/robustness",
+    "-q"
+  ],
+  "cwd": ".",
+  "env": {"UV_CACHE_DIR": ".uv-cache"},
+  "mode": "command",
+  "success": {"expected": 0, "type": "exit_code"},
+  "timeout_seconds": 600
+}

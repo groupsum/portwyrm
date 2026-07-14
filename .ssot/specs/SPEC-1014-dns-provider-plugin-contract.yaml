@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1014"
+number: 1014
+slug: "dns-provider-plugin-contract"
+title: "DNS provider plugin contract"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Each DNS provider SHALL declare stable identity, package/version, credential schema, redaction rules, propagation bounds, algorithms, timeout/retry behavior, and conformance tier. Provider execution SHALL be dependency-isolated and failures SHALL NOT interrupt existing proxy service."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:48Z"
+references: []
+body: |-
+  Each DNS provider SHALL declare stable identity, package/version, credential schema, redaction rules, propagation bounds, algorithms, timeout/retry behavior, and conformance tier. Provider execution SHALL be dependency-isolated and failures SHALL NOT interrupt existing proxy service.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1005"
+  - "adr:1012"

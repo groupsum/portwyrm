@@ -1,0 +1,1 @@
+{"claim_ids":["clm:experience.operator-cli.t0","clm:experience.operator-cli.t1"],"feature_id":"feat:experience.operator-cli","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T1","test_ids":["tst:pytest.experience.operator-cli.t0.proof-graph","tst:pytest.experience.operator-cli.t1.proof-graph"]}

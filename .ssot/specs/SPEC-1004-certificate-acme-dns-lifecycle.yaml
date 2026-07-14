@@ -1,0 +1,28 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1004"
+number: 1004
+slug: "certificate-acme-dns-lifecycle"
+title: "Certificate, ACME, and DNS lifecycle"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The product MUST support custom certificate upload and validation, ACME HTTP-01 and DNS-01 issuance, provider credential schemas, renewal scheduling, expiry and failure status, safe assignment, import, export, and recovery. The frozen NPM profile provider catalog MUST be complete. Private keys, ACME accounts, TOTP secrets, and DNS credentials MUST remain behind SecretStore and MUST never appear unredacted in logs, audit events, or ordinary exports."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    at: "2026-07-13T23:00:24Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    at: "2026-07-13T23:17:14Z"
+references: []
+body: |-
+  The product MUST support custom certificate upload and validation, ACME HTTP-01 and DNS-01 issuance, provider credential schemas, renewal scheduling, expiry and failure status, safe assignment, import, export, and recovery. The frozen NPM profile provider catalog MUST be complete. Private keys, ACME accounts, TOTP secrets, and DNS credentials MUST remain behind SecretStore and MUST never appear unredacted in logs, audit events, or ordinary exports.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1005"

@@ -1,0 +1,30 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1009"
+number: 1009
+slug: "npm-migration-backup-cutover"
+title: "NPM migration, backup, and cutover"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Migration MUST inventory live resources, preserve compatibility IDs and relationships, retain npmctl ownership metadata, transfer or deliberately reissue certificate material, validate the import, shadow-render every host, and report dry-run conflicts. Cutover MUST quiesce writes, apply a final delta, preserve ports and existing secret names, verify no unintended npmctl drift, exercise HTTPS and WebSockets, and retain a documented rollback path. Backup and restore MUST be tested for every durable mode."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    at: "2026-07-13T23:00:27Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    at: "2026-07-13T23:17:26Z"
+references: []
+body: |-
+  Migration MUST inventory live resources, preserve compatibility IDs and relationships, retain npmctl ownership metadata, transfer or deliberately reissue certificate material, validate the import, shadow-render every host, and report dry-run conflicts. Cutover MUST quiesce writes, apply a final delta, preserve ports and existing secret names, verify no unintended npmctl drift, exercise HTTPS and WebSockets, and retain a documented rollback path. Backup and restore MUST be tested for every durable mode.
+spec_kind: "operational"
+adr_ids:
+  - "adr:1006"
+  - "adr:1005"
+  - "adr:1003"

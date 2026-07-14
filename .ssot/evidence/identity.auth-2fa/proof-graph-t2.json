@@ -1,0 +1,1 @@
+{"claim_ids":["clm:identity.auth-2fa.t0","clm:identity.auth-2fa.t1","clm:identity.auth-2fa.t2"],"feature_id":"feat:identity.auth-2fa","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.identity.auth-2fa.t0.proof-graph","tst:pytest.identity.auth-2fa.t1.proof-graph","tst:pytest.identity.auth-2fa.t2.proof-graph"]}

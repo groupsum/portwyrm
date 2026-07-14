@@ -1,0 +1,1 @@
+{"claim_ids":["clm:identity.users-rbac.t0","clm:identity.users-rbac.t1","clm:identity.users-rbac.t2"],"feature_id":"feat:identity.users-rbac","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.identity.users-rbac.t0.proof-graph","tst:pytest.identity.users-rbac.t1.proof-graph","tst:pytest.identity.users-rbac.t2.proof-graph"]}
