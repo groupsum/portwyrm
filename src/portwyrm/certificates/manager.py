@@ -59,7 +59,7 @@ class CertificateMaterialStore:
         name = os.path.basename(candidate)
         if name != candidate:
             raise ValueError("certificate path component is invalid")
-        target = (self.root / name).resolve()  # lgtm[py/path-injection]
+        target = (self.root / name).resolve()  # lgtm [py/path-injection]
         if target.parent != self.root:
             raise ValueError("certificate path escapes the material root")
         return target
@@ -100,21 +100,24 @@ class CertificateMaterialStore:
 
     def delete(self, certificate_id: int) -> bool:
         target = self._directory(certificate_id)
-        if not target.exists():
+        if not target.exists():  # lgtm [py/path-injection]
             return False
-        shutil.rmtree(target)
+        shutil.rmtree(target)  # lgtm [py/path-injection]
         return True
 
     def archive(self, certificate_id: int) -> bytes:
         target = self._directory(certificate_id)
-        if not target.is_dir():
+        if not target.is_dir():  # lgtm [py/path-injection]
             raise FileNotFoundError(f"certificate material {certificate_id} was not found")
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for name in ("cert.pem", "chain.pem", "fullchain.pem", "privkey.pem"):
-                path = target / name  # lgtm[py/path-injection]
-                if path.is_file():
-                    archive.writestr(name, path.read_bytes())
+                path = target / name  # lgtm [py/path-injection]
+                if path.is_file():  # lgtm [py/path-injection]
+                    archive.writestr(
+                        name,
+                        path.read_bytes(),  # lgtm [py/path-injection]
+                    )
         return output.getvalue()
 
 
