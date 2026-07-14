@@ -236,3 +236,10 @@ def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_pa
     )
     with pytest.raises(Conflict, match="still assigned"):
         manager.delete(certificate["id"])
+
+
+@pytest.mark.parametrize("unsafe_id", [0, -1, True, "../../outside"])
+def test_certificate_material_store_rejects_unsafe_ids(tmp_path: Path, unsafe_id: object) -> None:
+    store = CertificateMaterialStore(tmp_path / "live")
+    with pytest.raises(ValueError, match="positive integer"):
+        store.archive(unsafe_id)  # type: ignore[arg-type]

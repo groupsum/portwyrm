@@ -98,6 +98,7 @@ def test_backup_codes_are_one_use() -> None:
     codes, stored = generate_backup_codes(count=3)
     hashes = list(stored)
     assert len(set(codes)) == 3
+    assert all(value.startswith("$argon2id$") for value in hashes)
     assert consume_backup_code(codes[0], hashes)
     assert not consume_backup_code(codes[0], hashes)
     assert not consume_backup_code("wrong", hashes)

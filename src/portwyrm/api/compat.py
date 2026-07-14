@@ -276,8 +276,21 @@ def create_compat_app(
     @app.post("/api/v2/browser/login")
     async def browser_login(payload: dict[str, Any], response: Response) -> Resource:
         result = await login(payload)
-        _set_browser_cookies(response, str(result["result"]["token"]))
-        return result
+        api_token = str(result["result"]["token"])
+        browser_principal = token_store.verify(api_token)
+        token_store.revoke_session(api_token)
+        browser_token, expires = token_store.issue_session(
+            browser_principal,
+            ttl_seconds=300 if browser_principal.scopes == frozenset({"mfa"}) else None,
+        )
+        _set_browser_cookies(response, browser_token)
+        return {
+            "result": {
+                "token": browser_token,
+                "expires": expires,
+                **({"scope": "mfa"} if browser_principal.scopes == frozenset({"mfa"}) else {}),
+            }
+        }
 
     @app.post("/api/v2/browser/2fa")
     async def browser_mfa(
@@ -289,8 +302,12 @@ def create_compat_app(
         result = await complete_mfa_challenge(
             payload, authorization=None, session_cookie=session_cookie, challenge=challenge
         )
-        _set_browser_cookies(response, str(result["result"]["token"]))
-        return result
+        api_token = str(result["result"]["token"])
+        browser_principal = token_store.verify(api_token)
+        token_store.revoke_session(api_token)
+        browser_token, expires = token_store.issue_session(browser_principal)
+        _set_browser_cookies(response, browser_token)
+        return {"result": {"token": browser_token, "expires": expires, "scope": "user"}}
 
     @app.delete("/api/v2/browser/session", status_code=status.HTTP_204_NO_CONTENT)
     async def browser_logout(

@@ -47,19 +47,32 @@ class CertificateMaterialStore:
     """Atomically publish Nginx-compatible certificate directories."""
 
     def __init__(self, root: str | Path) -> None:
-        self.root = Path(root)
+        self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def _directory(self, certificate_id: int, *, prefix: str = "npm-", suffix: str = "") -> Path:
+        if isinstance(certificate_id, bool) or not isinstance(certificate_id, int):
+            raise ValueError("certificate ID must be a positive integer")
+        if certificate_id < 1:
+            raise ValueError("certificate ID must be a positive integer")
+        name = f"{prefix}{certificate_id}{suffix}"
+        if Path(name).name != name:
+            raise ValueError("certificate path component is invalid")
+        target = (self.root / name).resolve()
+        if target.parent != self.root:
+            raise ValueError("certificate path escapes the material root")
+        return target
+
     def put(self, certificate_id: int, bundle: CustomCertificateBundle) -> None:
-        target = self.root / f"npm-{certificate_id}"
-        stage = self.root / f".npm-{certificate_id}-{uuid.uuid4().hex}"
+        target = self._directory(certificate_id)
+        stage = self._directory(certificate_id, prefix=".npm-", suffix=f"-{uuid.uuid4().hex}")
         stage.mkdir(mode=0o700)
         try:
             self._write(stage / "cert.pem", bundle.certificate)
             self._write(stage / "chain.pem", bundle.intermediate_certificate)
             self._write(stage / "fullchain.pem", bundle.fullchain)
             self._write(stage / "privkey.pem", bundle.private_key)
-            backup = self.root / f".npm-{certificate_id}-backup"
+            backup = self._directory(certificate_id, prefix=".npm-", suffix="-backup")
             if backup.exists():
                 shutil.rmtree(backup)
             if target.exists():
@@ -85,14 +98,14 @@ class CertificateMaterialStore:
         path.chmod(0o600)
 
     def delete(self, certificate_id: int) -> bool:
-        target = self.root / f"npm-{certificate_id}"
+        target = self._directory(certificate_id)
         if not target.exists():
             return False
         shutil.rmtree(target)
         return True
 
     def archive(self, certificate_id: int) -> bytes:
-        target = self.root / f"npm-{certificate_id}"
+        target = self._directory(certificate_id)
         if not target.is_dir():
             raise FileNotFoundError(f"certificate material {certificate_id} was not found")
         output = io.BytesIO()

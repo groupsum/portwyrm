@@ -251,6 +251,8 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             container,
             "--network",
             network,
+            "--add-host",
+            "host.docker.internal:host-gateway",
             "-p",
             "127.0.0.1::80",
             "-p",

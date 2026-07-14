@@ -4,7 +4,7 @@
   "results": {
     "ruff": "passed",
     "pytest": {
-      "passed": 219,
+      "passed": 223,
       "skipped": 14,
       "artifact": ".ssot/evidence/s5/runtime.junit.xml"
     },

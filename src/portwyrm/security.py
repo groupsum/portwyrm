@@ -13,6 +13,9 @@ import secrets
 import struct
 import time
 
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError
+
 from portwyrm.identity import Permission, PersonalAccessToken, Principal, TokenStore
 
 __all__ = [
@@ -26,6 +29,10 @@ __all__ = [
     "totp_code",
     "verify_totp",
 ]
+
+_BACKUP_CODE_HASHER = PasswordHasher(
+    time_cost=2, memory_cost=19_456, parallelism=1, hash_len=32, salt_len=16
+)
 
 
 def generate_totp_secret(*, bytes_count: int = 20) -> str:
@@ -80,16 +87,19 @@ def generate_backup_codes(*, count: int = 8) -> tuple[tuple[str, ...], tuple[str
 
 
 def consume_backup_code(code: str, hashes: list[str]) -> bool:
-    candidate = _token_hash(code)
     for index, stored in enumerate(hashes):
-        if hmac.compare_digest(candidate, stored):
+        try:
+            verified = _BACKUP_CODE_HASHER.verify(stored, code)
+        except VerificationError:
+            verified = False
+        if verified:
             del hashes[index]
             return True
     return False
 
 
 def _token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return _BACKUP_CODE_HASHER.hash(token)
 
 
 def _decode_base32(secret: str) -> bytes:
