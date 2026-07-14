@@ -1,0 +1,1 @@
+{"claim_ids":["clm:persistence.hybrid.t0","clm:persistence.hybrid.t1","clm:persistence.hybrid.t2"],"feature_id":"feat:persistence.hybrid","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.persistence.hybrid.t0.proof-graph","tst:pytest.persistence.hybrid.t1.proof-graph","tst:pytest.persistence.hybrid.t2.proof-graph"]}

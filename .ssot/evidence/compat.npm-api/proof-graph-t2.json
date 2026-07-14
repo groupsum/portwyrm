@@ -1,0 +1,1 @@
+{"claim_ids":["clm:compat.npm-api.t0","clm:compat.npm-api.t1","clm:compat.npm-api.t2"],"feature_id":"feat:compat.npm-api","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.compat.npm-api.t0.proof-graph","tst:pytest.compat.npm-api.t1.proof-graph","tst:pytest.compat.npm-api.t2.proof-graph"]}

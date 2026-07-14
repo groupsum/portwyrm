@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1012"
+number: 1012
+slug: "isolated-acme-provider-execution"
+title: "Isolated ACME provider execution"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: Certbot DNS plugins may have conflicting dependencies and secrets must not cross provider boundaries. Decision: execute ACME providers through isolated adapters with declared credential schemas, redaction, bounded processes, and provider health. Consequences: catalog availability is distinct from certified issuance support and provider failure cannot take down proxy service."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm T1 and T2 delivery boundaries."
+    at: "2026-07-13T23:15:31Z"
+references: []
+body: |-
+  Context: Certbot DNS plugins may have conflicting dependencies and secrets must not cross provider boundaries. Decision: execute ACME providers through isolated adapters with declared credential schemas, redaction, bounded processes, and provider health. Consequences: catalog availability is distinct from certified issuance support and provider failure cannot take down proxy service.

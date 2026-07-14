@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1010"
+number: 1010
+slug: "operational-runtime-subsystems"
+title: "Operational runtime subsystems"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: NPM parity includes global include points, default-site modes, resolver and IPv6 controls, trusted proxy range refresh, per-object logs, rotation, health, and upgrades. Decision: model these as explicit runtime and operations services with offline-safe defaults and deterministic configuration. Consequences: platform behavior is testable independently from host CRUD and cannot silently fall between feature buckets."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm T1 and T2 delivery boundaries."
+    at: "2026-07-13T23:15:26Z"
+references: []
+body: |-
+  Context: NPM parity includes global include points, default-site modes, resolver and IPv6 controls, trusted proxy range refresh, per-object logs, rotation, health, and upgrades. Decision: model these as explicit runtime and operations services with offline-safe defaults and deterministic configuration. Consequences: platform behavior is testable independently from host CRUD and cannot silently fall between feature buckets.

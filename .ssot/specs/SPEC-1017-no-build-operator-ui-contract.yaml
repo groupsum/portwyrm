@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1017"
+number: 1017
+slug: "no-build-operator-ui-contract"
+title: "No-build operator UI contract"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The complete permission-aware operator UI SHALL ship as Python package and OCI static assets without Node.js or npm at build, install, or runtime. It SHALL provide setup, authentication and 2FA, dashboards, all resource surfaces, tokens, audit, settings and health with keyboard, responsive, theme, localization, CSP, and WCAG 2.2 AA behavior."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:57Z"
+references: []
+body: |-
+  The complete permission-aware operator UI SHALL ship as Python package and OCI static assets without Node.js or npm at build, install, or runtime. It SHALL provide setup, authentication and 2FA, dashboards, all resource surfaces, tokens, audit, settings and health with keyboard, responsive, theme, localization, CSP, and WCAG 2.2 AA behavior.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1001"
+  - "adr:1008"

@@ -1,0 +1,19 @@
+services:
+  portwyrm:
+    build: .
+    image: ghcr.io/groupsum/portwyrm:edge
+    restart: unless-stopped
+    environment:
+      PORTWYRM_DB_BACKEND: sqlite
+      PORTWYRM_SQLITE_PATH: /data/portwyrm.sqlite
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - portwyrm-data:/data
+      - portwyrm-certificates:/etc/letsencrypt
+
+volumes:
+  portwyrm-data:
+  portwyrm-certificates:

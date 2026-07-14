@@ -1,0 +1,1 @@
+{"claim_ids":["clm:operations.upgrades.t0","clm:operations.upgrades.t1"],"feature_id":"feat:operations.upgrades","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T1","test_ids":["tst:pytest.operations.upgrades.t0.proof-graph","tst:pytest.operations.upgrades.t1.proof-graph"]}

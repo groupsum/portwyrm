@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1009"
+number: 1009
+slug: "profile-scoped-api-transport"
+title: "Profile-scoped API transport and security"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: npmctl 0.3.10 requires NPM 2.10.4 wire behavior while the broader product targets NPM 2.15.1. Decision: compatibility profiles govern routes, methods, defaults, error shapes, OpenAPI capabilities, retry semantics, headers, CORS, gzip, and security middleware. Consequences: transport quirks remain isolated in portwyrm.api.compat and native APIs may evolve independently."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm T1 and T2 delivery boundaries."
+    at: "2026-07-13T23:15:24Z"
+references: []
+body: |-
+  Context: npmctl 0.3.10 requires NPM 2.10.4 wire behavior while the broader product targets NPM 2.15.1. Decision: compatibility profiles govern routes, methods, defaults, error shapes, OpenAPI capabilities, retry semantics, headers, CORS, gzip, and security middleware. Consequences: transport quirks remain isolated in portwyrm.api.compat and native APIs may evolve independently.

@@ -1,0 +1,24 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1011"
+number: 1011
+slug: "proof-release-evidence-contract"
+title: "Proof and release evidence contract"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "T0 evidence SHALL prove a checksummed governed inventory. T1 evidence SHALL record an executed project command, source revision, timestamp, exit result, report path, and artifact hash for direct behavior. T2 evidence SHALL be a distinct artifact declaring robustness dimensions and linking its T1 source. Scaffold path existence SHALL NOT satisfy T1, T2, certification, or publication."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:40Z"
+references: []
+body: |-
+  T0 evidence SHALL prove a checksummed governed inventory. T1 evidence SHALL record an executed project command, source revision, timestamp, exit result, report path, and artifact hash for direct behavior. T2 evidence SHALL be a distinct artifact declaring robustness dimensions and linking its T1 source. Scaffold path existence SHALL NOT satisfy T1, T2, certification, or publication.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1011"

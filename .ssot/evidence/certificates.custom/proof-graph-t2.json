@@ -1,0 +1,1 @@
+{"claim_ids":["clm:certificates.custom.t0","clm:certificates.custom.t1","clm:certificates.custom.t2"],"feature_id":"feat:certificates.custom","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.certificates.custom.t0.proof-graph","tst:pytest.certificates.custom.t1.proof-graph","tst:pytest.certificates.custom.t2.proof-graph"]}

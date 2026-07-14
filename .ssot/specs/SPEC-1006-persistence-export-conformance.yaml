@@ -4,7 +4,7 @@ id: "spc:1006"
 number: 1006
 slug: "persistence-export-conformance"
 title: "Persistence and export-bundle conformance"
-status: "draft"
+status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
@@ -13,9 +13,13 @@ supersedes: []
 superseded_by: []
 status_notes:
   -
-    status: "draft"
-    note: "Proposed for Portwyrm contract review."
     at: "2026-07-13T23:00:25Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    at: "2026-07-13T23:17:19Z"
 references: []
 body: |-
   Memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid adapters MUST satisfy one repository conformance suite. Durable adapters MUST preserve transactions, IDs, relationships, metadata, audit ordering, outbox behavior, and secret references. Filesystem-only mode is single-writer. PostgreSQL MAY provide HA through row locks and advisory leases. Cross-backend movement MUST use a versioned checksummed export, validation, dry-run import, and reconciliation.

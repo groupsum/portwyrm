@@ -4,7 +4,7 @@ id: "adr:1003"
 number: 1003
 slug: "atomic-nginx-reconciliation"
 title: "Atomic Nginx reconciliation"
-status: "draft"
+status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
@@ -13,9 +13,13 @@ supersedes: []
 superseded_by: []
 status_notes:
   -
-    status: "draft"
-    note: "Proposed for Portwyrm contract review."
     at: "2026-07-13T22:59:41Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
+    at: "2026-07-13T23:15:43Z"
 references: []
 body: |-
   Context: partial configuration writes or failed reloads can take every routed service offline. Decision: render complete immutable generations, run nginx -t, atomically select the candidate, reload, verify health, and retain the last-known-good generation. Consequences: desired and applied generations are tracked separately and failures expose retry and rollback. Governs: feat:runtime.nginx-reconciliation, feat:routing.proxy-hosts, feat:routing.streams.

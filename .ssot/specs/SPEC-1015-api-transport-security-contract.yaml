@@ -1,0 +1,26 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1015"
+number: 1015
+slug: "api-transport-security-contract"
+title: "API transport and security contract"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Compatibility profiles SHALL define exact route/method capabilities, raw-array collections, token envelopes, defaults, nullability, integer/boolean coercion, unknown-field preservation, status/error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:51Z"
+references: []
+body: |-
+  Compatibility profiles SHALL define exact route/method capabilities, raw-array collections, token envelopes, defaults, nullability, integer/boolean coercion, unknown-field preservation, status/error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1000"
+  - "adr:1001"
+  - "adr:1009"

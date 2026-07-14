@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <title>Portwyrm</title>
+    <link rel="stylesheet" href="/ui/styles.css">
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
+    <aside>
+      <div class="brand"><span aria-hidden="true">◈</span> Portwyrm</div>
+      <nav aria-label="Primary">
+        <button data-view="dashboard">Dashboard</button>
+        <button data-view="proxy-hosts">Proxy Hosts</button>
+        <button data-view="redirection-hosts">Redirections</button>
+        <button data-view="dead-hosts">Dead Hosts</button>
+        <button data-view="streams">Streams</button>
+        <button data-view="certificates">Certificates</button>
+        <button data-view="access-lists">Access Lists</button>
+        <button data-view="users">Users</button>
+        <button data-view="access-tokens">Access Tokens</button>
+        <button data-view="audit-log">Activity</button>
+        <button data-view="settings">Settings</button>
+        <button data-view="health">System Health</button>
+      </nav>
+    </aside>
+    <main id="content" tabindex="-1">
+      <header>
+        <div><p class="eyebrow">Reverse proxy control plane</p><h1 id="title">Dashboard</h1></div>
+        <button id="theme" aria-label="Switch color theme">Theme</button>
+      </header>
+      <section id="status" role="status" aria-live="polite"></section>
+      <section id="view" aria-busy="true"><div class="skeleton"></div></section>
+    </main>
+    <script type="module" src="/ui/app.js"></script>
+  </body>
+</html>

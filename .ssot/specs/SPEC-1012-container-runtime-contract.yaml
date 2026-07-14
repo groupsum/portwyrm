@@ -1,0 +1,25 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1012"
+number: 1012
+slug: "container-runtime-contract"
+title: "Container runtime contract"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The OCI runtime SHALL supervise the API, worker, scheduler, and Nginx; expose compatibility ports 80, 81, and 443; define data and certificate volumes; support configurable UID/GID and rootless diagnostics; provide liveness/readiness; forward signals; drain cleanly; and preserve state across versioned upgrades."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:43Z"
+references: []
+body: |-
+  The OCI runtime SHALL supervise the API, worker, scheduler, and Nginx; expose compatibility ports 80, 81, and 443; define data and certificate volumes; support configurable UID/GID and rootless diagnostics; provide liveness/readiness; forward signals; drain cleanly; and preserve state across versioned upgrades.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1007"
+  - "adr:1013"

@@ -1,0 +1,1 @@
+{"claim_ids":["clm:distribution.oci.t0","clm:distribution.oci.t1","clm:distribution.oci.t2"],"feature_id":"feat:distribution.oci","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.distribution.oci.t0.proof-graph","tst:pytest.distribution.oci.t1.proof-graph","tst:pytest.distribution.oci.t2.proof-graph"]}

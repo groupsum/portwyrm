@@ -4,7 +4,7 @@ id: "spc:1000"
 number: 1000
 slug: "npm-npmctl-compatibility"
 title: "NPM and npmctl compatibility"
-status: "draft"
+status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
@@ -13,9 +13,13 @@ supersedes: []
 superseded_by: []
 status_notes:
   -
-    status: "draft"
-    note: "Proposed for Portwyrm contract review."
     at: "2026-07-13T23:00:23Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    at: "2026-07-13T23:17:06Z"
 references: []
 body: |-
   The implementation MUST expose frozen NPM 2.10.4/npmctl and NPM 2.15.1 compatibility profiles covering routes, methods, authentication, request and response shapes, defaults, nullability, permissions, expansions, errors, enable and disable semantics, and side effects. Existing npmctl doctor, schema check, plan, apply, adopt, drift, and audit-log workflows MUST run without npmctl changes. Compatibility profile changes require golden-wire and live npmctl evidence.

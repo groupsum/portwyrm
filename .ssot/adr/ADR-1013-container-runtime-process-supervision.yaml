@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1013"
+number: 1013
+slug: "container-runtime-process-supervision"
+title: "Container runtime and process supervision"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: the published image must coordinate the API, worker, scheduler, and Nginx without requiring external npm tooling. Decision: use one signal-aware supervisor contract, explicit readiness and liveness, ports 80/81/443, durable data and certificate mounts, configurable UID/GID, and a documented rootless high-port mode. Consequences: shutdown, restart, upgrade, permissions, and health are conformance-tested across amd64 and arm64."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm p100 boundary."
+    at: "2026-07-13T23:16:16Z"
+references: []
+body: |-
+  Context: the published image must coordinate the API, worker, scheduler, and Nginx without requiring external npm tooling. Decision: use one signal-aware supervisor contract, explicit readiness and liveness, ports 80/81/443, durable data and certificate mounts, configurable UID/GID, and a documented rootless high-port mode. Consequences: shutdown, restart, upgrade, permissions, and health are conformance-tested across amd64 and arm64.

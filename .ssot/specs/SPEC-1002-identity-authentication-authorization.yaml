@@ -4,7 +4,7 @@ id: "spc:1002"
 number: 1002
 slug: "identity-authentication-authorization"
 title: "Identity, authentication, and authorization"
-status: "draft"
+status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
@@ -13,9 +13,13 @@ supersedes: []
 superseded_by: []
 status_notes:
   -
-    status: "draft"
-    note: "Proposed for Portwyrm contract review."
     at: "2026-07-13T23:00:24Z"
+    note: "Proposed for Portwyrm contract review."
+    status: "draft"
+  -
+    status: "accepted"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    at: "2026-07-13T23:17:10Z"
 references: []
 body: |-
   The control plane MUST support NPM-compatible users, admins, disabled state, password lifecycle, section permissions hidden/view/manage, visibility user/all, RS256 JWT issuance and refresh, TOTP challenge, and eight one-use backup codes. Native personal and service tokens MUST be opaque, scoped, expiring, revocable, shown once, hashed at rest, and audited. UI sessions MUST use secure HttpOnly cookies and CSRF protection.

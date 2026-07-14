@@ -1,0 +1,1 @@
+{"claim_ids":["clm:migration.npm.t0","clm:migration.npm.t1","clm:migration.npm.t2"],"feature_id":"feat:migration.npm","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.migration.npm.t0.proof-graph","tst:pytest.migration.npm.t1.proof-graph","tst:pytest.migration.npm.t2.proof-graph"]}

@@ -1,0 +1,1 @@
+{"claim_ids":["clm:compat.npmctl.t0","clm:compat.npmctl.t1","clm:compat.npmctl.t2"],"feature_id":"feat:compat.npmctl","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T2","test_ids":["tst:pytest.compat.npmctl.t0.proof-graph","tst:pytest.compat.npmctl.t1.proof-graph","tst:pytest.compat.npmctl.t2.proof-graph"]}

@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1008"
+number: 1008
+slug: "no-build-operator-ui"
+title: "No-build operator UI delivery"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: operators require an NPM-class UI without installing Node.js or npm. Decision: package standards-based HTML, CSS, and browser JavaScript as versioned Python package assets served by the control plane and embedded in the OCI image. Consequences: development and deployment remain uv/Python based; the UI stays API-driven, CSP-compatible, accessible, and cache-versioned."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm T1 and T2 delivery boundaries."
+    at: "2026-07-13T23:15:21Z"
+references: []
+body: |-
+  Context: operators require an NPM-class UI without installing Node.js or npm. Decision: package standards-based HTML, CSS, and browser JavaScript as versioned Python package assets served by the control plane and embedded in the OCI image. Consequences: development and deployment remain uv/Python based; the UI stays API-driven, CSP-compatible, accessible, and cache-versioned.

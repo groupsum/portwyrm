@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1011"
+number: 1011
+slug: "tier-specific-proof-artifacts"
+title: "Tier-specific proof artifacts"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: identical scaffold tests and shared T2 evidence can create misleading green status. Decision: T0 proves governed inventory, T1 proves repeatable direct behavior, and T2 requires distinct robustness, failure, concurrency, differential, and conformance evidence. Consequences: evidence is never shared upward as a substitute for a higher tier and status synchronization runs only after real artifacts exist."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the Portwyrm T1 and T2 delivery boundaries."
+    at: "2026-07-13T23:15:30Z"
+references: []
+body: |-
+  Context: identical scaffold tests and shared T2 evidence can create misleading green status. Decision: T0 proves governed inventory, T1 proves repeatable direct behavior, and T2 requires distinct robustness, failure, concurrency, differential, and conformance evidence. Consequences: evidence is never shared upward as a substitute for a higher tier and status synchronization runs only after real artifacts exist.

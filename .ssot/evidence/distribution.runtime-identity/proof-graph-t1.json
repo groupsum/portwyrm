@@ -1,0 +1,1 @@
+{"claim_ids":["clm:distribution.runtime-identity.t0","clm:distribution.runtime-identity.t1"],"feature_id":"feat:distribution.runtime-identity","schema_version":"ssot.evidence.scaffold.v1","status":"planned","target_tier":"T1","test_ids":["tst:pytest.distribution.runtime-identity.t0.proof-graph","tst:pytest.distribution.runtime-identity.t1.proof-graph"]}

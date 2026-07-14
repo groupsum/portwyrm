@@ -1,0 +1,38 @@
+services:
+  portwyrm:
+    image: ghcr.io/groupsum/portwyrm:edge
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORTWYRM_DB_BACKEND: postgresql
+      PORTWYRM_POSTGRES_HOST: postgres
+      PORTWYRM_POSTGRES_DATABASE: portwyrm
+      PORTWYRM_POSTGRES_USER: portwyrm
+      PORTWYRM_POSTGRES_PASSWORD: ${PORTWYRM_POSTGRES_PASSWORD:?set PORTWYRM_POSTGRES_PASSWORD}
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - portwyrm-data:/data
+      - portwyrm-certificates:/etc/letsencrypt
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: portwyrm
+      POSTGRES_USER: portwyrm
+      POSTGRES_PASSWORD: ${PORTWYRM_POSTGRES_PASSWORD:?set PORTWYRM_POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portwyrm"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  portwyrm-data:
+  portwyrm-certificates:
+  postgres-data:

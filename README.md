@@ -9,8 +9,11 @@ partial MVP completion.
 
 ## Status
 
-Portwyrm is in repository and contract bootstrap. Product, compatibility, architecture, UX,
-and delivery artifacts live under [`docs/`](docs/).
+Portwyrm is implementing its frozen T1 direct-behavior boundary. The repository includes a
+Python control plane, NPM/npmctl compatibility API, persistence ports, deterministic Nginx
+runtime, certificate services, migration tooling, and a packaged no-build operator console.
+T2 robustness and release certification remain separate gates and are never inferred from
+scaffold checks.
 
 ## Development
 
@@ -22,6 +25,15 @@ uv run pytest
 uv run ssot-registry validate . --write-report
 ```
 
+Run the development control plane and open `http://localhost:81/ui/`:
+
+```shell
+uv run portwyrm --host 127.0.0.1 --port 81
+```
+
+The UI is packaged as standards-based browser assets. Node.js and npm are not required to
+build, install, deploy, or operate Portwyrm.
+
 ## Compatibility principles
 
 - Preserve the NPM-shaped `/api` surface used by npmctl.
@@ -29,7 +41,7 @@ uv run ssot-registry validate . --write-report
 - Preserve IDs and npmctl owner metadata during import and round trips.
 - Compile deterministic Nginx generations, validate them, activate atomically, and retain a
   last-known-good rollback target.
-- Support memory, SQLite, PostgreSQL, filesystem-only, and hybrid persistence with explicit
-  consistency and high-availability boundaries.
+- Support memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid persistence
+  with explicit consistency and high-availability boundaries.
 
 Licensed under Apache-2.0.
