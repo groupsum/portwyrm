@@ -1,1 +1,1 @@
-{"artifacts":[{"id":"registry","kind":"registry","media_type":"application/json","path":".ssot/registry.json","sha256":"38a2a1905e4f6f8ae0ca4079a1ede1e0375ff676e0374b8fb950399aa048e74c","size":231727}],"kind":"output_artifact_manifest","release_id":"rel:0.1.0"}
+{"artifacts":[{"id":"registry","kind":"registry","media_type":"application/json","path":".ssot/registry.json","sha256":"c5cbfdcdceaafb9722df7a03b58e44814debed1e3d47aecc8637705d83d3bb00","size":233409}],"kind":"output_artifact_manifest","release_id":"rel:0.1.0"}

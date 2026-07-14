@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "docker",
+    "manifest",
+    "inspect",
+    "ghcr.io/groupsum/portwyrm@sha256:194743e8a2002f935e63fb81164b9197f0e55f43be7f8a43b558f7a9bb56092b"
+  ],
+  "cwd": ".",
+  "env": {},
+  "mode": "command",
+  "success": {
+    "expected": 0,
+    "type": "exit_code"
+  },
+  "timeout_seconds": 120
+}
