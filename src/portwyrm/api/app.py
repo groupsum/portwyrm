@@ -7,23 +7,21 @@ import contextlib
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from portwyrm.api.compat import create_compat_app
 from portwyrm.api.dependencies import create_default_repository
+from portwyrm.api.native import create_native_router
+from portwyrm.application import ControlPlaneError, MFAStore, PersistentControlPlane
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
 from portwyrm.identity import TokenStore
-from portwyrm.mfa import MFAStore
 from portwyrm.operations import HealthService, UpgradeManager, default_upgrades
 from portwyrm.persistence import Repository
-from portwyrm.persistent import PersistentControlPlane
 from portwyrm.runtime.coordinator import RuntimeCoordinator
-from portwyrm.service import ControlPlaneError
-from portwyrm.ui import mount_ui
+from portwyrm.uix import mount_uix
 
 
 def create_app(repository: Repository | None = None) -> FastAPI:
@@ -89,26 +87,6 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     async def control_plane_error(_request: Request, exc: ControlPlaneError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
-    @app.get("/api/setup")
-    async def setup_status() -> dict[str, bool]:
-        return {"setup": bool(control_plane.list("users"))}
-
-    @app.post("/api/setup", status_code=status.HTTP_201_CREATED)
-    async def initial_setup(payload: dict[str, Any]) -> dict[str, Any]:
-        if control_plane.list("users"):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="initial setup is already complete",
-            )
-        email_value = payload.get("email")
-        password_value = payload.get("password")
-        if not isinstance(email_value, str) or not isinstance(password_value, str):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="email and password are required",
-            )
-        return control_plane.bootstrap_admin(email_value, password_value)
-
     health = HealthService(
         repository,
         {
@@ -126,39 +104,8 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         },
     )
 
-    @app.get("/health/live", include_in_schema=False)
-    async def live() -> dict[str, Any]:
-        return health.live()
-
-    @app.get("/health/ready", include_in_schema=False)
-    async def ready() -> JSONResponse:
-        payload = health.ready()
-        return JSONResponse(payload, status_code=200 if payload["status"] == "ok" else 503)
-
-    @app.get("/version", include_in_schema=False)
-    async def version() -> dict[str, str]:
-        from portwyrm import __version__
-
-        return {"version": __version__}
-
-    @app.get("/metrics", include_in_schema=False)
-    async def metrics() -> PlainTextResponse:
-        lines = ["# TYPE portwyrm_resources gauge"]
-        for collection in sorted(
-            ("proxy-hosts", "redirection-hosts", "dead-hosts", "streams", "certificates")
-        ):
-            count = len(control_plane.list(collection))
-            lines.append(f'portwyrm_resources{{collection="{collection}"}} {count}')
-        readiness = health.ready()
-        lines.extend(
-            [
-                "# TYPE portwyrm_ready gauge",
-                f"portwyrm_ready {1 if readiness['status'] == 'ok' else 0}",
-            ]
-        )
-        return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
-
-    mount_ui(app)
+    app.include_router(create_native_router(control_plane, health))
+    mount_uix(app)
     return app
 
 

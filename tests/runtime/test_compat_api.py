@@ -8,9 +8,9 @@ from fastapi.testclient import TestClient
 
 from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
+from portwyrm.application import ControlPlane
 from portwyrm.persistence import MemoryRepository
 from portwyrm.security import Principal
-from portwyrm.service import ControlPlane
 
 
 class FakeService:

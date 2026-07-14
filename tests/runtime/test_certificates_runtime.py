@@ -176,7 +176,7 @@ class FakeIssuer:
 
 
 def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_path: Path) -> None:
-    from portwyrm.service import ControlPlane
+    from portwyrm.application import ControlPlane
 
     service = ControlPlane()
     manager = CertificateManager(
@@ -213,7 +213,7 @@ def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_p
 
 
 def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_path: Path) -> None:
-    from portwyrm.service import Conflict, ControlPlane
+    from portwyrm.application import Conflict, ControlPlane
 
     service = ControlPlane()
     manager = CertificateManager(

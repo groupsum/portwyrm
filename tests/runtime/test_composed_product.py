@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 from portwyrm import __main__ as cli
 from portwyrm.api import create_app
 from portwyrm.api.dependencies import create_default_repository
+from portwyrm.application import PersistentControlPlane
 from portwyrm.cli.commands import remote
 from portwyrm.persistence import SQLiteRepository
-from portwyrm.persistent import PersistentControlPlane
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 from portwyrm.security import totp_code
 

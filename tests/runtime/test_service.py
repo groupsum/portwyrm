@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from portwyrm.service import Actor, Conflict, ControlPlane, ControlPlaneError, NotFound
+from portwyrm.application import Actor, Conflict, ControlPlane, ControlPlaneError, NotFound
 
 OWNER = Actor(id=2, email="operator@example.com", owner="groupsum")
 

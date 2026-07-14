@@ -9,10 +9,10 @@ import sys
 import time
 from pathlib import Path
 
+from portwyrm.application import PersistentControlPlane
 from portwyrm.operations import LogRotator, UpgradeManager, default_upgrades
 from portwyrm.operations.runtime import repository_config_from_environment
 from portwyrm.persistence import create_repository
-from portwyrm.persistent import PersistentControlPlane
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 
 

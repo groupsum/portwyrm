@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from cryptography.fernet import Fernet
 
-from portwyrm.mfa import MFAStore
+from portwyrm.application import MFAStore
 from portwyrm.persistence import MemoryRepository, SQLiteRepository
 from portwyrm.security import (
     Principal,

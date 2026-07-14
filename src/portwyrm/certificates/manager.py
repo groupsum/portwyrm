@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from portwyrm.service import Conflict, ControlPlane, NotFound
+from portwyrm.application import Conflict, ControlPlane, NotFound
 
 from .acme import ChallengeType, IssuedCertificate
 from .pem import CustomCertificateBundle, OpenSSLPEMValidator

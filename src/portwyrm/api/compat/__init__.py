@@ -31,6 +31,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import Response as FastAPIResponse
 
+from portwyrm.application import MFAStore
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
     CertificateManager,
@@ -38,7 +39,6 @@ from portwyrm.certificates import (
     ChallengeType,
     CustomCertificateBundle,
 )
-from portwyrm.mfa import MFAStore
 from portwyrm.migration import import_npm, preflight_npm
 from portwyrm.persistence import Repository, export_bundle, import_bundle, preview_import
 from portwyrm.security import Principal, TokenStore

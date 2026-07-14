@@ -300,8 +300,8 @@ def test_initial_setup_is_one_shot_casefolded_and_never_echoes_password(
 
 def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     root = Path(__file__).parents[2]
-    html = (root / "src/portwyrm/ui/index.html").read_text(encoding="utf-8")
-    script = (root / "src/portwyrm/ui/app.js").read_text(encoding="utf-8")
+    html = (root / "src/portwyrm/uix/static/index.html").read_text(encoding="utf-8")
+    script = (root / "src/portwyrm/uix/static/app.js").read_text(encoding="utf-8")
     assert '<html lang="en"' in html
     assert 'href="#content"' in html
     assert 'aria-label="Primary"' in html

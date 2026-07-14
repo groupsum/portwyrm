@@ -3,12 +3,12 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from portwyrm.ui import mount_ui
+from portwyrm.uix import mount_uix
 
 
 def test_no_build_console_is_packaged_and_accessible() -> None:
     app = FastAPI()
-    mount_ui(app)
+    mount_uix(app)
     client = TestClient(app)
     page = client.get("/ui/")
     assert page.status_code == 200
@@ -23,7 +23,7 @@ def test_no_build_console_is_packaged_and_accessible() -> None:
 
 def test_root_redirects_to_console() -> None:
     app = FastAPI()
-    mount_ui(app)
+    mount_uix(app)
     response = TestClient(app).get("/", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == "/ui/"

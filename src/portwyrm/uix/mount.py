@@ -7,9 +7,9 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 
-def mount_ui(app: FastAPI) -> None:
+def mount_uix(app: FastAPI) -> None:
     """Mount packaged static assets and a stable console entry point."""
-    root = files("portwyrm").joinpath("ui")
+    root = files("portwyrm.uix").joinpath("static")
     app.mount("/ui", StaticFiles(directory=str(root), html=True), name="ui")
 
     @app.get("/", include_in_schema=False)

@@ -6,7 +6,8 @@ from collections.abc import Callable
 from typing import Any
 
 from portwyrm.persistence import Repository
-from portwyrm.service import COLLECTIONS, Actor, ControlPlane
+
+from .control_plane import COLLECTIONS, Actor, ControlPlane
 
 ChangeHook = Callable[[str], None]
 

@@ -53,7 +53,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-portwyrm = ["ui/*.html", "ui/*.css", "ui/*.js"]
+"portwyrm.uix" = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --import-mode=importlib -p no:cacheprovider"
