@@ -122,6 +122,26 @@ def test_health_schema_login_and_refresh(client: TestClient) -> None:
     assert client.get("/api/nginx/proxy-hosts", headers=headers).status_code == 401
 
 
+def test_browser_session_is_httponly_and_unsafe_requests_require_csrf(client: TestClient) -> None:
+    response = client.post(
+        "/api/v2/browser/login",
+        json={"identity": "admin@example.com", "secret": "correct", "scope": "user"},
+    )
+    assert response.status_code == 200
+    cookies = response.headers.get_list("set-cookie")
+    assert any("portwyrm_session=" in value and "HttpOnly" in value for value in cookies)
+    assert any("portwyrm_csrf=" in value and "HttpOnly" not in value for value in cookies)
+    assert client.get("/api/nginx/proxy-hosts").status_code == 200
+    blocked = client.post("/api/nginx/proxy-hosts", json={"domain_names": ["blocked.test"]})
+    assert blocked.status_code == 403
+    allowed = client.post(
+        "/api/nginx/proxy-hosts",
+        headers={"X-CSRF-Token": client.cookies["portwyrm_csrf"]},
+        json={"domain_names": ["allowed.test"]},
+    )
+    assert allowed.status_code == 201
+
+
 def test_proxy_crud_preserves_id_unknown_fields_and_metadata(client: TestClient) -> None:
     headers = login(client)
     payload = {
@@ -313,3 +333,37 @@ def test_packaged_app_requires_explicit_first_admin(monkeypatch: pytest.MonkeyPa
     assert client.get("/api/setup").json() == {"setup": True}
     duplicate = client.post("/api/setup", json={"email": "second@example.com", "password": "nope"})
     assert duplicate.status_code == 403
+
+
+def test_admin_can_impersonate_active_user_but_cannot_delete_self(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("PORTWYRM_MFA_KEY_PATH", str(tmp_path / "mfa.key"))
+    client = TestClient(create_app(MemoryRepository()))
+    assert client.post(
+        "/api/setup",
+        json={"email": "admin@example.com", "password": "correct horse battery staple"},
+    ).status_code == 201
+    authenticated = client.post(
+        "/api/tokens",
+        json={
+            "identity": "admin@example.com",
+            "secret": "correct horse battery staple",
+            "scope": "user",
+        },
+    )
+    admin = {"Authorization": f"Bearer {authenticated.json()['result']['token']}"}
+    user = client.post(
+        "/api/users",
+        headers=admin,
+        json={"email": "operator@example.com", "password": "operator password"},
+    ).json()
+
+    impersonation = client.post(f"/api/users/{user['id']}/login", headers=admin)
+
+    assert impersonation.status_code == 200
+    operator = {"Authorization": f"Bearer {impersonation.json()['token']}"}
+    assert client.get("/api/v2/me", headers=operator).json()["email"] == "operator@example.com"
+    assert client.delete("/api/users/1", headers=admin).status_code == 409
+    actions = {entry["action"] for entry in client.get("/api/audit-log", headers=admin).json()}
+    assert {"authenticated", "user.impersonated"} <= actions

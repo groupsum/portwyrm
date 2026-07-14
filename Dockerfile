@@ -20,7 +20,8 @@ ENV PYTHONUNBUFFERED=1 \
     PORTWYRM_NGINX_RUNTIME=1 \
     PORTWYRM_NGINX_ROOT=/data/nginx \
     PORTWYRM_CERTIFICATE_ROOT=/etc/letsencrypt/live \
-    PORTWYRM_ACME_WEBROOT=/data/acme-challenge
+    PORTWYRM_ACME_WEBROOT=/data/acme-challenge \
+    PORTWYRM_SECURE_COOKIES=1
 
 VOLUME ["/data", "/etc/letsencrypt"]
 EXPOSE 80 81 443

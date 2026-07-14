@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from cryptography.fernet import Fernet
 
-from portwyrm.persistence import SQLiteRepository
+from portwyrm.mfa import MFAStore
+from portwyrm.persistence import MemoryRepository, SQLiteRepository
 from portwyrm.security import (
     Principal,
     TokenStore,
@@ -100,3 +102,16 @@ def test_backup_codes_are_one_use() -> None:
     assert not consume_backup_code(codes[0], hashes)
     assert not consume_backup_code("wrong", hashes)
     assert len(hashes) == 2
+
+
+def test_mfa_recovery_rotation_revokes_previous_backup_codes() -> None:
+    store = MFAStore(MemoryRepository(), Fernet.generate_key())
+    enrollment = store.begin(7)
+    assert store.confirm(7, totp_code(enrollment["secret"]))
+
+    replacement = store.regenerate_backup_codes(7, enrollment["backup_codes"][0])
+
+    assert replacement is not None
+    assert not store.verify(7, enrollment["backup_codes"][1])
+    assert store.verify(7, replacement[0])
+    assert not store.verify(7, replacement[0])

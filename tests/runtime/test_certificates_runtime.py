@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -203,6 +204,12 @@ def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_p
     )
     assert acme["provider"] == "letsencrypt"
     assert (tmp_path / "live" / f"npm-{acme['id']}" / "privkey.pem").is_file()
+
+    archive_path = tmp_path / "certificate.zip"
+    archive_path.write_bytes(manager.download(custom["id"]))
+    with zipfile.ZipFile(archive_path) as archive:
+        assert {"fullchain.pem", "privkey.pem"} <= set(archive.namelist())
+        assert PRIVATE_KEY in archive.read("privkey.pem").decode()
 
 
 def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_path: Path) -> None:

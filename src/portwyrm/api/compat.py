@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import hmac
 import inspect
 import os
+import secrets
 import tempfile
 from collections.abc import Awaitable, Mapping
 from copy import deepcopy
@@ -14,9 +16,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.responses import Response as FastAPIResponse
 
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
@@ -106,6 +119,24 @@ def create_compat_app(
 
     @app.middleware("http")
     async def security_headers(request: Any, call_next: Any) -> Any:
+        session_cookie = request.cookies.get("portwyrm_session")
+        if (
+            session_cookie
+            and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and request.url.path
+            not in {
+                "/api/v2/browser/login",
+                "/api/v2/browser/2fa",
+            }
+        ):
+            cookie_csrf = request.cookies.get("portwyrm_csrf")
+            header_csrf = request.headers.get("X-CSRF-Token")
+            if (
+                not cookie_csrf
+                or not header_csrf
+                or not hmac.compare_digest(cookie_csrf, header_csrf)
+            ):
+                return JSONResponse(status_code=403, content={"detail": "CSRF validation failed"})
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = os.getenv("PORTWYRM_X_FRAME_OPTIONS", "DENY")
@@ -116,12 +147,16 @@ def create_compat_app(
 
     async def principal_from_bearer(
         authorization: str | None = Header(default=None),
+        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
     ) -> Principal:
-        if not authorization or not authorization.startswith("Bearer "):
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.removeprefix("Bearer ").strip()
+        elif session_cookie:
+            token = session_cookie
+        else:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="bearer token required"
             )
-        token = authorization.removeprefix("Bearer ").strip()
         try:
             principal = token_store.verify(token)
         except ValueError as exc:
@@ -134,11 +169,16 @@ def create_compat_app(
 
     async def principal_from_mfa_bearer(
         authorization: str | None = Header(default=None),
+        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
     ) -> Principal:
-        if not authorization or not authorization.startswith("Bearer "):
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.removeprefix("Bearer ").strip()
+        elif session_cookie:
+            token = session_cookie
+        else:
             raise HTTPException(status_code=401, detail="MFA challenge token required")
         try:
-            principal = token_store.verify(authorization.removeprefix("Bearer ").strip())
+            principal = token_store.verify(token)
         except ValueError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
         if principal.scopes != frozenset({"mfa"}):
@@ -208,25 +248,60 @@ def create_compat_app(
                     detail="valid MFA code required",
                 )
         token, expires = token_store.issue_session(principal)
+        await _record_event(service, "authenticated", "users", principal.user_id, principal)
         return {"result": {"token": token, "expires": expires}}
 
     @app.post("/api/tokens/2fa")
     async def complete_mfa_challenge(
         payload: dict[str, Any],
         authorization: str | None = Header(default=None),
+        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
         challenge: Principal = Depends(principal_from_mfa_bearer),
     ) -> Resource:
         code = payload.get("code")
         if mfa is None or not isinstance(code, str) or not mfa.verify(challenge.user_id, code):
             raise HTTPException(status_code=401, detail="invalid MFA code")
-        assert authorization is not None
-        token_store.revoke_session(authorization.removeprefix("Bearer ").strip())
+        challenge_token = (
+            authorization.removeprefix("Bearer ").strip() if authorization else session_cookie
+        )
+        assert challenge_token is not None
+        token_store.revoke_session(challenge_token)
         user = await _service_get(service, "users", challenge.user_id, challenge)
         if user is None:
             raise HTTPException(status_code=401, detail="user is unavailable")
         principal = _as_principal(user, fallback_identity=challenge.identity)
         token, expires = token_store.issue_session(principal)
         return {"result": {"token": token, "expires": expires, "scope": "user"}}
+
+    @app.post("/api/v2/browser/login")
+    async def browser_login(payload: dict[str, Any], response: Response) -> Resource:
+        result = await login(payload)
+        _set_browser_cookies(response, str(result["result"]["token"]))
+        return result
+
+    @app.post("/api/v2/browser/2fa")
+    async def browser_mfa(
+        payload: dict[str, Any],
+        response: Response,
+        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
+        challenge: Principal = Depends(principal_from_mfa_bearer),
+    ) -> Resource:
+        result = await complete_mfa_challenge(
+            payload, authorization=None, session_cookie=session_cookie, challenge=challenge
+        )
+        _set_browser_cookies(response, str(result["result"]["token"]))
+        return result
+
+    @app.delete("/api/v2/browser/session", status_code=status.HTTP_204_NO_CONTENT)
+    async def browser_logout(
+        response: Response,
+        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
+        _: Principal = Depends(principal_from_bearer),
+    ) -> None:
+        if session_cookie:
+            token_store.revoke_session(session_cookie)
+        response.delete_cookie("portwyrm_session", path="/")
+        response.delete_cookie("portwyrm_csrf", path="/")
 
     @app.get("/api/tokens")
     async def refresh(
@@ -244,6 +319,7 @@ def create_compat_app(
     ) -> None:
         assert authorization is not None
         token_store.revoke_session(authorization.removeprefix("Bearer ").strip())
+        await _record_event(service, "session.revoked", "users", _.user_id, _)
 
     @app.get("/api/v2/me")
     async def profile(principal: Principal = Depends(principal_from_bearer)) -> Resource:
@@ -261,7 +337,11 @@ def create_compat_app(
             raise HTTPException(status_code=501, detail="MFA unavailable")
         if mfa.enabled(principal.user_id):
             raise HTTPException(status_code=409, detail="MFA is already enabled")
-        return mfa.begin(principal.user_id)
+        result = mfa.begin(principal.user_id)
+        await _record_event(
+            service, "mfa.enrollment.started", "users", principal.user_id, principal
+        )
+        return result
 
     @app.post("/api/v2/mfa/confirm", status_code=status.HTTP_204_NO_CONTENT)
     async def confirm_mfa(
@@ -270,6 +350,7 @@ def create_compat_app(
         code = payload.get("code")
         if mfa is None or not isinstance(code, str) or not mfa.confirm(principal.user_id, code):
             raise HTTPException(status_code=422, detail="invalid enrollment code")
+        await _record_event(service, "mfa.enabled", "users", principal.user_id, principal)
 
     @app.delete("/api/v2/mfa", status_code=status.HTTP_204_NO_CONTENT)
     async def disable_mfa(
@@ -278,6 +359,24 @@ def create_compat_app(
         code = payload.get("code")
         if mfa is None or not isinstance(code, str) or not mfa.disable(principal.user_id, code):
             raise HTTPException(status_code=422, detail="invalid MFA code")
+        await _record_event(service, "mfa.disabled", "users", principal.user_id, principal)
+
+    @app.post("/api/v2/mfa/recovery-codes")
+    async def regenerate_mfa_recovery_codes(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        code = payload.get("code")
+        codes = (
+            mfa.regenerate_backup_codes(principal.user_id, code)
+            if mfa is not None and isinstance(code, str)
+            else None
+        )
+        if codes is None:
+            raise HTTPException(status_code=422, detail="invalid MFA code")
+        await _record_event(
+            service, "mfa.recovery-codes.regenerated", "users", principal.user_id, principal
+        )
+        return {"backup_codes": codes}
 
     @app.put("/api/v2/me")
     async def update_profile(
@@ -311,6 +410,7 @@ def create_compat_app(
             if setter is None:
                 raise HTTPException(status_code=501, detail="password management unavailable")
             await _maybe_await(setter(user_id, password))
+            await _record_event(service, "password.reset", "users", user_id, principal)
             return
         if str(principal.user_id) != str(user_id) or not isinstance(current, str):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
@@ -318,6 +418,27 @@ def create_compat_app(
         if changer is None:
             raise HTTPException(status_code=501, detail="password management unavailable")
         await _maybe_await(changer(user_id, current, password))
+        await _record_event(service, "password.changed", "users", user_id, principal)
+
+    @app.post("/api/users/{user_id}/login")
+    async def impersonate_user(
+        user_id: int, principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        _require_admin(principal)
+        user = await _service_get(service, "users", user_id, principal)
+        if user is None or user.get("is_disabled") or user.get("is_deleted"):
+            raise HTTPException(status_code=404, detail="active user not found")
+        impersonated = _as_principal(user, fallback_identity=str(user.get("email", user_id)))
+        token, expires = token_store.issue_session(impersonated)
+        await _record_event(
+            service,
+            "user.impersonated",
+            "users",
+            user_id,
+            principal,
+            {"impersonated_by": principal.user_id},
+        )
+        return {"token": token, "expires": expires, "user": user}
 
     @app.get("/api/v2/tokens")
     async def list_personal_tokens(
@@ -361,6 +482,14 @@ def create_compat_app(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
+        await _record_event(
+            service,
+            "access-token.created",
+            "access-tokens",
+            record.id,
+            principal,
+            {"name": record.name, "scopes": sorted(record.principal.scopes)},
+        )
         return {**record.public(), "token": plaintext}
 
     @app.delete("/api/v2/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -373,6 +502,7 @@ def create_compat_app(
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="token not found")
         token_store.revoke_pat(token_id)
+        await _record_event(service, "access-token.revoked", "access-tokens", token_id, principal)
 
     @app.get("/api/v2/export")
     async def export_state(principal: Principal = Depends(principal_from_bearer)) -> Resource:
@@ -539,6 +669,26 @@ def create_compat_app(
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, write=True)
         return _require_certificate_manager(certificates).renew(certificate_id, force=force)
+
+    @app.get("/api/nginx/certificates/{certificate_id}/download")
+    async def download_certificate(
+        certificate_id: int,
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> FastAPIResponse:
+        _authorize(principal, "certificates", admin_only=False, write=False)
+        try:
+            content = _require_certificate_manager(certificates).download(certificate_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return FastAPIResponse(
+            content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="portwyrm-certificate-{certificate_id}.zip"'
+                )
+            },
+        )
 
     @app.delete("/api/nginx/certificates/{certificate_id}")
     async def delete_certificate(
@@ -718,6 +868,12 @@ def _delete_handler(
         existing = await _service_get(service, collection, normalized_id, principal)
         if existing is None or not _is_visible(existing, principal):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        if (
+            collection == "users"
+            and str(normalized_id) == str(principal.user_id)
+            and str(existing.get("email", "")).casefold() == principal.identity.casefold()
+        ):
+            raise HTTPException(status_code=409, detail="users cannot delete their own account")
         deleted = await _service_delete(service, collection, normalized_id, principal)
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
@@ -834,6 +990,29 @@ def _require_certificate_manager(value: CertificateManager | None) -> Certificat
     return value
 
 
+def _set_browser_cookies(response: Response, token: str) -> None:
+    secure = os.getenv("PORTWYRM_SECURE_COOKIES", "0").lower() in {"1", "true", "yes"}
+    csrf = secrets.token_urlsafe(24)
+    response.set_cookie(
+        "portwyrm_session",
+        token,
+        max_age=86_400,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        path="/",
+    )
+    response.set_cookie(
+        "portwyrm_csrf",
+        csrf,
+        max_age=86_400,
+        httponly=False,
+        secure=secure,
+        samesite="strict",
+        path="/",
+    )
+
+
 def _certificate_bundle(payload: Mapping[str, Any]) -> CustomCertificateBundle:
     certificate = payload.get("certificate")
     private_key = payload.get("private_key")
@@ -855,6 +1034,27 @@ async def _reload_after_import(service: CompatibilityService) -> None:
     reload_service = getattr(service, "reload", None)
     if reload_service is not None:
         await _maybe_await(reload_service())
+
+
+async def _record_event(
+    service: CompatibilityService,
+    action: str,
+    object_type: str,
+    object_id: int | str,
+    principal: Principal,
+    details: Resource | None = None,
+) -> None:
+    recorder = getattr(service, "record_event", None)
+    if recorder is not None:
+        await _maybe_await(
+            recorder(
+                action,
+                object_type,
+                object_id,
+                details=details,
+                actor=_actor(principal),
+            )
+        )
 
 
 def _control_plane_collection(collection: str) -> str:

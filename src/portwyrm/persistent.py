@@ -118,6 +118,19 @@ class PersistentControlPlane(ControlPlane):
         super().set_password(user_id, password)
         self._persist_credentials()
 
+    def record_event(
+        self,
+        action: str,
+        object_type: str,
+        object_id: int | str,
+        *,
+        details: dict[str, Any] | None = None,
+        actor: Actor | None = None,
+    ) -> None:
+        super().record_event(action, object_type, object_id, details=details, actor=actor)
+        with self.repository.transaction() as tx:
+            tx.upsert("_audit", self.audit_events[-1])
+
     def bootstrap_admin(self, email: str, password: str) -> dict[str, Any]:
         user = super().bootstrap_admin(email, password)
         self._persist_credentials()

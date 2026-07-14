@@ -311,7 +311,9 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert "<script>" not in html
     assert "http://" not in html and "https://" not in html
     assert "eval(" not in script and "new Function" not in script
-    assert 'localStorage.getItem("portwyrm.token")' in script
+    assert 'localStorage.getItem("portwyrm.token")' not in script
+    assert "/api/v2/browser/login" in script
+    assert "X-CSRF-Token" in script
     assert json.dumps("correct horse battery staple") not in html + script
     assert "function escapeHtml(value)" in script
     assert "function displayValue(key, value)" in script

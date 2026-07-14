@@ -66,6 +66,16 @@ class MFAStore:
             tx.delete("_mfa", str(user_id))
         return True
 
+    def regenerate_backup_codes(self, user_id: int | str, code: str) -> list[str] | None:
+        if not self.enabled(user_id) or not self.verify(user_id, code):
+            return None
+        record = self._get(user_id)
+        assert record is not None
+        codes, hashes = generate_backup_codes()
+        record["backup_hashes"] = list(hashes)
+        self._put(record)
+        return list(codes)
+
     def _get(self, user_id: int | str) -> dict[str, Any] | None:
         with self.repository.transaction() as tx:
             return tx.get("_mfa", str(user_id))

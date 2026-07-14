@@ -109,7 +109,22 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             )
         return control_plane.bootstrap_admin(email_value, password_value)
 
-    health = HealthService(repository)
+    health = HealthService(
+        repository,
+        {
+            "nginx": lambda: {
+                "status": "ok"
+                if runtime is None or (runtime.current / "nginx.conf").is_file()
+                else "failed",
+                "configured": runtime is not None,
+            },
+            "certificate_scheduler": lambda: {
+                "status": "ok",
+                "enabled": os.getenv("PORTWYRM_CERTIFICATE_AUTO_RENEW", "1").lower()
+                in {"1", "true", "yes"},
+            },
+        },
+    )
 
     @app.get("/health/live", include_in_schema=False)
     async def live() -> dict[str, Any]:

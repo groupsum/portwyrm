@@ -333,6 +333,17 @@ class ControlPlane:
                 return deepcopy(self.audit_events)
             return deepcopy([event for event in self.audit_events if event["created_on"] >= since])
 
+    def record_event(
+        self,
+        action: str,
+        object_type: str,
+        object_id: int | str,
+        *,
+        details: dict[str, Any] | None = None,
+        actor: Actor | None = None,
+    ) -> None:
+        self._audit(action, object_type, {"id": object_id, **(details or {})}, actor)
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {name: self.list(name) for name in sorted(COLLECTIONS)}
@@ -471,14 +482,7 @@ class ControlPlane:
     def _audit(
         self, action: str, collection: str, row: dict[str, Any], actor: Actor | None
     ) -> None:
-        redacted = {
-            key: "[redacted]"
-            if any(
-                word in key.casefold() for word in ("secret", "password", "token", "private_key")
-            )
-            else deepcopy(value)
-            for key, value in row.items()
-        }
+        redacted = _redact(row)
         self.audit_events.append(
             {
                 "id": len(self.audit_events) + 1,
@@ -490,3 +494,16 @@ class ControlPlane:
                 "meta": redacted,
             }
         )
+
+
+def _redact(value: Any, *, key: str = "") -> Any:
+    if any(
+        word in key.casefold()
+        for word in ("secret", "password", "token", "credential", "private_key", "totp")
+    ):
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {str(item_key): _redact(item, key=str(item_key)) for item_key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact(item, key=key) for item in value]
+    return deepcopy(value)

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
 import tempfile
 import uuid
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,6 +90,18 @@ class CertificateMaterialStore:
             return False
         shutil.rmtree(target)
         return True
+
+    def archive(self, certificate_id: int) -> bytes:
+        target = self.root / f"npm-{certificate_id}"
+        if not target.is_dir():
+            raise FileNotFoundError(f"certificate material {certificate_id} was not found")
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in ("cert.pem", "chain.pem", "fullchain.pem", "privkey.pem"):
+                path = target / name
+                if path.is_file():
+                    archive.writestr(name, path.read_bytes())
+        return output.getvalue()
 
 
 class CertbotIssuer:
@@ -313,3 +327,7 @@ class CertificateManager:
         except NotFound:
             raise
         self.store.delete(certificate_id)
+
+    def download(self, certificate_id: int) -> bytes:
+        self.service.get("certificates", certificate_id)
+        return self.store.archive(certificate_id)
