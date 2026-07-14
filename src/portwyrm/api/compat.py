@@ -136,6 +136,116 @@ def create_compat_app(
         token, expires = token_store.refresh_session(authorization.removeprefix("Bearer ").strip())
         return {"token": token, "expires": expires}
 
+    @app.delete("/api/tokens", status_code=status.HTTP_204_NO_CONTENT)
+    async def logout(
+        authorization: str | None = Header(default=None),
+        _: Principal = Depends(principal_from_bearer),
+    ) -> None:
+        assert authorization is not None
+        token_store.revoke_session(authorization.removeprefix("Bearer ").strip())
+
+    @app.get("/api/v2/me")
+    async def profile(principal: Principal = Depends(principal_from_bearer)) -> Resource:
+        user = await _service_get(service, "users", principal.user_id, principal)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+        return _copy_visible(user, principal)
+
+    @app.put("/api/v2/me")
+    async def update_profile(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        allowed = {key: payload[key] for key in ("name", "nickname", "email") if key in payload}
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="no editable profile fields supplied",
+            )
+        updated = await _service_update(service, "users", principal.user_id, allowed, principal)
+        if updated is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+        return updated
+
+    @app.put("/api/users/{user_id}/auth", status_code=status.HTTP_204_NO_CONTENT)
+    async def set_user_password(
+        user_id: int,
+        payload: dict[str, Any],
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> None:
+        password = payload.get("password")
+        current = payload.get("current")
+        if not isinstance(password, str):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="password is required"
+            )
+        if principal.is_admin:
+            setter = getattr(service, "set_password", None)
+            if setter is None:
+                raise HTTPException(status_code=501, detail="password management unavailable")
+            await _maybe_await(setter(user_id, password))
+            return
+        if str(principal.user_id) != str(user_id) or not isinstance(current, str):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
+        changer = getattr(service, "change_password", None)
+        if changer is None:
+            raise HTTPException(status_code=501, detail="password management unavailable")
+        await _maybe_await(changer(user_id, current, password))
+
+    @app.get("/api/v2/tokens")
+    async def list_personal_tokens(
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> list[Resource]:
+        return [record.public() for record in token_store.list_pats(principal)]
+
+    @app.post("/api/v2/tokens", status_code=status.HTTP_201_CREATED)
+    async def create_personal_token(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        name = payload.get("name")
+        expires_at = payload.get("expires_at")
+        scopes = payload.get("scopes", sorted(principal.scopes))
+        if not isinstance(name, str) or not isinstance(scopes, list):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="name and scopes are required",
+            )
+        requested = frozenset(str(scope) for scope in scopes)
+        if not requested or not requested.issubset(principal.scopes):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="invalid token scopes"
+            )
+        pat_principal = Principal(
+            user_id=principal.user_id,
+            identity=principal.identity,
+            is_admin=principal.is_admin,
+            permissions=principal.permissions,
+            visibility=principal.visibility,
+            scopes=requested,
+            owner=principal.owner,
+        )
+        try:
+            record, plaintext = token_store.create_pat(
+                name=name,
+                principal=pat_principal,
+                expires_at=int(expires_at) if expires_at is not None else None,
+            )
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        return {**record.public(), "token": plaintext}
+
+    @app.delete("/api/v2/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def revoke_personal_token(
+        token_id: str, principal: Principal = Depends(principal_from_bearer)
+    ) -> None:
+        record = token_store.get_pat(token_id)
+        if record is None or (
+            not principal.is_admin and str(record.principal.user_id) != str(principal.user_id)
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="token not found")
+        token_store.revoke_pat(token_id)
+
     _register_resource_routes(app, service, principal_from_bearer)
 
     @app.get("/api/audit-log")

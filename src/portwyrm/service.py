@@ -128,6 +128,20 @@ class ControlPlane:
             visibility="all" if user.get("visibility") == "all" else "user",
         )
 
+    def set_password(self, user_id: int | str, password: str) -> None:
+        """Set a user's password without ever placing it in a resource record."""
+        if len(password) < 8:
+            raise ControlPlaneError("password must contain at least 8 characters")
+        user = self.get("users", user_id)
+        email = str(user["email"]).strip().casefold()
+        self._passwords[email] = self._password_hasher.hash(password)
+
+    def change_password(self, user_id: int | str, current: str, password: str) -> None:
+        user = self.get("users", user_id)
+        if self.authenticate(str(user["email"]), current) is None:
+            raise Forbidden("current password is invalid")
+        self.set_password(user_id, password)
+
     @staticmethod
     def _compat_collection(collection: str) -> str:
         return collection.replace("_", "-")
@@ -187,10 +201,16 @@ class ControlPlane:
         actor: Actor | None = None,
         preserve_id: bool = False,
     ) -> dict[str, Any]:
+        password = payload.get("password") if collection == "users" else None
+        clean_payload = deepcopy(payload)
+        if collection == "users":
+            clean_payload.pop("password", None)
+            clean_payload.pop("secret", None)
+            clean_payload["email"] = str(clean_payload.get("email", "")).strip().casefold()
         with self._lock:
-            self._validate(collection, payload)
+            self._validate(collection, clean_payload)
             bucket = self._bucket(collection)
-            requested = payload.get("id") if preserve_id else None
+            requested = clean_payload.get("id") if preserve_id else None
             resource_id: int | str
             if collection == "settings" and isinstance(requested, str):
                 resource_id = requested
@@ -202,8 +222,14 @@ class ControlPlane:
                 resource_id = self._next_ids[collection]
             if resource_id in bucket:
                 raise Conflict(f"{collection} resource {resource_id!r} already exists")
-            self._assert_domains_available(collection, payload)
-            row = deepcopy(payload)
+            if collection == "users" and any(
+                str(item.get("email", "")).casefold() == clean_payload["email"]
+                and not item.get("is_deleted")
+                for item in bucket.values()
+            ):
+                raise Conflict("email is already in use")
+            self._assert_domains_available(collection, clean_payload)
+            row = deepcopy(clean_payload)
             row["id"] = resource_id
             now = datetime.now(UTC).isoformat()
             row.setdefault("created_on", now)
@@ -212,6 +238,8 @@ class ControlPlane:
             if isinstance(resource_id, int):
                 self._next_ids[collection] = max(self._next_ids[collection], resource_id + 1)
             self._audit("created", collection, row, actor)
+            if isinstance(password, str) and password:
+                self.set_password(resource_id, password)
             return deepcopy(row)
 
     def update(
@@ -223,21 +251,41 @@ class ControlPlane:
         actor: Actor | None = None,
         adopt: bool = False,
     ) -> dict[str, Any]:
+        password = payload.get("password") if collection == "users" else None
+        clean_payload = deepcopy(payload)
+        clean_payload.pop("password", None)
+        clean_payload.pop("secret", None)
         with self._lock:
             bucket = self._bucket(collection)
             current = bucket.get(resource_id)
             if current is None or current.get("is_deleted"):
                 raise NotFound(f"{collection} resource {resource_id!r} was not found")
             self._check_visible(current, actor)
-            self._check_ownership(current, payload, actor, adopt)
+            self._check_ownership(current, clean_payload, actor, adopt)
             candidate = deepcopy(current)
-            candidate.update(deepcopy(payload))
+            candidate.update(clean_payload)
             candidate["id"] = resource_id
+            previous_email = str(current.get("email", "")).casefold()
+            if collection == "users":
+                candidate["email"] = str(candidate.get("email", "")).strip().casefold()
+                if any(
+                    other_id != resource_id
+                    and str(item.get("email", "")).casefold() == candidate["email"]
+                    and not item.get("is_deleted")
+                    for other_id, item in bucket.items()
+                ):
+                    raise Conflict("email is already in use")
             self._validate(collection, candidate)
             self._assert_domains_available(collection, candidate, exclude=(collection, resource_id))
             candidate["modified_on"] = datetime.now(UTC).isoformat()
             bucket[resource_id] = candidate
+            if collection == "users" and previous_email != candidate["email"]:
+                encoded = self._passwords.pop(previous_email, None)
+                if encoded is not None:
+                    self._passwords[candidate["email"]] = encoded
             self._audit("updated", collection, candidate, actor)
+            if isinstance(password, str) and password:
+                self.set_password(resource_id, password)
             return deepcopy(candidate)
 
     def delete(

@@ -38,12 +38,31 @@ let token = localStorage.getItem("portwyrm.token");
 let currentView = "dashboard";
 let editing = null;
 let setupRequired = false;
+let principal = null;
+
+const sectionByView = {
+  "proxy-hosts": "proxy_hosts", "redirection-hosts": "redirection_hosts",
+  "dead-hosts": "dead_hosts", streams: "streams", certificates: "certificates",
+  "access-lists": "access_lists",
+};
+
+function applyPermissions() {
+  $$('[data-admin]').forEach(item => item.hidden = !principal?.is_admin);
+  for (const [name, section] of Object.entries(sectionByView)) {
+    const permission = principal?.is_admin ? "manage" : (principal?.permissions?.[section] || "hidden");
+    $(`[data-view="${name}"]`).hidden = permission === "hidden";
+  }
+  const section = sectionByView[currentView];
+  const permission = principal?.is_admin ? "manage" : principal?.permissions?.[section];
+  createButton.hidden = readonlyViews.has(currentView) || !schemas[currentView] || (section && permission !== "manage");
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 function resourcePath(name, id = null) {
+  if (name === "account") return "/api/v2/me";
   const prefix = ["users", "settings", "audit-log"].includes(name) ? "/api" : "/api/nginx";
   return `${prefix}/${name}${id === null ? "" : `/${encodeURIComponent(id)}`}`;
 }
@@ -89,6 +108,7 @@ async function render(name = currentView) {
   currentView = name;
   title.textContent = labels[name] || "Portwyrm";
   createButton.hidden = readonlyViews.has(name) || !schemas[name];
+  applyPermissions();
   view.innerHTML = '<div class="skeleton"></div>';
   view.setAttribute("aria-busy", "true");
   notify("");
@@ -98,6 +118,9 @@ async function render(name = currentView) {
       const readiness = await api("/health/ready");
       const values = token ? await Promise.all(families.map(family => api(resourcePath(family)).catch(() => []))) : families.map(() => []);
       view.innerHTML = `<div class="grid"><article class="card"><div class="muted">System</div><p class="metric ${readiness.status === "ok" ? "ok" : "warning"}">${escapeHtml(readiness.status)}</p></article>${families.map((family, index) => `<article class="card"><div class="muted">${escapeHtml(labels[family])}</div><p class="metric">${values[index].length}</p></article>`).join("")}</div>${token ? "" : '<div class="empty"><h2>Sign in to manage Portwyrm</h2><p class="muted">Your control plane is available. Authenticate to see and change resources.</p><button class="button" data-action="signin">Sign in</button></div>'}`;
+    } else if (name === "account") {
+      const account = await api("/api/v2/me");
+      view.innerHTML = `<article class="card"><p class="eyebrow">Account</p><h2>${escapeHtml(account.nickname || account.name || account.email)}</h2><p>${escapeHtml(account.email)}</p><p class="muted">${account.is_admin ? "Administrator" : "Operator"}</p></article>`;
     } else if (name === "health") {
       const [health, version] = await Promise.all([api("/health/ready"), api("/version")]);
       view.innerHTML = `<div class="grid"><article class="card"><p class="eyebrow">Readiness</p><h2 class="${health.status === "ok" ? "ok" : "warning"}">${escapeHtml(health.status)}</h2><pre>${escapeHtml(JSON.stringify(health.components, null, 2))}</pre></article><article class="card"><p class="eyebrow">Release</p><h2>${escapeHtml(version.version)}</h2><p class="muted">API, UIX, repository, and proxy runtime</p></article></div>`;
@@ -176,11 +199,13 @@ $("#auth-form").addEventListener("submit", async event => {
     const result = await api("/api/tokens", {method: "POST", body: JSON.stringify({identity: email, secret: password, scope: "user"})});
     token = result.result.token;
     localStorage.setItem("portwyrm.token", token);
-    localStorage.setItem("portwyrm.identity", email);
+    principal = await api("/api/v2/me");
+    localStorage.setItem("portwyrm.identity", principal.email);
     setupRequired = false;
-    $("#session-label").textContent = email;
+    $("#session-label").textContent = principal.email;
     $("#session-action").textContent = "Sign out";
     authDialog.close();
+    applyPermissions();
     await render();
   } catch (error) { $("#auth-error").textContent = error.message; }
 });
@@ -207,13 +232,16 @@ view.addEventListener("click", async event => {
 });
 
 createButton.addEventListener("click", () => openEditor());
-$("#session-action").addEventListener("click", () => {
+$("#session-action").addEventListener("click", async () => {
   if (!token) return openAuth();
+  await api("/api/tokens", {method: "DELETE"}).catch(() => {});
   token = null;
+  principal = null;
   localStorage.removeItem("portwyrm.token");
   localStorage.removeItem("portwyrm.identity");
   $("#session-label").textContent = "Not signed in";
   $("#session-action").textContent = "Sign in";
+  applyPermissions();
   render("dashboard");
 });
 $("#theme").addEventListener("click", () => {
@@ -227,7 +255,12 @@ $("#session-label").textContent = token ? (localStorage.getItem("portwyrm.identi
 $("#session-action").textContent = token ? "Sign out" : "Sign in";
 $("[data-view=dashboard]").setAttribute("aria-current", "page");
 
-api("/api/setup").then(result => {
+api("/api/setup").then(async result => {
   setupRequired = !result.setup;
+  if (token) {
+    try { principal = await api("/api/v2/me"); }
+    catch { token = null; localStorage.removeItem("portwyrm.token"); }
+  }
+  applyPermissions();
   if (setupRequired) openAuth();
 }).catch(() => {}).finally(() => render("dashboard"));

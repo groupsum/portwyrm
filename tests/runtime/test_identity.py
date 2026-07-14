@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from portwyrm.persistence import SQLiteRepository
 from portwyrm.security import (
     Principal,
     TokenStore,
@@ -57,6 +58,29 @@ def test_personal_access_token_is_one_time_revealed_hashed_revocable_and_expirin
     _, expiring = store.create_pat(name="short", principal=principal, expires_at=300, now=200)
     with pytest.raises(ValueError, match="expired"):
         store.verify(expiring, now=300)
+
+
+def test_sessions_and_personal_tokens_survive_repository_restart(tmp_path) -> None:
+    repository = SQLiteRepository(tmp_path / "identity.sqlite")
+    principal = Principal(7, "service@example.com", scopes=frozenset({"user", "proxy:write"}))
+    first = TokenStore(repository=repository)
+    session, _ = first.issue_session(principal, now=100)
+    record, personal = first.create_pat(
+        name="automation", principal=principal, expires_at=500, now=100
+    )
+
+    restarted = TokenStore(repository=repository)
+    assert restarted.verify(session, now=101) == principal
+    assert restarted.verify(personal, now=101) == principal
+    assert restarted.get_pat(record.id).last_used_at == 101
+    assert restarted.revoke_session(session)
+    assert restarted.revoke_pat(record.id, now=102)
+
+    final = TokenStore(repository=repository)
+    with pytest.raises(ValueError, match="invalid token"):
+        final.verify(session, now=103)
+    with pytest.raises(ValueError, match="invalid token"):
+        final.verify(personal, now=103)
 
 
 def test_totp_matches_rfc_vector_and_rejects_invalid_codes() -> None:

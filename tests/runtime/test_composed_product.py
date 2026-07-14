@@ -52,6 +52,74 @@ def test_api_setup_crud_and_credentials_survive_restart(tmp_path: Path) -> None:
     assert restarted.get("/health/ready").json()["components"]["database"]["status"] == "ok"
 
 
+def test_user_credentials_profile_logout_and_pat_lifecycle_survive_restart(tmp_path: Path) -> None:
+    path = tmp_path / "identity.sqlite"
+    first = TestClient(create_app(SQLiteRepository(path)))
+    assert (
+        first.post(
+            "/api/setup", json={"email": "admin@example.test", "password": "admin-password"}
+        ).status_code
+        == 201
+    )
+    admin_headers = _login_with(first, "admin@example.test", "admin-password")
+    created = first.post(
+        "/api/users",
+        headers=admin_headers,
+        json={
+            "email": "user@example.test",
+            "name": "User",
+            "password": "initial-password",
+            "permissions": {"proxy_hosts": "view"},
+        },
+    )
+    assert created.status_code == 201
+    assert "password" not in created.json()
+
+    user_headers = _login_with(first, "user@example.test", "initial-password")
+    assert first.get("/api/v2/me", headers=user_headers).json()["email"] == "user@example.test"
+    changed = first.put("/api/v2/me", headers=user_headers, json={"nickname": "Wyrm Rider"})
+    assert changed.status_code == 200
+    token = first.post(
+        "/api/v2/tokens",
+        headers=user_headers,
+        json={"name": "npmctl", "scopes": ["user"]},
+    )
+    assert token.status_code == 201
+    plaintext = token.json()["token"]
+    assert plaintext.startswith("pwyrm_")
+    assert first.delete("/api/tokens", headers=user_headers).status_code == 204
+    assert first.get("/api/v2/me", headers=user_headers).status_code == 401
+
+    restarted = TestClient(create_app(SQLiteRepository(path)))
+    assert (
+        restarted.get("/api/v2/me", headers={"Authorization": f"Bearer {plaintext}"}).json()[
+            "nickname"
+        ]
+        == "Wyrm Rider"
+    )
+    restarted_user = _login_with(restarted, "user@example.test", "initial-password")
+    changed_password = restarted.put(
+        f"/api/users/{created.json()['id']}/auth",
+        headers=restarted_user,
+        json={"current": "initial-password", "password": "replacement-password"},
+    )
+    assert changed_password.status_code == 204
+    assert (
+        restarted.post(
+            "/api/tokens",
+            json={"identity": "user@example.test", "secret": "initial-password"},
+        ).status_code
+        == 401
+    )
+    assert _login_with(restarted, "user@example.test", "replacement-password")
+
+
+def _login_with(client: TestClient, identity: str, secret: str) -> dict[str, str]:
+    response = client.post("/api/tokens", json={"identity": identity, "secret": secret})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['result']['token']}"}
+
+
 def test_routing_mutation_publishes_active_nginx_generation(tmp_path: Path) -> None:
     service = PersistentControlPlane(SQLiteRepository(tmp_path / "state.sqlite"))
     coordinator = RuntimeCoordinator(service, tmp_path / "nginx", validate=False, reload=False)

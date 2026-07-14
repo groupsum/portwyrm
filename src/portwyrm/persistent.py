@@ -48,6 +48,14 @@ class PersistentControlPlane(ControlPlane):
         if self.on_change is not None:
             self.on_change(collection)
 
+    def _persist_credentials(self) -> None:
+        with self.repository.transaction() as tx:
+            stored = {str(row["id"]) for row in tx.list("_credentials")}
+            for identity, password_hash in self._passwords.items():
+                tx.upsert("_credentials", {"id": identity, "password_hash": password_hash})
+            for identity in stored - self._passwords.keys():
+                tx.delete("_credentials", identity)
+
     def create(
         self,
         collection: str,
@@ -60,6 +68,8 @@ class PersistentControlPlane(ControlPlane):
             preserve_id = True
         row = super().create(collection, payload, actor=actor, preserve_id=preserve_id)
         self._persist_resource(collection, row["id"])
+        if collection == "users":
+            self._persist_credentials()
         return row
 
     def update(
@@ -73,6 +83,8 @@ class PersistentControlPlane(ControlPlane):
     ) -> dict[str, Any]:
         row = super().update(collection, resource_id, payload, actor=actor, adopt=adopt)
         self._persist_resource(collection, resource_id)
+        if collection == "users":
+            self._persist_credentials()
         return row
 
     def delete(
@@ -85,14 +97,17 @@ class PersistentControlPlane(ControlPlane):
     ) -> bool:
         result = super().delete(collection, resource_id, actor=actor, prune=prune)
         self._persist_resource(collection, resource_id)
+        if collection == "users":
+            identity = str(self.resources[collection][resource_id].get("email", "")).casefold()
+            self._passwords.pop(identity, None)
+            self._persist_credentials()
         return result
+
+    def set_password(self, user_id: int | str, password: str) -> None:
+        super().set_password(user_id, password)
+        self._persist_credentials()
 
     def bootstrap_admin(self, email: str, password: str) -> dict[str, Any]:
         user = super().bootstrap_admin(email, password)
-        normalized = email.strip().casefold()
-        with self.repository.transaction() as tx:
-            tx.upsert(
-                "_credentials",
-                {"id": normalized, "password_hash": self._passwords[normalized]},
-            )
+        self._persist_credentials()
         return user

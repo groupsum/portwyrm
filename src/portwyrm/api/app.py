@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from portwyrm.api.compat import create_compat_app
 from portwyrm.api.dependencies import create_default_repository
+from portwyrm.identity import TokenStore
 from portwyrm.operations.health import HealthService
 from portwyrm.persistence import Repository
 from portwyrm.persistent import PersistentControlPlane
@@ -33,7 +34,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     if email and password and not control_plane.list("users"):
         control_plane.bootstrap_admin(email, password)
 
-    app = create_compat_app(control_plane)
+    app = create_compat_app(control_plane, tokens=TokenStore(repository=repository))
     app.state.repository = repository
     app.state.runtime = runtime
 
