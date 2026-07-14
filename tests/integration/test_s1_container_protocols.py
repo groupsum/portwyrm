@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
@@ -180,6 +180,53 @@ def _wait_websocket_echo(port: int, host: str, message: bytes) -> bytes:
             time.sleep(0.2)
 
 
+def _wait_http(
+    port: int, host: str, path: str, predicate: Callable[[tuple[int, dict[str, str], bytes]], bool]
+) -> tuple[int, dict[str, str], bytes]:
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            result = _http(port, host, path)
+            if predicate(result):
+                return result
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"Nginx route for {host}{path} did not converge")
+        time.sleep(0.2)
+
+
+def _wait_tcp_echo(port: int, message: bytes) -> None:
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1) as client:
+                client.sendall(message)
+                if client.recv(64) == message:
+                    return
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            raise AssertionError("TCP stream did not converge")
+        time.sleep(0.2)
+
+
+def _wait_udp_echo(port: int, message: bytes) -> None:
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+                client.settimeout(1)
+                client.sendto(message, ("127.0.0.1", port))
+                if client.recv(64) == message:
+                    return
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            raise AssertionError("UDP stream did not converge")
+        time.sleep(0.2)
+
+
 def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
     image = os.getenv("PORTWYRM_TEST_IMAGE", "portwyrm:s1-test")
     suffix = uuid.uuid4().hex[:10]
@@ -255,6 +302,15 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
                 "enabled": 1,
             },
         )
+        assert (
+            _wait_http(
+                http_port,
+                "app.example.test",
+                "/",
+                lambda result: result[2] == b"portwyrm-upstream:/",
+            )[2]
+            == b"portwyrm-upstream:/"
+        )
         create(
             "/api/nginx/proxy-hosts",
             {
@@ -266,6 +322,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
                 "enabled": 1,
             },
         )
+        assert _wait_websocket_echo(http_port, "socket.example.test", b"hello") == b"hello"
         create(
             "/api/nginx/redirection-hosts",
             {
@@ -277,9 +334,20 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
                 "enabled": 1,
             },
         )
+        redirect = _wait_http(
+            http_port,
+            "old.example.test",
+            "/path?value=1",
+            lambda result: result[0] == 308,
+        )
+        assert redirect[1]["location"] == "http://new.example.test/path?value=1"
         create(
             "/api/nginx/dead-hosts",
             {"domain_names": ["gone.example.test"], "enabled": 1},
+        )
+        assert (
+            _wait_http(http_port, "gone.example.test", "/", lambda result: result[0] == 404)[0]
+            == 404
         )
         create(
             "/api/nginx/streams",
@@ -292,6 +360,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
                 "enabled": 1,
             },
         )
+        _wait_tcp_echo(tcp_port, b"tcp-echo")
         create(
             "/api/nginx/streams",
             {
@@ -303,21 +372,8 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
                 "enabled": 1,
             },
         )
+        _wait_udp_echo(udp_port, b"udp-echo")
 
-        assert _http(http_port, "app.example.test")[2] == b"portwyrm-upstream:/"
         assert _http(http_port, "app.example.test", "/asset.css")[2].endswith(b"/asset.css")
         assert _http(http_port, "app.example.test", "/asset.css")[2].endswith(b"/asset.css")
         assert _HTTPHandler.requests["/asset.css"] == 1
-        assert _wait_websocket_echo(http_port, "socket.example.test", b"hello") == b"hello"
-        redirect = _http(http_port, "old.example.test", "/path?value=1")
-        assert redirect[0] == 308
-        assert redirect[1]["location"] == "http://new.example.test/path?value=1"
-        assert _http(http_port, "gone.example.test")[0] == 404
-
-        with socket.create_connection(("127.0.0.1", tcp_port), timeout=5) as client:
-            client.sendall(b"tcp-echo")
-            assert client.recv(64) == b"tcp-echo"
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
-            client.settimeout(5)
-            client.sendto(b"udp-echo", ("127.0.0.1", udp_port))
-            assert client.recv(64) == b"udp-echo"

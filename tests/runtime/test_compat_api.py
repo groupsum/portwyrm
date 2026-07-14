@@ -340,10 +340,13 @@ def test_admin_can_impersonate_active_user_but_cannot_delete_self(
 ) -> None:
     monkeypatch.setenv("PORTWYRM_MFA_KEY_PATH", str(tmp_path / "mfa.key"))
     client = TestClient(create_app(MemoryRepository()))
-    assert client.post(
-        "/api/setup",
-        json={"email": "admin@example.com", "password": "correct horse battery staple"},
-    ).status_code == 201
+    assert (
+        client.post(
+            "/api/setup",
+            json={"email": "admin@example.com", "password": "correct horse battery staple"},
+        ).status_code
+        == 201
+    )
     authenticated = client.post(
         "/api/tokens",
         json={
