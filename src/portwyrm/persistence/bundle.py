@@ -9,7 +9,7 @@ from typing import Any
 from .base import ConflictError, Repository, checksum, iter_records
 
 BUNDLE_VERSION = "portwyrm.export.v1"
-TRANSIENT_COLLECTIONS = {"_sessions", "_personal_access_tokens"}
+TRANSIENT_COLLECTIONS = {"_sessions", "_personal_access_tokens", "_mfa"}
 
 
 def export_bundle(repository: Repository) -> dict[str, Any]:

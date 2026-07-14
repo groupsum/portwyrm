@@ -240,7 +240,7 @@ def test_npmctl_wire_contract_preserves_raw_arrays_ids_extensions_and_owner_meta
 
     schema = client.get("/api/schema").json()
     assert schema["info"]["version"] == "2.10.4"
-    assert schema["paths"]["/api/nginx/proxy-hosts/{resource_id}"]["patch"]
+    assert schema["paths"]["/nginx/proxy-hosts/{resource_id}"]["patch"]
     assert client.get("/api/").json()["version"] == {"major": 7, "minor": 12, "revision": 31}
 
 

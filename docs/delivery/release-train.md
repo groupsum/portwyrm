@@ -18,8 +18,9 @@ gates, not schedule estimates.
 | `S5` | `0.9.x-rc` | p100/NPM/npmctl conformance, all stores, migration, operations, OCI publication and rollback |
 | `GA` | `1.0.0` | every in-scope p100 row certified; signed artifacts published; recovery drills passed |
 
-`S0` and `S1` are delivered baselines. `S2` is next. Later slices may be developed on isolated
-branches, but they cannot promote ahead of an unmet prerequisite gate.
+Runtime implementation for `S0` through `S5` is present on the release-candidate branch. Each
+slice still promotes only after its executable and external gates pass; GA remains blocked until
+the published artifact, ACME, npmctl, migration/recovery, and SSOT certification gates close.
 
 ## Scope dispositions
 

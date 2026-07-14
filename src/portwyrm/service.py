@@ -413,15 +413,13 @@ class ControlPlane:
             except (TypeError, ValueError) as exc:
                 raise ControlPlaneError(str(exc)) from exc
         if collection in HOST_COLLECTIONS | {"streams"}:
-            for field in ("certificate_id", "client_certificate_id"):
+            for field in ("certificate_id",):
                 certificate_id = int(payload.get(field) or 0)
                 if certificate_id and (
                     certificate_id not in self.resources["certificates"]
                     or self.resources["certificates"][certificate_id].get("is_deleted")
                 ):
                     raise Conflict(f"{field} does not resolve to an active certificate")
-            if payload.get("client_certificate_id") and not payload.get("certificate_id"):
-                raise ControlPlaneError("mTLS requires a server certificate")
         if collection == "users" and not str(payload.get("email", "")).strip():
             raise ControlPlaneError("email is required")
 

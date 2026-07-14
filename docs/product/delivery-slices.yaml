@@ -15,7 +15,7 @@
   "facts": [
     "The CLI, API, no-build UIX, SQLite control plane, and Nginx reconciliation path are composed and runnable.",
     "HTTP and HTTPS proxy hosts, WebSockets, asset caching, redirects, dead hosts, TCP and UDP streams, forced HTTPS, and HSTS have runtime implementations.",
-    "Durable password lifecycle, permission-aware UI behavior, production certificate issuance and renewal, and complete MFA flows remain incomplete.",
+    "Durable password lifecycle, permission-aware UI behavior, certificate issuance and renewal adapters, and complete MFA flows are implemented; external release gates remain pending.",
     "NPM 2.15.1 parity includes MySQL/MariaDB even though it was not named in the initial persistence list.",
     "NPM parity does not include mTLS, HTTP/3, QUIC, or WebTransport."
   ],
@@ -170,7 +170,7 @@
       "id": "S2",
       "boundary_id": "bnd:portwyrm-s2",
       "name": "Identity and operator completion",
-      "state": "next",
+      "state": "implemented",
       "outcome": "Admins and scoped users have durable credentials, correct permissions, revocable access tokens, complete login/logout behavior, and permission-aware UIX.",
       "feature_ids": [
         "feat:identity.users-rbac",
@@ -191,7 +191,7 @@
       "id": "S3",
       "boundary_id": "bnd:portwyrm-s3",
       "name": "Certificate and TLS lifecycle",
-      "state": "queued",
+      "state": "implemented",
       "outcome": "Operators can upload, issue, attach, renew, rotate, and recover certificates through complete runtime flows.",
       "feature_ids": [
         "feat:certificates.custom",
@@ -199,7 +199,7 @@
         "feat:certificates.dns01-providers"
       ],
       "included": [
-        "custom PEM upload, encrypted storage, validation, and atomic replacement",
+        "custom PEM upload, protected storage, validation, and atomic replacement",
         "HTTP-01 and DNS-01 production adapters",
         "certificate attachment and SSL termination",
         "manual and scheduled renewal with expiry and failure recovery"
@@ -210,7 +210,7 @@
       "id": "S4",
       "boundary_id": "bnd:portwyrm-s4",
       "name": "MFA and recovery",
-      "state": "queued",
+      "state": "implemented",
       "outcome": "Users can enroll, enable, challenge, recover, regenerate, disable, and audit TOTP MFA safely.",
       "feature_ids": [
         "feat:identity.auth-2fa"
@@ -221,7 +221,7 @@
       "id": "S5",
       "boundary_id": "bnd:portwyrm-s5",
       "name": "Compatibility and release closure",
-      "state": "queued",
+      "state": "implementation-complete",
       "outcome": "A published OCI release can replace frozen NPM profiles with zero-change npmctl workflows and rehearsed migration and recovery.",
       "feature_ids": [
         "feat:compat.npm-api",

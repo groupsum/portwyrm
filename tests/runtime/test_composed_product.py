@@ -13,6 +13,7 @@ from portwyrm.cli.commands import remote
 from portwyrm.persistence import SQLiteRepository
 from portwyrm.persistent import PersistentControlPlane
 from portwyrm.runtime.coordinator import RuntimeCoordinator
+from portwyrm.security import totp_code
 
 
 def _login(client: TestClient) -> dict[str, str]:
@@ -51,6 +52,13 @@ def test_api_setup_crud_and_credentials_survive_restart(tmp_path: Path) -> None:
     assert listed.status_code == 200
     assert listed.json()[0]["domain_names"] == ["app.example.test"]
     assert restarted.get("/health/ready").json()["components"]["database"]["status"] == "ok"
+    report = restarted.get("/api/reports/hosts", headers=_login(restarted))
+    assert report.json()["proxy_hosts"]["total"] == 1
+    metrics = restarted.get("/metrics")
+    assert 'portwyrm_resources{collection="proxy-hosts"} 1' in metrics.text
+    api_response = restarted.get("/api/", headers=_login(restarted))
+    assert api_response.headers["cache-control"] == "no-store"
+    assert api_response.headers["x-content-type-options"] == "nosniff"
 
 
 def test_user_credentials_profile_logout_and_pat_lifecycle_survive_restart(tmp_path: Path) -> None:
@@ -113,6 +121,58 @@ def test_user_credentials_profile_logout_and_pat_lifecycle_survive_restart(tmp_p
         == 401
     )
     assert _login_with(restarted, "user@example.test", "replacement-password")
+
+
+def test_mfa_enrollment_totp_and_one_use_backup_code_survive_restart(tmp_path: Path) -> None:
+    path = tmp_path / "mfa.sqlite"
+    first = TestClient(create_app(SQLiteRepository(path)))
+    first.post("/api/setup", json={"email": "admin@example.test", "password": "admin-password"})
+    headers = _login_with(first, "admin@example.test", "admin-password")
+    enrollment = first.post("/api/v2/mfa/enroll", headers=headers)
+    assert enrollment.status_code == 200
+    code = totp_code(enrollment.json()["secret"])
+    assert (
+        first.post("/api/v2/mfa/confirm", headers=headers, json={"code": code}).status_code == 204
+    )
+    challenge = first.post(
+        "/api/tokens", json={"identity": "admin@example.test", "secret": "admin-password"}
+    )
+    assert challenge.status_code == 200
+    assert challenge.json()["result"]["scope"] == "mfa"
+    challenge_headers = {"Authorization": f"Bearer {challenge.json()['result']['token']}"}
+    assert first.get("/api/v2/me", headers=challenge_headers).status_code == 403
+    completed = first.post(
+        "/api/tokens/2fa",
+        headers=challenge_headers,
+        json={"code": totp_code(enrollment.json()["secret"])},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["result"]["scope"] == "user"
+    with SQLiteRepository(path).transaction() as tx:
+        stored = tx.get("_mfa", "1")
+    assert "secret" not in stored
+    assert enrollment.json()["secret"] not in stored["secret_ciphertext"]
+
+    backup = enrollment.json()["backup_codes"][0]
+    restarted = TestClient(create_app(SQLiteRepository(path)))
+    accepted = restarted.post(
+        "/api/tokens",
+        json={
+            "identity": "admin@example.test",
+            "secret": "admin-password",
+            "mfa_code": backup,
+        },
+    )
+    assert accepted.status_code == 200
+    replay = restarted.post(
+        "/api/tokens",
+        json={
+            "identity": "admin@example.test",
+            "secret": "admin-password",
+            "mfa_code": backup,
+        },
+    )
+    assert replay.status_code == 401
 
 
 def _login_with(client: TestClient, identity: str, secret: str) -> dict[str, str]:

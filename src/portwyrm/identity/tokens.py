@@ -121,10 +121,16 @@ class TokenStore:
                 },
             )
 
-    def issue_session(self, principal: Principal, *, now: int | None = None) -> tuple[str, int]:
+    def issue_session(
+        self,
+        principal: Principal,
+        *,
+        now: int | None = None,
+        ttl_seconds: int | None = None,
+    ) -> tuple[str, int]:
         issued_at = int(time.time()) if now is None else int(now)
         token = secrets.token_urlsafe(32)
-        expires = issued_at + self.session_ttl_seconds
+        expires = issued_at + (self.session_ttl_seconds if ttl_seconds is None else ttl_seconds)
         token_hash = _token_hash(token)
         session = _Session(principal=principal, expires=expires)
         self._sessions[token_hash] = session

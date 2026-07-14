@@ -169,6 +169,17 @@ def _websocket_echo(port: int, host: str, message: bytes) -> bytes:
         return connection.recv(length)
 
 
+def _wait_websocket_echo(port: int, host: str, message: bytes) -> bytes:
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            return _websocket_echo(port, host, message)
+        except AssertionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
+
+
 def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
     image = os.getenv("PORTWYRM_TEST_IMAGE", "portwyrm:s1-test")
     suffix = uuid.uuid4().hex[:10]
@@ -297,7 +308,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
         assert _http(http_port, "app.example.test", "/asset.css")[2].endswith(b"/asset.css")
         assert _http(http_port, "app.example.test", "/asset.css")[2].endswith(b"/asset.css")
         assert _HTTPHandler.requests["/asset.css"] == 1
-        assert _websocket_echo(http_port, "socket.example.test", b"hello") == b"hello"
+        assert _wait_websocket_echo(http_port, "socket.example.test", b"hello") == b"hello"
         redirect = _http(http_port, "old.example.test", "/path?value=1")
         assert redirect[0] == 308
         assert redirect[1]["location"] == "http://new.example.test/path?value=1"

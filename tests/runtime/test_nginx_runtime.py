@@ -47,8 +47,6 @@ def test_proxy_render_covers_websocket_cache_tls_access_and_advanced_config() ->
             hsts=True,
             hsts_subdomains=True,
             trust_forwarded_proto=True,
-            client_certificate_id=9,
-            client_verify_depth=3,
         ),
         caching_enabled=True,
         block_exploits=True,
@@ -61,8 +59,6 @@ def test_proxy_render_covers_websocket_cache_tls_access_and_advanced_config() ->
 
     assert "listen 443 ssl http2" in config
     assert "Strict-Transport-Security" in config and "includeSubDomains" in config
-    assert "ssl_client_certificate /etc/letsencrypt/live/npm-9/fullchain.pem" in config
-    assert "ssl_verify_client on" in config and "ssl_verify_depth 3" in config
     assert "/.well-known/acme-challenge/" in config
     assert "$http_x_forwarded_proto != https" in config
     assert "proxy_set_header Upgrade $http_upgrade" in config

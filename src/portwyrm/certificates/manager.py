@@ -305,7 +305,6 @@ class CertificateManager:
         for collection in ("proxy-hosts", "redirection-hosts", "dead-hosts", "streams"):
             if any(
                 int(row.get("certificate_id") or 0) == certificate_id
-                or int(row.get("client_certificate_id") or 0) == certificate_id
                 for row in self.service.list(collection)
             ):
                 raise Conflict("certificate is still assigned to an active resource")

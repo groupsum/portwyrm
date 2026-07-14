@@ -8,12 +8,15 @@ import inspect
 import os
 import tempfile
 from collections.abc import Awaitable, Mapping
+from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
@@ -22,6 +25,7 @@ from portwyrm.certificates import (
     ChallengeType,
     CustomCertificateBundle,
 )
+from portwyrm.mfa import MFAStore
 from portwyrm.migration import import_npm, preflight_npm
 from portwyrm.persistence import Repository, export_bundle, import_bundle, preview_import
 from portwyrm.security import Principal, TokenStore
@@ -79,6 +83,7 @@ def create_compat_app(
     certificates: CertificateManager | None = None,
     lifespan: Any | None = None,
     repository: Repository | None = None,
+    mfa: MFAStore | None = None,
 ) -> FastAPI:
     token_store = tokens or TokenStore()
     app = FastAPI(title="Portwyrm NPM compatibility API", version="2.10.4", lifespan=lifespan)
@@ -86,6 +91,28 @@ def create_compat_app(
     app.state.token_store = token_store
     app.state.certificate_manager = certificates
     app.state.repository = repository
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+    origins = [
+        item.strip() for item in os.getenv("PORTWYRM_CORS_ORIGINS", "").split(",") if item.strip()
+    ]
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
+
+    @app.middleware("http")
+    async def security_headers(request: Any, call_next: Any) -> Any:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = os.getenv("PORTWYRM_X_FRAME_OPTIONS", "DENY")
+        response.headers["Referrer-Policy"] = "same-origin"
+        if request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     async def principal_from_bearer(
         authorization: str | None = Header(default=None),
@@ -96,9 +123,27 @@ def create_compat_app(
             )
         token = authorization.removeprefix("Bearer ").strip()
         try:
-            return token_store.verify(token)
+            principal = token_store.verify(token)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        if "user" not in principal.scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="MFA challenge pending"
+            )
+        return principal
+
+    async def principal_from_mfa_bearer(
+        authorization: str | None = Header(default=None),
+    ) -> Principal:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="MFA challenge token required")
+        try:
+            principal = token_store.verify(authorization.removeprefix("Bearer ").strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        if principal.scopes != frozenset({"mfa"}):
+            raise HTTPException(status_code=403, detail="MFA challenge token required")
+        return principal
 
     @app.get("/api/", include_in_schema=True)
     async def health() -> dict[str, Any]:
@@ -115,8 +160,13 @@ def create_compat_app(
 
     @app.get("/api/schema", include_in_schema=False)
     async def schema() -> dict[str, Any]:
-        document = app.openapi()
+        document = deepcopy(app.openapi())
         document["info"]["version"] = "2.10.4"
+        document["paths"] = {
+            (path.removeprefix("/api") or "/"): operations
+            for path, operations in document["paths"].items()
+            if path.startswith("/api")
+        }
         return document
 
     @app.post("/api/tokens")
@@ -142,8 +192,41 @@ def create_compat_app(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
             )
         principal = _as_principal(authenticated, fallback_identity=identity)
+        if mfa is not None and mfa.enabled(principal.user_id):
+            mfa_code = payload.get("mfa_code")
+            if mfa_code is None:
+                challenge = Principal(
+                    user_id=principal.user_id,
+                    identity=principal.identity,
+                    scopes=frozenset({"mfa"}),
+                )
+                token, expires = token_store.issue_session(challenge, ttl_seconds=300)
+                return {"result": {"token": token, "expires": expires, "scope": "mfa"}}
+            if not isinstance(mfa_code, str) or not mfa.verify(principal.user_id, mfa_code):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="valid MFA code required",
+                )
         token, expires = token_store.issue_session(principal)
         return {"result": {"token": token, "expires": expires}}
+
+    @app.post("/api/tokens/2fa")
+    async def complete_mfa_challenge(
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+        challenge: Principal = Depends(principal_from_mfa_bearer),
+    ) -> Resource:
+        code = payload.get("code")
+        if mfa is None or not isinstance(code, str) or not mfa.verify(challenge.user_id, code):
+            raise HTTPException(status_code=401, detail="invalid MFA code")
+        assert authorization is not None
+        token_store.revoke_session(authorization.removeprefix("Bearer ").strip())
+        user = await _service_get(service, "users", challenge.user_id, challenge)
+        if user is None:
+            raise HTTPException(status_code=401, detail="user is unavailable")
+        principal = _as_principal(user, fallback_identity=challenge.identity)
+        token, expires = token_store.issue_session(principal)
+        return {"result": {"token": token, "expires": expires, "scope": "user"}}
 
     @app.get("/api/tokens")
     async def refresh(
@@ -167,7 +250,34 @@ def create_compat_app(
         user = await _service_get(service, "users", principal.user_id, principal)
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
-        return _copy_visible(user, principal)
+        return {
+            **_copy_visible(user, principal),
+            "mfa_enabled": bool(mfa and mfa.enabled(principal.user_id)),
+        }
+
+    @app.post("/api/v2/mfa/enroll")
+    async def enroll_mfa(principal: Principal = Depends(principal_from_bearer)) -> Resource:
+        if mfa is None:
+            raise HTTPException(status_code=501, detail="MFA unavailable")
+        if mfa.enabled(principal.user_id):
+            raise HTTPException(status_code=409, detail="MFA is already enabled")
+        return mfa.begin(principal.user_id)
+
+    @app.post("/api/v2/mfa/confirm", status_code=status.HTTP_204_NO_CONTENT)
+    async def confirm_mfa(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> None:
+        code = payload.get("code")
+        if mfa is None or not isinstance(code, str) or not mfa.confirm(principal.user_id, code):
+            raise HTTPException(status_code=422, detail="invalid enrollment code")
+
+    @app.delete("/api/v2/mfa", status_code=status.HTTP_204_NO_CONTENT)
+    async def disable_mfa(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> None:
+        code = payload.get("code")
+        if mfa is None or not isinstance(code, str) or not mfa.disable(principal.user_id, code):
+            raise HTTPException(status_code=422, detail="invalid MFA code")
 
     @app.put("/api/v2/me")
     async def update_profile(
@@ -454,6 +564,30 @@ def create_compat_app(
         _require_admin(principal)
         entries = await _service_audit(service, since)
         return [dict(entry) for entry in entries]
+
+    @app.get("/api/reports/hosts")
+    async def host_report(
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        report: Resource = {}
+        for collection in (
+            "proxy_hosts",
+            "redirection_hosts",
+            "dead_hosts",
+            "streams",
+            "certificates",
+            "access_lists",
+        ):
+            if not principal.may(SECTION_BY_COLLECTION[collection]):
+                continue
+            items = await _service_list(service, collection, principal)
+            visible = [item for item in items if _is_visible(item, principal)]
+            report[collection] = {
+                "total": len(visible),
+                "enabled": sum(bool(item.get("enabled", 1)) for item in visible),
+                "disabled": sum(not bool(item.get("enabled", 1)) for item in visible),
+            }
+        return report
 
     return app
 

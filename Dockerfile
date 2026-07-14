@@ -8,7 +8,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY . /app
-RUN uv pip install --system --no-cache . "psycopg[binary]>=3.2,<4" "pymysql>=1.1,<2"
+RUN uv pip install --system --no-cache .
 
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 RUN mkdir -p /data/acme-challenge /data/nginx /data/logs /etc/letsencrypt/live /var/lib/nginx/cache/public

@@ -9,11 +9,11 @@ partial MVP completion.
 
 ## Status
 
-Portwyrm is implementing its frozen T1 direct-behavior boundary. The repository includes a
-Python control plane, NPM/npmctl compatibility API, persistence ports, deterministic Nginx
-runtime, certificate services, migration tooling, and a packaged no-build operator console.
-T2 robustness and release certification remain separate gates and are never inferred from
-scaffold checks.
+The frozen S0-S5 runtime scope is implemented on the release-candidate branch: composed Python
+CLI/API/UIX, deterministic Nginx protocols, durable identity and MFA, certificate lifecycle,
+portable stores, NPM migration, and npmctl-compatible plan/apply/drift/audit behavior. External
+ACME, multi-architecture publication, and formal SSOT certification remain fail-closed release
+gates; implementation does not imply a published `1.0.0`.
 
 ## Development
 
@@ -42,8 +42,8 @@ uv run portwyrm list proxy-hosts --token "$PORTWYRM_TOKEN"
 uv run portwyrm create proxy-hosts --token "$PORTWYRM_TOKEN" --data proxy-host.json
 ```
 
-`serve`, `status`, `schema`, `setup`, `login`, `list`, `get`, `create`, `update`, and
-`delete` are available without Node.js or npm.
+`serve`, `status`, `schema`, `setup`, `login`, `list`, `get`, `create`, `update`, `delete`,
+`export`, `import`, `npm-preflight`, and `npm-import` are available without Node.js or npm.
 
 The UI is packaged as standards-based browser assets. Node.js and npm are not required to
 build, install, deploy, or operate Portwyrm.
@@ -57,5 +57,11 @@ build, install, deploy, or operate Portwyrm.
   last-known-good rollback target.
 - Support memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid persistence
   with explicit consistency and high-availability boundaries.
+
+## Deliberate boundaries
+
+- mTLS and HTTP/3/QUIC remain out of the frozen `1.0.0` scope.
+- WebTransport is not supported by the selected Nginx OSS data plane and is intentionally absent.
+- Portwyrm never requires Node.js or npm to install, build, deploy, or operate.
 
 Licensed under Apache-2.0.

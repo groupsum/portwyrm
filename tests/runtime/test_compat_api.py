@@ -106,8 +106,8 @@ def test_health_schema_login_and_refresh(client: TestClient) -> None:
 
     schema = client.get("/api/schema").json()
     assert schema["info"]["version"] == "2.10.4"
-    assert set(schema["paths"]["/api/nginx/proxy-hosts"]) >= {"get", "post"}
-    assert set(schema["paths"]["/api/nginx/proxy-hosts/{resource_id}"]) >= {
+    assert set(schema["paths"]["/nginx/proxy-hosts"]) >= {"get", "post"}
+    assert set(schema["paths"]["/nginx/proxy-hosts/{resource_id}"]) >= {
         "get",
         "put",
         "patch",

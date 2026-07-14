@@ -9,14 +9,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from cryptography.fernet import Fernet
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from portwyrm.api.compat import create_compat_app
 from portwyrm.api.dependencies import create_default_repository
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
 from portwyrm.identity import TokenStore
-from portwyrm.operations.health import HealthService
+from portwyrm.mfa import MFAStore
+from portwyrm.operations import HealthService, UpgradeManager, default_upgrades
 from portwyrm.persistence import Repository
 from portwyrm.persistent import PersistentControlPlane
 from portwyrm.runtime.coordinator import RuntimeCoordinator
@@ -30,6 +32,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     email = os.getenv("PORTWYRM_INITIAL_ADMIN_EMAIL") or os.getenv("INITIAL_ADMIN_EMAIL")
     password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv("INITIAL_ADMIN_PASSWORD")
     repository = repository or create_default_repository()
+    UpgradeManager(repository, default_upgrades()).run()
     control_plane = PersistentControlPlane(repository)
     certificate_root = Path(
         os.getenv("PORTWYRM_CERTIFICATE_ROOT", str(Path.cwd() / ".portwyrm" / "certificates"))
@@ -43,6 +46,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             staging=os.getenv("PORTWYRM_ACME_STAGING", "0").lower() in {"1", "true", "yes"},
         ),
     )
+    mfa_store = MFAStore(repository, _load_mfa_key())
     runtime: RuntimeCoordinator | None = None
     if os.getenv("PORTWYRM_NGINX_RUNTIME", "0").lower() in {"1", "true", "yes"}:
         root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
@@ -76,6 +80,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         certificates=certificate_manager,
         lifespan=lifespan,
         repository=repository,
+        mfa=mfa_store,
     )
     app.state.repository = repository
     app.state.runtime = runtime
@@ -121,5 +126,38 @@ def create_app(repository: Repository | None = None) -> FastAPI:
 
         return {"version": __version__}
 
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> PlainTextResponse:
+        lines = ["# TYPE portwyrm_resources gauge"]
+        for collection in sorted(
+            ("proxy-hosts", "redirection-hosts", "dead-hosts", "streams", "certificates")
+        ):
+            count = len(control_plane.list(collection))
+            lines.append(f'portwyrm_resources{{collection="{collection}"}} {count}')
+        readiness = health.ready()
+        lines.extend(
+            [
+                "# TYPE portwyrm_ready gauge",
+                f"portwyrm_ready {1 if readiness['status'] == 'ok' else 0}",
+            ]
+        )
+        return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+
     mount_ui(app)
     return app
+
+
+def _load_mfa_key() -> bytes:
+    configured = os.getenv("PORTWYRM_MFA_ENCRYPTION_KEY")
+    if configured:
+        return configured.encode()
+    data_root = Path(os.getenv("PORTWYRM_DATA_ROOT", str(Path.cwd() / ".portwyrm")))
+    path = Path(os.getenv("PORTWYRM_MFA_KEY_PATH", str(data_root / "mfa.key")))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        return path.read_bytes().strip()
+    key = Fernet.generate_key()
+    path.write_bytes(key + b"\n")
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
+    return key

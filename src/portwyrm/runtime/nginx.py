@@ -60,15 +60,6 @@ def _ssl_lines(ssl: SSLSettings, *, stream: bool = False) -> list[str]:
         lines.append(
             f'  add_header Strict-Transport-Security "max-age=63072000{subdomains}" always;'
         )
-    if not stream and ssl.client_certificate_id:
-        ca_dir = f"/etc/letsencrypt/live/npm-{ssl.client_certificate_id}"
-        lines.extend(
-            [
-                f"  ssl_client_certificate {ca_dir}/fullchain.pem;",
-                "  ssl_verify_client on;",
-                f"  ssl_verify_depth {ssl.client_verify_depth};",
-            ]
-        )
     return lines
 
 

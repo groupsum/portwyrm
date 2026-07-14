@@ -127,7 +127,7 @@ async function render(name = currentView) {
       view.innerHTML = `<div class="grid"><article class="card"><div class="muted">System</div><p class="metric ${readiness.status === "ok" ? "ok" : "warning"}">${escapeHtml(readiness.status)}</p></article>${families.map((family, index) => `<article class="card"><div class="muted">${escapeHtml(labels[family])}</div><p class="metric">${values[index].length}</p></article>`).join("")}</div>${token ? "" : '<div class="empty"><h2>Sign in to manage Portwyrm</h2><p class="muted">Your control plane is available. Authenticate to see and change resources.</p><button class="button" data-action="signin">Sign in</button></div>'}`;
     } else if (name === "account") {
       const account = await api("/api/v2/me");
-      view.innerHTML = `<article class="card"><p class="eyebrow">Account</p><h2>${escapeHtml(account.nickname || account.name || account.email)}</h2><p>${escapeHtml(account.email)}</p><p class="muted">${account.is_admin ? "Administrator" : "Operator"}</p></article>`;
+      view.innerHTML = `<article class="card"><p class="eyebrow">Account</p><h2>${escapeHtml(account.nickname || account.name || account.email)}</h2><p>${escapeHtml(account.email)}</p><p class="muted">${account.is_admin ? "Administrator" : "Operator"}</p><button class="button secondary" data-action="${account.mfa_enabled ? "mfa-disable" : "mfa-enroll"}">${account.mfa_enabled ? "Disable MFA" : "Set up MFA"}</button></article>`;
     } else if (name === "health") {
       const [health, version] = await Promise.all([api("/health/ready"), api("/version")]);
       view.innerHTML = `<div class="grid"><article class="card"><p class="eyebrow">Readiness</p><h2 class="${health.status === "ok" ? "ok" : "warning"}">${escapeHtml(health.status)}</h2><pre>${escapeHtml(JSON.stringify(health.components, null, 2))}</pre></article><article class="card"><p class="eyebrow">Release</p><h2>${escapeHtml(version.version)}</h2><p class="muted">API, UIX, repository, and proxy runtime</p></article></div>`;
@@ -212,8 +212,14 @@ $("#auth-form").addEventListener("submit", async event => {
   const password = form.get("password");
   try {
     if (setupRequired) await api("/api/setup", {method: "POST", body: JSON.stringify({email, password})});
-    const result = await api("/api/tokens", {method: "POST", body: JSON.stringify({identity: email, secret: password, scope: "user"})});
+    let result = await api("/api/tokens", {method: "POST", body: JSON.stringify({identity: email, secret: password, scope: "user"})});
     token = result.result.token;
+    if (result.result.scope === "mfa") {
+      const code = prompt("Enter your authenticator or recovery code:");
+      if (!code) { token = null; throw new Error("MFA verification was cancelled."); }
+      result = await api("/api/tokens/2fa", {method: "POST", body: JSON.stringify({code})});
+      token = result.result.token;
+    }
     localStorage.setItem("portwyrm.token", token);
     principal = await api("/api/v2/me");
     localStorage.setItem("portwyrm.identity", principal.email);
@@ -245,6 +251,22 @@ view.addEventListener("click", async event => {
   }
   if (button.dataset.action === "signin") openAuth();
   if (button.dataset.action === "retry") render();
+  if (button.dataset.action === "mfa-enroll") {
+    try {
+      const enrollment = await api("/api/v2/mfa/enroll", {method: "POST"});
+      const code = prompt(`Add this TOTP secret to your authenticator:\n\n${enrollment.secret}\n\nEnter the current code to confirm:`);
+      if (!code) return;
+      await api("/api/v2/mfa/confirm", {method: "POST", body: JSON.stringify({code})});
+      alert(`Save these one-use recovery codes somewhere safe:\n\n${enrollment.backup_codes.join("\n")}`);
+      await render("account");
+    } catch (error) { notify(error.message, "error"); }
+  }
+  if (button.dataset.action === "mfa-disable") {
+    const code = prompt("Enter a current authenticator or recovery code to disable MFA:");
+    if (!code) return;
+    try { await api("/api/v2/mfa", {method: "DELETE", body: JSON.stringify({code})}); await render("account"); }
+    catch (error) { notify(error.message, "error"); }
+  }
 });
 
 createButton.addEventListener("click", () => openEditor());

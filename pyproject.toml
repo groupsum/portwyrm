@@ -15,7 +15,9 @@ dependencies = [
   "bcrypt>=4,<6",
   "cryptography>=45,<47",
   "fastapi>=0.116,<1",
+  "psycopg[binary]>=3.2,<4",
   "pyjwt[crypto]>=2.10,<3",
+  "pymysql>=1.1,<2",
   "pyotp>=2.9,<3",
   "uvicorn>=0.35,<1",
 ]
