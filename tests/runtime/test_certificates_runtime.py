@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +10,9 @@ from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
     ACMEOrder,
     CertificateLifecycle,
+    CertificateManager,
+    CertificateMaterialStore,
+    CertificateRequest,
     Challenge,
     ChallengeType,
     CustomCertificateBundle,
@@ -156,3 +160,72 @@ def test_frozen_provider_catalog_has_86_unique_entries_and_validates_known_field
     DEFAULT_PROVIDER_CATALOG.validate_credentials(
         "cloudflare", {"dns_cloudflare_api_token": "redacted"}
     )
+
+
+class FakeIssuer:
+    def issue(self, domains, **kwargs):
+        assert domains == ("app.example.com",)
+        assert kwargs["email"] == "admin@example.test"
+        return IssuedCertificate(
+            CERTIFICATE,
+            PRIVATE_KEY,
+            CERTIFICATE,
+            datetime(2030, 1, 1, tzinfo=UTC),
+        )
+
+
+def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_path: Path) -> None:
+    from portwyrm.service import ControlPlane
+
+    service = ControlPlane()
+    manager = CertificateManager(
+        service,
+        CertificateMaterialStore(tmp_path / "live"),
+        validator=OpenSSLPEMValidator(runner=fake_openssl),
+        issuer=FakeIssuer(),
+    )
+    custom = manager.upload(
+        CustomCertificateBundle(CERTIFICATE, PRIVATE_KEY, CERTIFICATE), nice_name="Custom"
+    )
+    custom_root = tmp_path / "live" / f"npm-{custom['id']}"
+    assert (custom_root / "fullchain.pem").read_text(encoding="utf-8").count(
+        "BEGIN CERTIFICATE"
+    ) == 2
+    assert "private_key" not in custom
+
+    acme = manager.request(
+        CertificateRequest(
+            "Automatic",
+            ("app.example.com",),
+            "admin@example.test",
+            ChallengeType.HTTP_01,
+        )
+    )
+    assert acme["provider"] == "letsencrypt"
+    assert (tmp_path / "live" / f"npm-{acme['id']}" / "privkey.pem").is_file()
+
+
+def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_path: Path) -> None:
+    from portwyrm.service import Conflict, ControlPlane
+
+    service = ControlPlane()
+    manager = CertificateManager(
+        service,
+        CertificateMaterialStore(tmp_path / "live"),
+        validator=OpenSSLPEMValidator(runner=fake_openssl),
+    )
+    certificate = manager.upload(
+        CustomCertificateBundle(CERTIFICATE, PRIVATE_KEY), nice_name="Assigned"
+    )
+    service.create(
+        "proxy-hosts",
+        {
+            "domain_names": ["secure.example.com"],
+            "forward_scheme": "http",
+            "forward_host": "app",
+            "forward_port": 8080,
+            "certificate_id": certificate["id"],
+        },
+    )
+    with pytest.raises(Conflict, match="still assigned"):
+        manager.delete(certificate["id"])

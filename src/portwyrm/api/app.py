@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -10,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from portwyrm.api.compat import create_compat_app
 from portwyrm.api.dependencies import create_default_repository
+from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
 from portwyrm.identity import TokenStore
 from portwyrm.operations.health import HealthService
 from portwyrm.persistence import Repository
@@ -26,6 +31,18 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv("INITIAL_ADMIN_PASSWORD")
     repository = repository or create_default_repository()
     control_plane = PersistentControlPlane(repository)
+    certificate_root = Path(
+        os.getenv("PORTWYRM_CERTIFICATE_ROOT", str(Path.cwd() / ".portwyrm" / "certificates"))
+    )
+    certificate_manager = CertificateManager(
+        control_plane,
+        CertificateMaterialStore(certificate_root),
+        issuer=CertbotIssuer(
+            webroot=os.getenv("PORTWYRM_ACME_WEBROOT", "/data/acme-challenge"),
+            server=os.getenv("PORTWYRM_ACME_SERVER") or None,
+            staging=os.getenv("PORTWYRM_ACME_STAGING", "0").lower() in {"1", "true", "yes"},
+        ),
+    )
     runtime: RuntimeCoordinator | None = None
     if os.getenv("PORTWYRM_NGINX_RUNTIME", "0").lower() in {"1", "true", "yes"}:
         root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
@@ -34,7 +51,31 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     if email and password and not control_plane.list("users"):
         control_plane.bootstrap_admin(email, password)
 
-    app = create_compat_app(control_plane, tokens=TokenStore(repository=repository))
+    async def renewal_loop() -> None:
+        interval = max(300, int(os.getenv("PORTWYRM_CERTIFICATE_RENEW_INTERVAL", "43200")))
+        while True:
+            await asyncio.sleep(interval)
+            await asyncio.to_thread(certificate_manager.renew_due)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        renewal_task: asyncio.Task[None] | None = None
+        if os.getenv("PORTWYRM_CERTIFICATE_AUTO_RENEW", "1").lower() in {"1", "true", "yes"}:
+            renewal_task = asyncio.create_task(renewal_loop())
+        try:
+            yield
+        finally:
+            if renewal_task is not None:
+                renewal_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await renewal_task
+
+    app = create_compat_app(
+        control_plane,
+        tokens=TokenStore(repository=repository),
+        certificates=certificate_manager,
+        lifespan=lifespan,
+    )
     app.state.repository = repository
     app.state.runtime = runtime
 

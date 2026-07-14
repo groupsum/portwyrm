@@ -41,6 +41,8 @@ def _ssl(row: dict[str, Any]) -> SSLSettings:
         hsts=bool(row.get("hsts_enabled")),
         hsts_subdomains=bool(row.get("hsts_subdomains")),
         trust_forwarded_proto=bool(row.get("trust_forwarded_proto")),
+        client_certificate_id=int(row.get("client_certificate_id") or 0),
+        client_verify_depth=int(row.get("client_verify_depth") or 1),
     )
 
 

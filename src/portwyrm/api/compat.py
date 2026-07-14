@@ -5,12 +5,22 @@
 from __future__ import annotations
 
 import inspect
+import os
+import tempfile
 from collections.abc import Awaitable, Mapping
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 
+from portwyrm.certificates import (
+    DEFAULT_PROVIDER_CATALOG,
+    CertificateManager,
+    CertificateRequest,
+    ChallengeType,
+    CustomCertificateBundle,
+)
 from portwyrm.security import Principal, TokenStore
 
 Resource = dict[str, Any]
@@ -63,11 +73,14 @@ def create_compat_app(
     tokens: TokenStore | None = None,
     version: str = "0.1.0a0",
     authenticator: Any | None = None,
+    certificates: CertificateManager | None = None,
+    lifespan: Any | None = None,
 ) -> FastAPI:
     token_store = tokens or TokenStore()
-    app = FastAPI(title="Portwyrm NPM compatibility API", version="2.10.4")
+    app = FastAPI(title="Portwyrm NPM compatibility API", version="2.10.4", lifespan=lifespan)
     app.state.control_plane = service
     app.state.token_store = token_store
+    app.state.certificate_manager = certificates
 
     async def principal_from_bearer(
         authorization: str | None = Header(default=None),
@@ -245,6 +258,126 @@ def create_compat_app(
         ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="token not found")
         token_store.revoke_pat(token_id)
+
+    @app.get("/api/nginx/certificates/dns-providers")
+    async def dns_providers(
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> list[Resource]:
+        _authorize(principal, "certificates", admin_only=False, write=False)
+        return [
+            {
+                "id": provider.id,
+                "name": provider.name,
+                "package_name": provider.package_name,
+                "credential_fields": list(provider.credential_fields),
+            }
+            for provider in DEFAULT_PROVIDER_CATALOG
+        ]
+
+    @app.post("/api/nginx/certificates/validate")
+    async def validate_certificate(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        _authorize(principal, "certificates", admin_only=False, write=True)
+        manager = _require_certificate_manager(certificates)
+        bundle = _certificate_bundle(payload)
+        info = manager.validator.validate(bundle)
+        return {
+            "subject": info.subject,
+            "issuer": info.issuer,
+            "serial": info.serial,
+            "domain_names": list(info.domain_names),
+            "not_before": info.not_before.isoformat(),
+            "not_after": info.not_after.isoformat(),
+        }
+
+    @app.post("/api/nginx/certificates/upload", status_code=status.HTTP_201_CREATED)
+    async def upload_certificate(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        _authorize(principal, "certificates", admin_only=False, write=True)
+        manager = _require_certificate_manager(certificates)
+        return manager.upload(
+            _certificate_bundle(payload), nice_name=str(payload.get("nice_name", ""))
+        )
+
+    @app.post("/api/nginx/certificates/{certificate_id}/upload")
+    async def replace_certificate(
+        certificate_id: int,
+        payload: dict[str, Any],
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        _authorize(principal, "certificates", admin_only=False, write=True)
+        manager = _require_certificate_manager(certificates)
+        return manager.upload(
+            _certificate_bundle(payload),
+            nice_name=str(payload.get("nice_name", "")),
+            certificate_id=certificate_id,
+        )
+
+    @app.post("/api/nginx/certificates/request", status_code=status.HTTP_201_CREATED)
+    async def request_certificate(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        _authorize(principal, "certificates", admin_only=False, write=True)
+        manager = _require_certificate_manager(certificates)
+        domains = payload.get("domain_names")
+        if not isinstance(domains, list):
+            raise HTTPException(status_code=422, detail="domain_names must be an array")
+        try:
+            request = CertificateRequest(
+                nice_name=str(payload.get("nice_name", "Certificate")),
+                domain_names=tuple(str(item) for item in domains),
+                email=str(payload.get("email", "")),
+                challenge_type=ChallengeType(str(payload.get("challenge_type", "http-01"))),
+                key_type=str(payload.get("key_type", "rsa")),
+                provider=(str(payload["dns_provider"]) if payload.get("dns_provider") else None),
+            )
+            credentials = payload.get("dns_credentials")
+            if request.challenge_type == ChallengeType.DNS_01:
+                if not request.provider or not isinstance(credentials, Mapping):
+                    raise ValueError("DNS-01 requires dns_provider and dns_credentials")
+                normalized_credentials = {
+                    str(key): str(value) for key, value in credentials.items()
+                }
+                DEFAULT_PROVIDER_CATALOG.validate_credentials(
+                    request.provider, normalized_credentials
+                )
+                descriptor, name = tempfile.mkstemp(prefix="portwyrm-dns-", text=True)
+                try:
+                    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                        for key, value in normalized_credentials.items():
+                            handle.write(f"{key} = {value}\n")
+                    os.chmod(name, 0o600)
+                    return manager.request(request, credentials_file=Path(name))
+                finally:
+                    Path(name).unlink(missing_ok=True)
+            return manager.request(request)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/nginx/certificates/{certificate_id}/renew")
+    async def renew_certificate(
+        certificate_id: int,
+        force: bool = Query(default=False),
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        _authorize(principal, "certificates", admin_only=False, write=True)
+        return _require_certificate_manager(certificates).renew(certificate_id, force=force)
+
+    @app.delete("/api/nginx/certificates/{certificate_id}")
+    async def delete_certificate(
+        certificate_id: int,
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> bool:
+        _authorize(principal, "certificates", admin_only=False, write=True)
+        if certificates is None:
+            deleted = await _service_delete(service, "certificates", certificate_id, principal)
+            if not deleted:
+                raise HTTPException(status_code=404, detail="resource not found")
+            return True
+        certificates.delete(certificate_id)
+        return True
 
     _register_resource_routes(app, service, principal_from_bearer)
 
@@ -472,6 +605,11 @@ def _resource_id(value: str, *, allow_string: bool) -> int | str:
 def _validate_payload(payload: Mapping[str, Any]) -> None:
     if "id" in payload:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="id is server assigned")
+    if "private_key" in payload or "private-key" in payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="private keys must use the certificate upload operation",
+        )
     meta = payload.get("meta")
     if meta is not None and not isinstance(meta, Mapping):
         raise HTTPException(
@@ -489,6 +627,23 @@ def _valid_resource(resource: Mapping[str, Any], collection: str) -> Resource:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="service returned invalid id"
         )
     return item
+
+
+def _require_certificate_manager(value: CertificateManager | None) -> CertificateManager:
+    if value is None:
+        raise HTTPException(status_code=501, detail="certificate management unavailable")
+    return value
+
+
+def _certificate_bundle(payload: Mapping[str, Any]) -> CustomCertificateBundle:
+    certificate = payload.get("certificate")
+    private_key = payload.get("private_key")
+    intermediate = payload.get("intermediate_certificate", "")
+    if not isinstance(certificate, str) or not isinstance(private_key, str):
+        raise HTTPException(status_code=422, detail="certificate and private_key are required")
+    if not isinstance(intermediate, str):
+        raise HTTPException(status_code=422, detail="intermediate_certificate must be text")
+    return CustomCertificateBundle(certificate, private_key, intermediate)
 
 
 async def _maybe_await[T](value: T | Awaitable[T]) -> T:

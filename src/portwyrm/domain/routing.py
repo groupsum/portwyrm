@@ -74,6 +74,8 @@ class SSLSettings:
     hsts: bool = False
     hsts_subdomains: bool = False
     trust_forwarded_proto: bool = False
+    client_certificate_id: int = 0
+    client_verify_depth: int = 1
 
     def normalized(self) -> SSLSettings:
         certificate_id = int(self.certificate_id or 0)
@@ -81,6 +83,11 @@ class SSLSettings:
             raise DomainValidationError("certificate_id cannot be negative")
         if certificate_id == 0:
             return SSLSettings()
+        client_certificate_id = int(self.client_certificate_id or 0)
+        if client_certificate_id < 0:
+            raise DomainValidationError("client_certificate_id cannot be negative")
+        if not 1 <= int(self.client_verify_depth) <= 10:
+            raise DomainValidationError("client_verify_depth must be between 1 and 10")
         forced = bool(self.forced)
         hsts = forced and bool(self.hsts)
         return SSLSettings(
@@ -90,6 +97,8 @@ class SSLSettings:
             hsts=hsts,
             hsts_subdomains=hsts and bool(self.hsts_subdomains),
             trust_forwarded_proto=forced and bool(self.trust_forwarded_proto),
+            client_certificate_id=client_certificate_id,
+            client_verify_depth=int(self.client_verify_depth),
         )
 
 

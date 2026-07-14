@@ -28,7 +28,14 @@ const schemas = {
     ["forwarding_port", "Forward port", "number", true], ["tcp_forwarding", "TCP", "checkbox"],
     ["udp_forwarding", "UDP", "checkbox"], ["certificate_id", "Certificate ID", "number"],
   ],
-  certificates: [["nice_name", "Name", "text", true], ["provider", "Provider", "select", true, ["letsencrypt", "other"]], ["domain_names", "Domain names", "list"]],
+  certificates: [
+    ["nice_name", "Name", "text", true], ["provider", "Provider", "select", true, ["other", "letsencrypt"]],
+    ["domain_names", "Domain names", "list"], ["email", "ACME account email", "email"],
+    ["challenge_type", "ACME challenge", "select", false, ["http-01", "dns-01"]],
+    ["key_type", "Key type", "select", false, ["rsa", "ecdsa"]],
+    ["certificate", "Certificate PEM", "textarea"], ["private_key", "Private key PEM", "textarea"],
+    ["intermediate_certificate", "Intermediate PEM", "textarea"],
+  ],
   "access-lists": [["name", "Name", "text", true], ["satisfy_any", "Satisfy any rule", "checkbox"], ["pass_auth", "Pass auth upstream", "checkbox"]],
   users: [["email", "Email", "email", true], ["name", "Name", "text", true], ["nickname", "Nickname", "text"], ["is_admin", "Administrator", "checkbox"], ["is_disabled", "Disabled", "checkbox"]],
   settings: [["name", "Setting name", "text", true], ["value", "Value", "text", true]],
@@ -138,6 +145,7 @@ async function render(name = currentView) {
 function fieldMarkup([name, label, type, required, options], value) {
   if (type === "checkbox") return `<label class="check"><input name="${name}" type="checkbox" ${value ? "checked" : ""}>${escapeHtml(label)}</label>`;
   if (type === "select") return `<label>${escapeHtml(label)}<select name="${name}" ${required ? "required" : ""}>${options.map(option => `<option value="${escapeHtml(option)}" ${String(value ?? "") === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select></label>`;
+  if (type === "textarea") return `<label>${escapeHtml(label)}<textarea name="${name}" rows="6" spellcheck="false" ${required ? "required" : ""}>${escapeHtml(value ?? "")}</textarea></label>`;
   return `<label>${escapeHtml(label)}<input name="${name}" type="${type === "list" ? "text" : type}" value="${escapeHtml(type === "list" && Array.isArray(value) ? value.join(", ") : value ?? "")}" ${type === "number" ? 'min="0"' : ""} ${required ? "required" : ""}>${type === "list" ? '<span class="muted">Separate multiple values with commas.</span>' : ""}</label>`;
 }
 
@@ -173,7 +181,15 @@ $("#editor-form").addEventListener("submit", async event => {
   const submit = $("button[type=submit]", event.currentTarget);
   submit.disabled = true;
   try {
-    await api(resourcePath(currentView, editing), {method: editing === null ? "POST" : "PUT", body: JSON.stringify(formPayload())});
+    const payload = formPayload();
+    let path = resourcePath(currentView, editing);
+    let method = editing === null ? "POST" : "PUT";
+    if (currentView === "certificates") {
+      if (payload.provider === "letsencrypt" && editing === null) path = "/api/nginx/certificates/request";
+      else path = editing === null ? "/api/nginx/certificates/upload" : `/api/nginx/certificates/${editing}/upload`;
+      method = "POST";
+    }
+    await api(path, {method, body: JSON.stringify(payload)});
     editorDialog.close();
     notify(`${labels[currentView]} saved.`);
     await render();
