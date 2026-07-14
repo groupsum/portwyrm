@@ -12,7 +12,9 @@ providing a cleaner native API and extensible persistence architecture.
 
 The first MVP is the generally available `1.0.0`. Its boundary is p100 of the frozen NPM
 compatibility profiles and the additional capabilities explicitly requested by Groupsum.
-Pre-releases are implementation milestones, not reduced MVPs.
+Pre-releases are implementation milestones, not reduced MVPs. The authoritative sequencing,
+exit gates, and OOB/won't-do dispositions are in the
+[feature slice initiative](delivery-slices.yaml).
 
 ## Primary actors and jobs
 
@@ -56,4 +58,6 @@ The full DNS-01 provider catalog, every upstream UI-only behavior, migration fid
 real NPM databases, and wire-level differences between NPM versions remain evidence gates.
 
 No tail exclusions are permitted for `1.0.0`: every discovered baseline capability must be
-implemented, explicitly ruled outside the frozen envelope with approval, or block GA.
+implemented, explicitly ruled outside the frozen envelope with approval, or block GA. mTLS,
+HTTP/3/QUIC, and advanced preferences are currently out of bounds. WebTransport on the selected
+Nginx data plane, a Node/npm runtime requirement, and copied NPM identity are explicitly won't-do.
