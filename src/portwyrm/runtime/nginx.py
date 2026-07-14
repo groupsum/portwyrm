@@ -407,6 +407,8 @@ class NginxRenderer:
         lines = ["server {", *_listen(host.domain_names, ssl, self.platform.ipv6)]
         lines.extend(_ssl_lines(ssl))
         lines.extend(_force_ssl_lines(ssl))
+        if host.block_exploits:
+            lines.append(_block_exploits().rstrip())
         if host.advanced_config:
             lines.append(_indented(host.advanced_config.rstrip()))
         if not self._has_root_location(host.advanced_config):

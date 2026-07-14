@@ -54,6 +54,8 @@ SECTION_BY_COLLECTION = {
     "streams": "streams",
 }
 
+TOGGLE_COLLECTIONS = {"proxy_hosts", "redirection_hosts", "dead_hosts", "streams"}
+
 
 def create_compat_app(
     service: CompatibilityService,
@@ -182,6 +184,19 @@ def _register_resource_routes(
         app.add_api_route(
             f"{path}/{{resource_id}}", delete_item, methods=["DELETE"], name=f"delete_{collection}"
         )
+        if collection in TOGGLE_COLLECTIONS:
+            app.add_api_route(
+                f"{path}/{{resource_id}}/enable",
+                _toggle_handler(service, principal_dependency, collection, admin_only, True),
+                methods=["POST"],
+                name=f"enable_{collection}",
+            )
+            app.add_api_route(
+                f"{path}/{{resource_id}}/disable",
+                _toggle_handler(service, principal_dependency, collection, admin_only, False),
+                methods=["POST"],
+                name=f"disable_{collection}",
+            )
 
 
 def _list_handler(
@@ -265,6 +280,31 @@ def _delete_handler(
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
         return True
+
+    return handler
+
+
+def _toggle_handler(
+    service: CompatibilityService,
+    principal_dependency: Any,
+    collection: str,
+    admin_only: bool,
+    enabled: bool,
+) -> Any:
+    async def handler(
+        resource_id: str, principal: Principal = Depends(principal_dependency)
+    ) -> Resource:
+        _authorize(principal, collection, admin_only=admin_only, write=True)
+        normalized_id = _resource_id(resource_id, allow_string=False)
+        existing = await _service_get(service, collection, normalized_id, principal)
+        if existing is None or not _is_visible(existing, principal):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        merged = dict(existing)
+        merged["enabled"] = int(enabled)
+        updated = await _service_update(service, collection, normalized_id, merged, principal)
+        if updated is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        return _valid_resource(updated, collection)
 
     return handler
 

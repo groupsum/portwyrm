@@ -193,6 +193,7 @@ class DeadHost:
     domain_names: tuple[str, ...] | list[str]
     owner_user_id: int = 1
     ssl: SSLSettings = field(default_factory=SSLSettings)
+    block_exploits: bool = False
     advanced_config: str = ""
     enabled: bool = True
     meta: Mapping[str, Any] = field(default_factory=dict)

@@ -105,7 +105,7 @@ def test_redirect_dead_stream_and_platform_rendering() -> None:
                 forward_http_code=308,
             )
         ],
-        dead_hosts=[DeadHost(2, ["gone.example.com"])],
+        dead_hosts=[DeadHost(2, ["gone.example.com"], block_exploits=True)],
         streams=[
             Stream(
                 3,
@@ -124,6 +124,7 @@ def test_redirect_dead_stream_and_platform_rendering() -> None:
         in rendered.files["http/redirection-1.conf"]
     )
     assert "return 404" in rendered.files["http/dead-2.conf"]
+    assert "include conf.d/include/block-exploits.conf" in rendered.files["http/dead-2.conf"]
     stream = rendered.files["stream/stream-3.conf"]
     assert "listen 9443 ssl" in stream and "listen 9443 udp" in stream
     assert "listen [::]" not in stream

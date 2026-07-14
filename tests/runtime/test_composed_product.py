@@ -98,7 +98,8 @@ def test_cli_resource_commands_use_compatible_api_paths(monkeypatch) -> None:
 
 
 def test_installed_server_defaults_to_durable_sqlite(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     monkeypatch.delenv("PORTWYRM_DB_BACKEND", raising=False)
     monkeypatch.delenv("PORTWYRM_SQLITE_PATH", raising=False)

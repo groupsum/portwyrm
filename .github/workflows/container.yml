@@ -13,6 +13,21 @@ permissions:
   attestations: write
 
 jobs:
+  protocols:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --dev --locked
+      - run: docker build -t portwyrm:s1-test .
+      - name: Exercise real Nginx protocols
+        env:
+          PORTWYRM_RUN_DOCKER_TESTS: "1"
+          PORTWYRM_TEST_IMAGE: portwyrm:s1-test
+        run: uv run pytest -q tests/integration/test_s1_container_protocols.py
+
   build:
     runs-on: ubuntu-latest
     steps:

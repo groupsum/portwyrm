@@ -10,6 +10,7 @@ from typing import Any
 
 from argon2 import PasswordHasher
 
+from portwyrm.domain.routing import AccessClient, ProxyLocation, canonical_domains
 from portwyrm.security import Principal
 
 
@@ -298,18 +299,66 @@ class ControlPlane:
                 raise ControlPlaneError("domain_names must contain between 1 and 100 entries")
             if len(_domains(payload)) != len(domains):
                 raise Conflict("domain_names must be unique")
+            try:
+                canonical_domains(domains)
+            except ValueError as exc:
+                raise ControlPlaneError(str(exc)) from exc
         if collection == "proxy-hosts":
             port = int(payload.get("forward_port", 0))
             if not 1 <= port <= 65535:
                 raise ControlPlaneError("forward_port must be between 1 and 65535")
             if payload.get("forward_scheme") not in {"http", "https"}:
                 raise ControlPlaneError("forward_scheme must be http or https")
+            if not str(payload.get("forward_host", "")).strip():
+                raise ControlPlaneError("forward_host is required")
+            locations = payload.get("locations", payload.get("custom_locations", []))
+            if not isinstance(locations, list):
+                raise ControlPlaneError("locations must be an array")
+            try:
+                for item in locations:
+                    if not isinstance(item, dict):
+                        raise ValueError("locations must contain objects")
+                    ProxyLocation(
+                        str(item.get("path", "")),
+                        str(item.get("forward_scheme", "http")),
+                        str(item.get("forward_host", "")),
+                        int(item.get("forward_port", 0)),
+                        str(item.get("forward_path", "")),
+                        str(item.get("advanced_config", "")),
+                    )
+            except (TypeError, ValueError) as exc:
+                raise ControlPlaneError(str(exc)) from exc
+        if collection == "redirection-hosts":
+            if not str(payload.get("forward_domain_name", "")).strip():
+                raise ControlPlaneError("forward_domain_name is required")
+            if payload.get("forward_scheme", "auto") not in {"auto", "http", "https"}:
+                raise ControlPlaneError("forward_scheme must be auto, http, or https")
+            code = int(payload.get("forward_http_code", 301))
+            if not 300 <= code <= 308:
+                raise ControlPlaneError("forward_http_code must be between 300 and 308")
         if collection == "streams":
-            for key in ("incoming_port", "forward_port"):
+            for key in ("incoming_port", "forwarding_port"):
                 if not 1 <= int(payload.get(key, 0)) <= 65535:
                     raise ControlPlaneError(f"{key} must be between 1 and 65535")
+            if not str(payload.get("forwarding_host", "")).strip():
+                raise ControlPlaneError("forwarding_host is required")
             if not payload.get("tcp_forwarding") and not payload.get("udp_forwarding"):
                 raise ControlPlaneError("at least one stream protocol must be enabled")
+            if payload.get("certificate_id") and not payload.get("tcp_forwarding"):
+                raise ControlPlaneError("stream TLS is supported only for TCP")
+        if collection == "access-lists":
+            if not str(payload.get("name", "")).strip():
+                raise ControlPlaneError("access-list name is required")
+            clients = payload.get("clients", [])
+            if not isinstance(clients, list):
+                raise ControlPlaneError("access-list clients must be an array")
+            try:
+                for item in clients:
+                    if not isinstance(item, dict):
+                        raise ValueError("access-list clients must contain objects")
+                    AccessClient(str(item.get("address", "")), str(item.get("directive", "")))
+            except (TypeError, ValueError) as exc:
+                raise ControlPlaneError(str(exc)) from exc
         if collection == "users" and not str(payload.get("email", "")).strip():
             raise ControlPlaneError("email is required")
 

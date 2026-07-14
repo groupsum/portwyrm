@@ -37,6 +37,7 @@ dev = [
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
   "ssot-registry>=0.2.26,<0.3",
+  "websockets>=15,<16",
 ]
 
 [project.scripts]

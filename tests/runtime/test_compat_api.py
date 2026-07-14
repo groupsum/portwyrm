@@ -148,6 +148,29 @@ def test_proxy_crud_preserves_id_unknown_fields_and_metadata(client: TestClient)
     assert client.get("/api/nginx/proxy-hosts/1", headers=headers).status_code == 404
 
 
+def test_host_enable_disable_routes_are_explicit_and_idempotent(client: TestClient) -> None:
+    headers = login(client)
+    created = client.post(
+        "/api/nginx/proxy-hosts",
+        headers=headers,
+        json={"domain_names": ["toggle.example.com"], "enabled": 1},
+    ).json()
+
+    disabled = client.post(f"/api/nginx/proxy-hosts/{created['id']}/disable", headers=headers)
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] == 0
+    assert (
+        client.post(f"/api/nginx/proxy-hosts/{created['id']}/disable", headers=headers).json()[
+            "enabled"
+        ]
+        == 0
+    )
+
+    enabled = client.post(f"/api/nginx/proxy-hosts/{created['id']}/enable", headers=headers)
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] == 1
+
+
 @pytest.mark.parametrize(
     ("path", "payload"),
     [

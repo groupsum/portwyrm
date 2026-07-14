@@ -156,6 +156,7 @@ class RuntimeCoordinator:
             row["domain_names"],
             int(row.get("owner_user_id") or 1),
             _ssl(row),
+            bool(row.get("block_exploits")),
             str(row.get("advanced_config") or ""),
             bool(row.get("enabled", 1)),
             row.get("meta", {}),

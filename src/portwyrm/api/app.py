@@ -22,9 +22,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
     """Construct the packaged API, runtime coordinator, and UIX."""
 
     email = os.getenv("PORTWYRM_INITIAL_ADMIN_EMAIL") or os.getenv("INITIAL_ADMIN_EMAIL")
-    password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv(
-        "INITIAL_ADMIN_PASSWORD"
-    )
+    password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv("INITIAL_ADMIN_PASSWORD")
     repository = repository or create_default_repository()
     control_plane = PersistentControlPlane(repository)
     runtime: RuntimeCoordinator | None = None
