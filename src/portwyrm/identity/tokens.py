@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import secrets
 import time
 from dataclasses import dataclass
 from typing import Any
+
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError
 
 from portwyrm.persistence import Repository
 
@@ -18,14 +19,23 @@ from .models import PersonalAccessToken, Principal
 class _Session:
     principal: Principal
     expires: int
+    token_hash: str
+
+
+_TOKEN_HASHER = PasswordHasher(
+    time_cost=2, memory_cost=19_456, parallelism=1, hash_len=32, salt_len=16
+)
 
 
 def _token_hash(token: str) -> str:
-    # Tokens carry at least 256 bits of entropy. This is a deterministic lookup digest,
-    # not a password verifier; domain separation prevents cross-protocol digest reuse.
-    return hashlib.blake2b(
-        token.encode("utf-8"), digest_size=32, person=b"portwyrm-token1"
-    ).hexdigest()
+    return _TOKEN_HASHER.hash(token)
+
+
+def _token_matches(stored: str, token: str) -> bool:
+    try:
+        return _TOKEN_HASHER.verify(stored, token)
+    except VerificationError:
+        return False
 
 
 def _principal_record(principal: Principal) -> dict[str, Any]:
@@ -74,8 +84,13 @@ class TokenStore:
             return
         with self.repository.transaction() as tx:
             for row in tx.list("_sessions"):
+                token_hash = row.get("token_hash")
+                if not isinstance(token_hash, str) or not token_hash.startswith("$argon2id$"):
+                    continue
                 self._sessions[str(row["id"])] = _Session(
-                    _principal_from_record(dict(row["principal"])), int(row["expires"])
+                    _principal_from_record(dict(row["principal"])),
+                    int(row["expires"]),
+                    token_hash,
                 )
             for row in tx.list("_personal_access_tokens"):
                 self._pats[str(row["id"])] = PersonalAccessToken(
@@ -97,6 +112,7 @@ class TokenStore:
                 "_sessions",
                 {
                     "id": token_hash,
+                    "token_hash": session.token_hash,
                     "principal": _principal_record(session.principal),
                     "expires": session.expires,
                 },
@@ -133,18 +149,21 @@ class TokenStore:
         ttl_seconds: int | None = None,
     ) -> tuple[str, int]:
         issued_at = int(time.time()) if now is None else int(now)
-        token = secrets.token_urlsafe(32)
+        token_id = secrets.token_hex(12)
+        token = f"pws_{token_id}_{secrets.token_urlsafe(32)}"
         expires = issued_at + (self.session_ttl_seconds if ttl_seconds is None else ttl_seconds)
         token_hash = _token_hash(token)
-        session = _Session(principal=principal, expires=expires)
-        self._sessions[token_hash] = session
-        self._persist_session(token_hash, session)
+        session = _Session(principal=principal, expires=expires, token_hash=token_hash)
+        self._sessions[token_id] = session
+        self._persist_session(token_id, session)
         return token, expires
 
     def revoke_session(self, token: str) -> bool:
-        token_hash = _token_hash(token)
-        existed = self._sessions.pop(token_hash, None) is not None
-        self._delete_session(token_hash)
+        token_id, session = self._session_from_plaintext(token)
+        if token_id is None or session is None:
+            return False
+        existed = self._sessions.pop(token_id, None) is not None
+        self._delete_session(token_id)
         return existed
 
     def refresh_session(self, token: str, *, now: int | None = None) -> tuple[str, int]:
@@ -199,12 +218,12 @@ class TokenStore:
 
     def verify(self, token: str, *, now: int | None = None) -> Principal:
         checked_at = int(time.time()) if now is None else int(now)
-        token_hash = _token_hash(token)
-        session = self._sessions.get(token_hash)
+        token_id, session = self._session_from_plaintext(token)
         if session is not None:
             if checked_at >= session.expires:
-                self._sessions.pop(token_hash, None)
-                self._delete_session(token_hash)
+                assert token_id is not None
+                self._sessions.pop(token_id, None)
+                self._delete_session(token_id)
                 raise ValueError("token expired")
             return session.principal
         record = self._pat_from_plaintext(token)
@@ -216,11 +235,20 @@ class TokenStore:
         self._persist_pat(record)
         return record.principal
 
+    def _session_from_plaintext(self, token: str) -> tuple[str | None, _Session | None]:
+        parts = token.split("_", 2)
+        if len(parts) != 3 or parts[0] != "pws":
+            return None, None
+        session = self._sessions.get(parts[1])
+        if session is None or not _token_matches(session.token_hash, token):
+            return None, None
+        return parts[1], session
+
     def _pat_from_plaintext(self, token: str) -> PersonalAccessToken | None:
         parts = token.split("_", 2)
         if len(parts) != 3 or parts[0] != "pwyrm":
             return None
         record = self._pats.get(parts[1])
-        if record is None or not hmac.compare_digest(record.token_hash, _token_hash(token)):
+        if record is None or not _token_matches(record.token_hash, token):
             return None
         return record

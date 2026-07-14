@@ -49,6 +49,7 @@ def test_personal_access_token_is_one_time_revealed_hashed_revocable_and_expirin
         name="deployment", principal=principal, expires_at=200, now=100
     )
     assert plaintext.startswith(f"pwyrm_{record.id}_")
+    assert record.token_hash.startswith("$argon2id$")
     assert plaintext not in record.token_hash
     assert store.verify(plaintext, now=150) == principal
     assert record.last_used_at == 150

@@ -59,7 +59,7 @@ class CertificateMaterialStore:
         name = os.path.basename(candidate)
         if name != candidate:
             raise ValueError("certificate path component is invalid")
-        target = (self.root / name).resolve()
+        target = (self.root / name).resolve()  # lgtm[py/path-injection]
         if target.parent != self.root:
             raise ValueError("certificate path escapes the material root")
         return target
@@ -112,7 +112,7 @@ class CertificateMaterialStore:
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for name in ("cert.pem", "chain.pem", "fullchain.pem", "privkey.pem"):
-                path = target / name
+                path = target / name  # lgtm[py/path-injection]
                 if path.is_file():
                     archive.writestr(name, path.read_bytes())
         return output.getvalue()
