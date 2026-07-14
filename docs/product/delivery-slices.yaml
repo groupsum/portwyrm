@@ -2,10 +2,10 @@
   "contract_version": "1.0.0",
   "artifact_type": "initiative",
   "id": "initiative:portwyrm-p100-delivery",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "owner": "Groupsum / Portwyrm maintainers",
   "status": "active",
-  "review_date": "2026-07-13",
+  "review_date": "2026-07-14",
   "sources": [
     "docs/product/feature-matrix.md",
     "docs/product/product-context.md",
@@ -133,9 +133,11 @@
     "A won't-do item requires a superseding ADR and architecture review before it can return to planning.",
     "1.0.0 promotion requires all in-scope p100 rows and requested extensions to pass S5."
   ],
+  "boundary_semantics": "Each frozen boundary is cumulative through its named slice so it includes every prerequisite feature required for independent release evaluation.",
   "slices": [
     {
       "id": "S0",
+      "boundary_id": "bnd:portwyrm-s0",
       "name": "Composed control plane",
       "state": "delivered-baseline",
       "outcome": "An operator can install and run Portwyrm, bootstrap it, use the CLI/API/UIX, and persist desired state without Node.js or npm.",
@@ -150,6 +152,7 @@
     },
     {
       "id": "S1",
+      "boundary_id": "bnd:portwyrm-s1",
       "name": "Core proxy operator loop",
       "state": "delivered-baseline",
       "outcome": "An operator can reconcile reverse-proxy, redirect, dead-host, access-list, TCP, and UDP desired state into safe active Nginx configuration.",
@@ -165,6 +168,7 @@
     },
     {
       "id": "S2",
+      "boundary_id": "bnd:portwyrm-s2",
       "name": "Identity and operator completion",
       "state": "next",
       "outcome": "Admins and scoped users have durable credentials, correct permissions, revocable access tokens, complete login/logout behavior, and permission-aware UIX.",
@@ -185,6 +189,7 @@
     },
     {
       "id": "S3",
+      "boundary_id": "bnd:portwyrm-s3",
       "name": "Certificate and TLS lifecycle",
       "state": "queued",
       "outcome": "Operators can upload, issue, attach, renew, rotate, and recover certificates through complete runtime flows.",
@@ -203,6 +208,7 @@
     },
     {
       "id": "S4",
+      "boundary_id": "bnd:portwyrm-s4",
       "name": "MFA and recovery",
       "state": "queued",
       "outcome": "Users can enroll, enable, challenge, recover, regenerate, disable, and audit TOTP MFA safely.",
@@ -213,6 +219,7 @@
     },
     {
       "id": "S5",
+      "boundary_id": "bnd:portwyrm-s5",
       "name": "Compatibility and release closure",
       "state": "queued",
       "outcome": "A published OCI release can replace frozen NPM profiles with zero-change npmctl workflows and rehearsed migration and recovery.",
