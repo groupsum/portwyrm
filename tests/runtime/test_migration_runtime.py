@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import bcrypt
+
 from portwyrm.migration import import_npm, preflight_npm, preflight_npm_sqlite
 from portwyrm.persistence import MemoryRepository
 
@@ -55,3 +57,28 @@ def test_read_only_sqlite_preflight(tmp_path: Path) -> None:
     report = preflight_npm_sqlite(path)
     assert report.source_kind == "sqlite"
     assert report.records["users"] == [{"id": 1, "email": "admin@example.test", "is_deleted": 0}]
+
+
+def test_npm_related_identity_and_access_list_tables_are_assembled() -> None:
+    password_hash = bcrypt.hashpw(b"migrated-password", bcrypt.gensalt()).decode()
+    report = preflight_npm(
+        {
+            "user": [{"id": 5, "email": "operator@example.test"}],
+            "auth": [{"id": 10, "user_id": 5, "type": "password", "secret": password_hash}],
+            "user_permission": [{"user_id": 5, "visibility": "all", "proxy_hosts": "manage"}],
+            "access_list": [{"id": 7, "name": "private"}],
+            "access_list_auth": [
+                {"id": 8, "access_list_id": 7, "username": "alice", "password": "hash"}
+            ],
+            "access_list_client": [
+                {"id": 9, "access_list_id": 7, "address": "10.0.0.0/8", "directive": "allow"}
+            ],
+        }
+    )
+
+    assert report.records["_credentials"] == [
+        {"id": "operator@example.test", "password_hash": password_hash}
+    ]
+    assert report.records["users"][0]["permissions"]["proxy_hosts"] == "manage"
+    assert report.records["access_lists"][0]["items"][0]["username"] == "alice"
+    assert report.records["access_lists"][0]["clients"][0]["directive"] == "allow"

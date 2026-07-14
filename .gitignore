@@ -1,7 +1,10 @@
 .venv/
+.uv-cache/
+.portwyrm/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-tmp-agent-*/
 .ruff_cache/
 .coverage
 htmlcov/

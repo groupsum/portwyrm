@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+from portwyrm.application import PersistentControlPlane
+from portwyrm.operations import LogRotator, UpgradeManager, default_upgrades
 from portwyrm.operations.runtime import repository_config_from_environment
 from portwyrm.persistence import create_repository
-from portwyrm.persistent import PersistentControlPlane
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 
 
@@ -24,6 +26,7 @@ def main() -> int:
         directory.mkdir(parents=True, exist_ok=True)
 
     repository = create_repository(repository_config_from_environment())
+    UpgradeManager(repository, default_upgrades()).run()
     control_plane = PersistentControlPlane(repository)
     RuntimeCoordinator(control_plane, "/data/nginx", validate=True, reload=False).reconcile()
 
@@ -54,6 +57,8 @@ def main() -> int:
         ),
     ]
     stopping = False
+    rotation_interval = max(60, int(os.getenv("PORTWYRM_LOG_ROTATION_INTERVAL", "172800")))
+    next_rotation = time.monotonic() + rotation_interval
 
     def stop(signum: int, _frame: object) -> None:
         nonlocal stopping
@@ -67,6 +72,28 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     while True:
+        if time.monotonic() >= next_rotation:
+            rotation_results = [
+                LogRotator(
+                    path, max_bytes=int(os.getenv("PORTWYRM_LOG_MAX_BYTES", "10000000"))
+                ).rotate_if_needed()
+                for path in Path("/data/logs").glob("*.log")
+            ]
+            rotated = any(rotation_results)
+            if rotated:
+                subprocess.run(
+                    [
+                        "nginx",
+                        "-s",
+                        "reopen",
+                        "-c",
+                        "/data/nginx/current/nginx.conf",
+                        "-p",
+                        "/data/nginx/current/",
+                    ],
+                    check=False,
+                )
+            next_rotation = time.monotonic() + rotation_interval
         for child in children:
             code = child.poll()
             if code is not None:

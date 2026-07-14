@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from portwyrm.service import Actor, Conflict, ControlPlane, NotFound
+from portwyrm.application import Actor, Conflict, ControlPlane, ControlPlaneError, NotFound
 
 OWNER = Actor(id=2, email="operator@example.com", owner="groupsum")
 
@@ -62,6 +62,48 @@ def test_invalid_inputs_and_audit_redaction() -> None:
     event = service.audit_since()[-1]
     assert token["secret"] == "never-log-me"
     assert event["meta"]["secret"] == "[redacted]"
+
+
+def test_routing_payloads_are_validated_before_desired_state_changes() -> None:
+    service = ControlPlane()
+    with pytest.raises(ControlPlaneError, match="invalid domain"):
+        service.create("dead-hosts", {"domain_names": ["not a host"]})
+    with pytest.raises(ControlPlaneError, match="location path"):
+        service.create(
+            "proxy-hosts",
+            {
+                **proxy("locations.example"),
+                "locations": [
+                    {
+                        "path": "relative",
+                        "forward_host": "upstream",
+                        "forward_port": 80,
+                    }
+                ],
+            },
+        )
+    with pytest.raises(ControlPlaneError, match="forwarding_port"):
+        service.create(
+            "streams",
+            {
+                "incoming_port": 53,
+                "forwarding_host": "resolver",
+                "forwarding_port": 0,
+                "udp_forwarding": 1,
+            },
+        )
+
+    stream = service.create(
+        "streams",
+        {
+            "incoming_port": 53,
+            "forwarding_host": "resolver",
+            "forwarding_port": 53,
+            "tcp_forwarding": 0,
+            "udp_forwarding": 1,
+        },
+    )
+    assert stream["forwarding_port"] == 53
 
 
 def test_preserved_compatibility_ids_advance_allocator() -> None:

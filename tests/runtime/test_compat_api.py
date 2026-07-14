@@ -8,8 +8,9 @@ from fastapi.testclient import TestClient
 
 from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
+from portwyrm.application import ControlPlane
+from portwyrm.persistence import MemoryRepository
 from portwyrm.security import Principal
-from portwyrm.service import ControlPlane
 
 
 class FakeService:
@@ -105,8 +106,8 @@ def test_health_schema_login_and_refresh(client: TestClient) -> None:
 
     schema = client.get("/api/schema").json()
     assert schema["info"]["version"] == "2.10.4"
-    assert set(schema["paths"]["/api/nginx/proxy-hosts"]) >= {"get", "post"}
-    assert set(schema["paths"]["/api/nginx/proxy-hosts/{resource_id}"]) >= {
+    assert set(schema["paths"]["/nginx/proxy-hosts"]) >= {"get", "post"}
+    assert set(schema["paths"]["/nginx/proxy-hosts/{resource_id}"]) >= {
         "get",
         "put",
         "patch",
@@ -119,6 +120,26 @@ def test_health_schema_login_and_refresh(client: TestClient) -> None:
     assert refreshed.json()["token"]
     assert isinstance(refreshed.json()["expires"], int)
     assert client.get("/api/nginx/proxy-hosts", headers=headers).status_code == 401
+
+
+def test_browser_session_is_httponly_and_unsafe_requests_require_csrf(client: TestClient) -> None:
+    response = client.post(
+        "/api/v2/browser/login",
+        json={"identity": "admin@example.com", "secret": "correct", "scope": "user"},
+    )
+    assert response.status_code == 200
+    cookies = response.headers.get_list("set-cookie")
+    assert any("portwyrm_session=" in value and "HttpOnly" in value for value in cookies)
+    assert any("portwyrm_csrf=" in value and "HttpOnly" not in value for value in cookies)
+    assert client.get("/api/nginx/proxy-hosts").status_code == 200
+    blocked = client.post("/api/nginx/proxy-hosts", json={"domain_names": ["blocked.test"]})
+    assert blocked.status_code == 403
+    allowed = client.post(
+        "/api/nginx/proxy-hosts",
+        headers={"X-CSRF-Token": client.cookies["portwyrm_csrf"]},
+        json={"domain_names": ["allowed.test"]},
+    )
+    assert allowed.status_code == 201
 
 
 def test_proxy_crud_preserves_id_unknown_fields_and_metadata(client: TestClient) -> None:
@@ -145,6 +166,29 @@ def test_proxy_crud_preserves_id_unknown_fields_and_metadata(client: TestClient)
     assert listed.json() == [updated.json()]
     assert client.delete("/api/nginx/proxy-hosts/1", headers=headers).json() is True
     assert client.get("/api/nginx/proxy-hosts/1", headers=headers).status_code == 404
+
+
+def test_host_enable_disable_routes_are_explicit_and_idempotent(client: TestClient) -> None:
+    headers = login(client)
+    created = client.post(
+        "/api/nginx/proxy-hosts",
+        headers=headers,
+        json={"domain_names": ["toggle.example.com"], "enabled": 1},
+    ).json()
+
+    disabled = client.post(f"/api/nginx/proxy-hosts/{created['id']}/disable", headers=headers)
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] == 0
+    assert (
+        client.post(f"/api/nginx/proxy-hosts/{created['id']}/disable", headers=headers).json()[
+            "enabled"
+        ]
+        == 0
+    )
+
+    enabled = client.post(f"/api/nginx/proxy-hosts/{created['id']}/enable", headers=headers)
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] == 1
 
 
 @pytest.mark.parametrize(
@@ -260,7 +304,7 @@ def test_facade_adapts_the_shared_control_plane_service() -> None:
 def test_packaged_factory_bootstraps_from_environment_and_mounts_ui(monkeypatch) -> None:
     monkeypatch.setenv("INITIAL_ADMIN_EMAIL", "owner@example.com")
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "environment-secret")
-    client = TestClient(create_app())
+    client = TestClient(create_app(MemoryRepository()))
     authenticated = client.post(
         "/api/tokens",
         json={"identity": "OWNER@example.com", "secret": "environment-secret", "scope": "user"},
@@ -278,7 +322,7 @@ def test_packaged_app_requires_explicit_first_admin(monkeypatch: pytest.MonkeyPa
         "INITIAL_ADMIN_PASSWORD",
     ):
         monkeypatch.delenv(name, raising=False)
-    client = TestClient(create_app())
+    client = TestClient(create_app(MemoryRepository()))
     assert client.get("/api/setup").json() == {"setup": False}
     created = client.post(
         "/api/setup",
@@ -289,3 +333,40 @@ def test_packaged_app_requires_explicit_first_admin(monkeypatch: pytest.MonkeyPa
     assert client.get("/api/setup").json() == {"setup": True}
     duplicate = client.post("/api/setup", json={"email": "second@example.com", "password": "nope"})
     assert duplicate.status_code == 403
+
+
+def test_admin_can_impersonate_active_user_but_cannot_delete_self(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("PORTWYRM_MFA_KEY_PATH", str(tmp_path / "mfa.key"))
+    client = TestClient(create_app(MemoryRepository()))
+    assert (
+        client.post(
+            "/api/setup",
+            json={"email": "admin@example.com", "password": "correct horse battery staple"},
+        ).status_code
+        == 201
+    )
+    authenticated = client.post(
+        "/api/tokens",
+        json={
+            "identity": "admin@example.com",
+            "secret": "correct horse battery staple",
+            "scope": "user",
+        },
+    )
+    admin = {"Authorization": f"Bearer {authenticated.json()['result']['token']}"}
+    user = client.post(
+        "/api/users",
+        headers=admin,
+        json={"email": "operator@example.com", "password": "operator password"},
+    ).json()
+
+    impersonation = client.post(f"/api/users/{user['id']}/login", headers=admin)
+
+    assert impersonation.status_code == 200
+    operator = {"Authorization": f"Bearer {impersonation.json()['token']}"}
+    assert client.get("/api/v2/me", headers=operator).json()["email"] == "operator@example.com"
+    assert client.delete("/api/users/1", headers=admin).status_code == 409
+    actions = {entry["action"] for entry in client.get("/api/audit-log", headers=admin).json()}
+    assert {"authenticated", "user.impersonated"} <= actions

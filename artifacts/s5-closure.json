@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "scope": "S0-S5 local T2 implementation closure",
+  "results": {
+    "ruff": "passed",
+    "pytest": {
+      "passed": 223,
+      "skipped": 14,
+      "artifact": ".ssot/evidence/s5/runtime.junit.xml"
+    },
+    "container_protocols": {
+      "passed": 1,
+      "artifact": ".ssot/evidence/s5/protocols.junit.xml"
+    },
+    "live_database_backends": {
+      "passed": 2,
+      "backends": ["postgresql", "mysql"]
+    },
+    "npmctl_replay": {
+      "version": "0.4",
+      "schema_check": "passed",
+      "apply": "passed",
+      "converged_plan": "noop",
+      "drift_count": 0,
+      "audit_log": "passed"
+    },
+    "ssot_validation": "passed",
+    "ssot_profile": "prf:portwyrm-p100-t2",
+    "ssot_profile_evaluation": "passed",
+    "ssot_claim_evaluation": "passed",
+    "ssot_evidence_verification": "passed"
+  },
+  "release_gate": "blocked",
+  "blockers": [
+    "A current-commit ACME staging issuance and renewal/recovery run has not been executed.",
+    "A current-commit WCAG/browser accessibility audit has not been executed.",
+    "A signed multi-architecture OCI image, SBOM, provenance, and vulnerability report have not been published and verified for this commit.",
+    "ssot registry sync-statuses proposes a circular downgrade for feat:experience.operator-cli even though direct claim evaluation passes with valid T2 evidence metadata."
+  ]
+}

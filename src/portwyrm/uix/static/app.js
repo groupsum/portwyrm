@@ -28,31 +28,61 @@ const schemas = {
     ["forwarding_port", "Forward port", "number", true], ["tcp_forwarding", "TCP", "checkbox"],
     ["udp_forwarding", "UDP", "checkbox"], ["certificate_id", "Certificate ID", "number"],
   ],
-  certificates: [["nice_name", "Name", "text", true], ["provider", "Provider", "select", true, ["letsencrypt", "other"]], ["domain_names", "Domain names", "list"]],
+  certificates: [
+    ["nice_name", "Name", "text", true], ["provider", "Provider", "select", true, ["other", "letsencrypt"]],
+    ["domain_names", "Domain names", "list"], ["email", "ACME account email", "email"],
+    ["challenge_type", "ACME challenge", "select", false, ["http-01", "dns-01"]],
+    ["key_type", "Key type", "select", false, ["rsa", "ecdsa"]],
+    ["certificate", "Certificate PEM", "textarea"], ["private_key", "Private key PEM", "textarea"],
+    ["intermediate_certificate", "Intermediate PEM", "textarea"],
+  ],
   "access-lists": [["name", "Name", "text", true], ["satisfy_any", "Satisfy any rule", "checkbox"], ["pass_auth", "Pass auth upstream", "checkbox"]],
   users: [["email", "Email", "email", true], ["name", "Name", "text", true], ["nickname", "Nickname", "text"], ["is_admin", "Administrator", "checkbox"], ["is_disabled", "Disabled", "checkbox"]],
   settings: [["name", "Setting name", "text", true], ["value", "Value", "text", true]],
 };
 const readonlyViews = new Set(["dashboard", "audit-log", "health"]);
-let token = localStorage.getItem("portwyrm.token");
+let sessionActive = document.cookie.split("; ").some(value => value.startsWith("portwyrm_csrf="));
 let currentView = "dashboard";
 let editing = null;
 let setupRequired = false;
+let principal = null;
+
+const sectionByView = {
+  "proxy-hosts": "proxy_hosts", "redirection-hosts": "redirection_hosts",
+  "dead-hosts": "dead_hosts", streams: "streams", certificates: "certificates",
+  "access-lists": "access_lists",
+};
+
+function applyPermissions() {
+  $$('[data-admin]').forEach(item => item.hidden = !principal?.is_admin);
+  for (const [name, section] of Object.entries(sectionByView)) {
+    const permission = principal?.is_admin ? "manage" : (principal?.permissions?.[section] || "hidden");
+    $(`[data-view="${name}"]`).hidden = permission === "hidden";
+  }
+  const section = sectionByView[currentView];
+  const permission = principal?.is_admin ? "manage" : principal?.permissions?.[section];
+  createButton.hidden = readonlyViews.has(currentView) || !schemas[currentView] || (section && permission !== "manage");
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 function resourcePath(name, id = null) {
+  if (name === "account") return "/api/v2/me";
+  if (name === "tokens") return `/api/v2/tokens${id === null ? "" : `/${encodeURIComponent(id)}`}`;
   const prefix = ["users", "settings", "audit-log"].includes(name) ? "/api" : "/api/nginx";
   return `${prefix}/${name}${id === null ? "" : `/${encodeURIComponent(id)}`}`;
 }
 
 async function api(path, options = {}) {
   const headers = {Accept: "application/json", ...(options.headers || {})};
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (options.body) headers["Content-Type"] = "application/json";
-  const response = await fetch(path, {...options, headers});
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(options.method)) {
+    const csrf = document.cookie.split("; ").find(value => value.startsWith("portwyrm_csrf="));
+    if (csrf) headers["X-CSRF-Token"] = decodeURIComponent(csrf.split("=").slice(1).join("="));
+  }
+  const response = await fetch(path, {...options, headers, credentials: "same-origin"});
   const data = response.status === 204 ? null : await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.detail || `${response.status} ${response.statusText}`);
@@ -89,6 +119,7 @@ async function render(name = currentView) {
   currentView = name;
   title.textContent = labels[name] || "Portwyrm";
   createButton.hidden = readonlyViews.has(name) || !schemas[name];
+  applyPermissions();
   view.innerHTML = '<div class="skeleton"></div>';
   view.setAttribute("aria-busy", "true");
   notify("");
@@ -96,8 +127,15 @@ async function render(name = currentView) {
     if (name === "dashboard") {
       const families = ["proxy-hosts", "redirection-hosts", "dead-hosts", "streams", "certificates", "access-lists"];
       const readiness = await api("/health/ready");
-      const values = token ? await Promise.all(families.map(family => api(resourcePath(family)).catch(() => []))) : families.map(() => []);
-      view.innerHTML = `<div class="grid"><article class="card"><div class="muted">System</div><p class="metric ${readiness.status === "ok" ? "ok" : "warning"}">${escapeHtml(readiness.status)}</p></article>${families.map((family, index) => `<article class="card"><div class="muted">${escapeHtml(labels[family])}</div><p class="metric">${values[index].length}</p></article>`).join("")}</div>${token ? "" : '<div class="empty"><h2>Sign in to manage Portwyrm</h2><p class="muted">Your control plane is available. Authenticate to see and change resources.</p><button class="button" data-action="signin">Sign in</button></div>'}`;
+      const values = sessionActive ? await Promise.all(families.map(family => api(resourcePath(family)).catch(() => []))) : families.map(() => []);
+      view.innerHTML = `<div class="grid"><article class="card"><div class="muted">System</div><p class="metric ${readiness.status === "ok" ? "ok" : "warning"}">${escapeHtml(readiness.status)}</p></article>${families.map((family, index) => `<article class="card"><div class="muted">${escapeHtml(labels[family])}</div><p class="metric">${values[index].length}</p></article>`).join("")}</div>${sessionActive ? "" : '<div class="empty"><h2>Sign in to manage Portwyrm</h2><p class="muted">Your control plane is available. Authenticate to see and change resources.</p><button class="button" data-action="signin">Sign in</button></div>'}`;
+    } else if (name === "tokens") {
+      const tokens = await api("/api/v2/tokens");
+      const rows = tokens.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.created_at)}</td><td>${escapeHtml(item.last_used_at || "Never")}</td><td><button class="button danger" data-action="token-revoke" data-id="${escapeHtml(item.id)}">Revoke</button></td></tr>`).join("");
+      view.innerHTML = `<div class="dialog-actions"><button class="button" data-action="token-new">New access token</button></div>${tokens.length ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Created</th><th>Last used</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty"><h2>No access tokens</h2><p>Create one for npmctl or other automation.</p></div>'}`;
+    } else if (name === "account") {
+      const account = await api("/api/v2/me");
+      view.innerHTML = `<article class="card"><p class="eyebrow">Account</p><h2>${escapeHtml(account.nickname || account.name || account.email)}</h2><p>${escapeHtml(account.email)}</p><p class="muted">${account.is_admin ? "Administrator" : "Operator"}</p><button class="button secondary" data-action="${account.mfa_enabled ? "mfa-disable" : "mfa-enroll"}">${account.mfa_enabled ? "Disable MFA" : "Set up MFA"}</button></article>`;
     } else if (name === "health") {
       const [health, version] = await Promise.all([api("/health/ready"), api("/version")]);
       view.innerHTML = `<div class="grid"><article class="card"><p class="eyebrow">Readiness</p><h2 class="${health.status === "ok" ? "ok" : "warning"}">${escapeHtml(health.status)}</h2><pre>${escapeHtml(JSON.stringify(health.components, null, 2))}</pre></article><article class="card"><p class="eyebrow">Release</p><h2>${escapeHtml(version.version)}</h2><p class="muted">API, UIX, repository, and proxy runtime</p></article></div>`;
@@ -115,6 +153,7 @@ async function render(name = currentView) {
 function fieldMarkup([name, label, type, required, options], value) {
   if (type === "checkbox") return `<label class="check"><input name="${name}" type="checkbox" ${value ? "checked" : ""}>${escapeHtml(label)}</label>`;
   if (type === "select") return `<label>${escapeHtml(label)}<select name="${name}" ${required ? "required" : ""}>${options.map(option => `<option value="${escapeHtml(option)}" ${String(value ?? "") === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select></label>`;
+  if (type === "textarea") return `<label>${escapeHtml(label)}<textarea name="${name}" rows="6" spellcheck="false" ${required ? "required" : ""}>${escapeHtml(value ?? "")}</textarea></label>`;
   return `<label>${escapeHtml(label)}<input name="${name}" type="${type === "list" ? "text" : type}" value="${escapeHtml(type === "list" && Array.isArray(value) ? value.join(", ") : value ?? "")}" ${type === "number" ? 'min="0"' : ""} ${required ? "required" : ""}>${type === "list" ? '<span class="muted">Separate multiple values with commas.</span>' : ""}</label>`;
 }
 
@@ -150,7 +189,15 @@ $("#editor-form").addEventListener("submit", async event => {
   const submit = $("button[type=submit]", event.currentTarget);
   submit.disabled = true;
   try {
-    await api(resourcePath(currentView, editing), {method: editing === null ? "POST" : "PUT", body: JSON.stringify(formPayload())});
+    const payload = formPayload();
+    let path = resourcePath(currentView, editing);
+    let method = editing === null ? "POST" : "PUT";
+    if (currentView === "certificates") {
+      if (payload.provider === "letsencrypt" && editing === null) path = "/api/nginx/certificates/request";
+      else path = editing === null ? "/api/nginx/certificates/upload" : `/api/nginx/certificates/${editing}/upload`;
+      method = "POST";
+    }
+    await api(path, {method, body: JSON.stringify(payload)});
     editorDialog.close();
     notify(`${labels[currentView]} saved.`);
     await render();
@@ -173,14 +220,20 @@ $("#auth-form").addEventListener("submit", async event => {
   const password = form.get("password");
   try {
     if (setupRequired) await api("/api/setup", {method: "POST", body: JSON.stringify({email, password})});
-    const result = await api("/api/tokens", {method: "POST", body: JSON.stringify({identity: email, secret: password, scope: "user"})});
-    token = result.result.token;
-    localStorage.setItem("portwyrm.token", token);
-    localStorage.setItem("portwyrm.identity", email);
+    let result = await api("/api/v2/browser/login", {method: "POST", body: JSON.stringify({identity: email, secret: password, scope: "user"})});
+    if (result.result.scope === "mfa") {
+      const code = prompt("Enter your authenticator or recovery code:");
+      if (!code) throw new Error("MFA verification was cancelled.");
+      result = await api("/api/v2/browser/2fa", {method: "POST", body: JSON.stringify({code})});
+    }
+    sessionActive = true;
+    principal = await api("/api/v2/me");
+    localStorage.setItem("portwyrm.identity", principal.email);
     setupRequired = false;
-    $("#session-label").textContent = email;
+    $("#session-label").textContent = principal.email;
     $("#session-action").textContent = "Sign out";
     authDialog.close();
+    applyPermissions();
     await render();
   } catch (error) { $("#auth-error").textContent = error.message; }
 });
@@ -204,16 +257,48 @@ view.addEventListener("click", async event => {
   }
   if (button.dataset.action === "signin") openAuth();
   if (button.dataset.action === "retry") render();
+  if (button.dataset.action === "token-new") {
+    const name = prompt("Name this access token:");
+    if (!name) return;
+    try {
+      const created = await api("/api/v2/tokens", {method: "POST", body: JSON.stringify({name, scopes: ["user"]})});
+      alert(`Copy this token now. It will not be shown again:\n\n${created.token}`);
+      await render("tokens");
+    } catch (error) { notify(error.message, "error"); }
+  }
+  if (button.dataset.action === "token-revoke") {
+    if (!confirm("Revoke this access token? Existing automation will stop working.")) return;
+    try { await api(`/api/v2/tokens/${button.dataset.id}`, {method: "DELETE"}); await render("tokens"); }
+    catch (error) { notify(error.message, "error"); }
+  }
+  if (button.dataset.action === "mfa-enroll") {
+    try {
+      const enrollment = await api("/api/v2/mfa/enroll", {method: "POST"});
+      const code = prompt(`Add this TOTP secret to your authenticator:\n\n${enrollment.secret}\n\nEnter the current code to confirm:`);
+      if (!code) return;
+      await api("/api/v2/mfa/confirm", {method: "POST", body: JSON.stringify({code})});
+      alert(`Save these one-use recovery codes somewhere safe:\n\n${enrollment.backup_codes.join("\n")}`);
+      await render("account");
+    } catch (error) { notify(error.message, "error"); }
+  }
+  if (button.dataset.action === "mfa-disable") {
+    const code = prompt("Enter a current authenticator or recovery code to disable MFA:");
+    if (!code) return;
+    try { await api("/api/v2/mfa", {method: "DELETE", body: JSON.stringify({code})}); await render("account"); }
+    catch (error) { notify(error.message, "error"); }
+  }
 });
 
 createButton.addEventListener("click", () => openEditor());
-$("#session-action").addEventListener("click", () => {
-  if (!token) return openAuth();
-  token = null;
-  localStorage.removeItem("portwyrm.token");
+$("#session-action").addEventListener("click", async () => {
+  if (!sessionActive) return openAuth();
+  await api("/api/v2/browser/session", {method: "DELETE"}).catch(() => {});
+  sessionActive = false;
+  principal = null;
   localStorage.removeItem("portwyrm.identity");
   $("#session-label").textContent = "Not signed in";
   $("#session-action").textContent = "Sign in";
+  applyPermissions();
   render("dashboard");
 });
 $("#theme").addEventListener("click", () => {
@@ -223,11 +308,16 @@ $("#theme").addEventListener("click", () => {
 });
 $$('.close').forEach(button => button.addEventListener("click", () => button.closest("dialog").close()));
 document.documentElement.dataset.theme = localStorage.getItem("portwyrm.theme") || "dark";
-$("#session-label").textContent = token ? (localStorage.getItem("portwyrm.identity") || "Signed in") : "Not signed in";
-$("#session-action").textContent = token ? "Sign out" : "Sign in";
+$("#session-label").textContent = sessionActive ? (localStorage.getItem("portwyrm.identity") || "Signed in") : "Not signed in";
+$("#session-action").textContent = sessionActive ? "Sign out" : "Sign in";
 $("[data-view=dashboard]").setAttribute("aria-current", "page");
 
-api("/api/setup").then(result => {
+api("/api/setup").then(async result => {
   setupRequired = !result.setup;
+  if (sessionActive) {
+    try { principal = await api("/api/v2/me"); }
+    catch { sessionActive = false; }
+  }
+  applyPermissions();
   if (setupRequired) openAuth();
 }).catch(() => {}).finally(() => render("dashboard"));

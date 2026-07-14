@@ -8,8 +8,10 @@ from datetime import UTC, datetime
 from threading import RLock
 from typing import Any
 
+import bcrypt
 from argon2 import PasswordHasher
 
+from portwyrm.domain.routing import AccessClient, ProxyLocation, canonical_domains
 from portwyrm.security import Principal
 
 
@@ -104,7 +106,11 @@ class ControlPlane:
         if encoded is None:
             return None
         try:
-            self._password_hasher.verify(encoded, secret)
+            if encoded.startswith(("$2a$", "$2b$", "$2y$")):
+                if not bcrypt.checkpw(secret.encode(), encoded.encode()):
+                    return None
+            else:
+                self._password_hasher.verify(encoded, secret)
         except Exception:  # argon2 deliberately has several mismatch subclasses
             return None
         user = next(
@@ -126,6 +132,20 @@ class ControlPlane:
             permissions=dict(user.get("permissions", {})),
             visibility="all" if user.get("visibility") == "all" else "user",
         )
+
+    def set_password(self, user_id: int | str, password: str) -> None:
+        """Set a user's password without ever placing it in a resource record."""
+        if len(password) < 8:
+            raise ControlPlaneError("password must contain at least 8 characters")
+        user = self.get("users", user_id)
+        email = str(user["email"]).strip().casefold()
+        self._passwords[email] = self._password_hasher.hash(password)
+
+    def change_password(self, user_id: int | str, current: str, password: str) -> None:
+        user = self.get("users", user_id)
+        if self.authenticate(str(user["email"]), current) is None:
+            raise Forbidden("current password is invalid")
+        self.set_password(user_id, password)
 
     @staticmethod
     def _compat_collection(collection: str) -> str:
@@ -186,10 +206,16 @@ class ControlPlane:
         actor: Actor | None = None,
         preserve_id: bool = False,
     ) -> dict[str, Any]:
+        password = payload.get("password") if collection == "users" else None
+        clean_payload = deepcopy(payload)
+        if collection == "users":
+            clean_payload.pop("password", None)
+            clean_payload.pop("secret", None)
+            clean_payload["email"] = str(clean_payload.get("email", "")).strip().casefold()
         with self._lock:
-            self._validate(collection, payload)
+            self._validate(collection, clean_payload)
             bucket = self._bucket(collection)
-            requested = payload.get("id") if preserve_id else None
+            requested = clean_payload.get("id") if preserve_id else None
             resource_id: int | str
             if collection == "settings" and isinstance(requested, str):
                 resource_id = requested
@@ -201,8 +227,14 @@ class ControlPlane:
                 resource_id = self._next_ids[collection]
             if resource_id in bucket:
                 raise Conflict(f"{collection} resource {resource_id!r} already exists")
-            self._assert_domains_available(collection, payload)
-            row = deepcopy(payload)
+            if collection == "users" and any(
+                str(item.get("email", "")).casefold() == clean_payload["email"]
+                and not item.get("is_deleted")
+                for item in bucket.values()
+            ):
+                raise Conflict("email is already in use")
+            self._assert_domains_available(collection, clean_payload)
+            row = deepcopy(clean_payload)
             row["id"] = resource_id
             now = datetime.now(UTC).isoformat()
             row.setdefault("created_on", now)
@@ -211,6 +243,8 @@ class ControlPlane:
             if isinstance(resource_id, int):
                 self._next_ids[collection] = max(self._next_ids[collection], resource_id + 1)
             self._audit("created", collection, row, actor)
+            if isinstance(password, str) and password:
+                self.set_password(resource_id, password)
             return deepcopy(row)
 
     def update(
@@ -222,21 +256,41 @@ class ControlPlane:
         actor: Actor | None = None,
         adopt: bool = False,
     ) -> dict[str, Any]:
+        password = payload.get("password") if collection == "users" else None
+        clean_payload = deepcopy(payload)
+        clean_payload.pop("password", None)
+        clean_payload.pop("secret", None)
         with self._lock:
             bucket = self._bucket(collection)
             current = bucket.get(resource_id)
             if current is None or current.get("is_deleted"):
                 raise NotFound(f"{collection} resource {resource_id!r} was not found")
             self._check_visible(current, actor)
-            self._check_ownership(current, payload, actor, adopt)
+            self._check_ownership(current, clean_payload, actor, adopt)
             candidate = deepcopy(current)
-            candidate.update(deepcopy(payload))
+            candidate.update(clean_payload)
             candidate["id"] = resource_id
+            previous_email = str(current.get("email", "")).casefold()
+            if collection == "users":
+                candidate["email"] = str(candidate.get("email", "")).strip().casefold()
+                if any(
+                    other_id != resource_id
+                    and str(item.get("email", "")).casefold() == candidate["email"]
+                    and not item.get("is_deleted")
+                    for other_id, item in bucket.items()
+                ):
+                    raise Conflict("email is already in use")
             self._validate(collection, candidate)
             self._assert_domains_available(collection, candidate, exclude=(collection, resource_id))
             candidate["modified_on"] = datetime.now(UTC).isoformat()
             bucket[resource_id] = candidate
+            if collection == "users" and previous_email != candidate["email"]:
+                encoded = self._passwords.pop(previous_email, None)
+                if encoded is not None:
+                    self._passwords[candidate["email"]] = encoded
             self._audit("updated", collection, candidate, actor)
+            if isinstance(password, str) and password:
+                self.set_password(resource_id, password)
             return deepcopy(candidate)
 
     def delete(
@@ -279,6 +333,17 @@ class ControlPlane:
                 return deepcopy(self.audit_events)
             return deepcopy([event for event in self.audit_events if event["created_on"] >= since])
 
+    def record_event(
+        self,
+        action: str,
+        object_type: str,
+        object_id: int | str,
+        *,
+        details: dict[str, Any] | None = None,
+        actor: Actor | None = None,
+    ) -> None:
+        self._audit(action, object_type, {"id": object_id, **(details or {})}, actor)
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {name: self.list(name) for name in sorted(COLLECTIONS)}
@@ -298,18 +363,74 @@ class ControlPlane:
                 raise ControlPlaneError("domain_names must contain between 1 and 100 entries")
             if len(_domains(payload)) != len(domains):
                 raise Conflict("domain_names must be unique")
+            try:
+                canonical_domains(domains)
+            except ValueError as exc:
+                raise ControlPlaneError(str(exc)) from exc
         if collection == "proxy-hosts":
             port = int(payload.get("forward_port", 0))
             if not 1 <= port <= 65535:
                 raise ControlPlaneError("forward_port must be between 1 and 65535")
             if payload.get("forward_scheme") not in {"http", "https"}:
                 raise ControlPlaneError("forward_scheme must be http or https")
+            if not str(payload.get("forward_host", "")).strip():
+                raise ControlPlaneError("forward_host is required")
+            locations = payload.get("locations", payload.get("custom_locations", []))
+            if not isinstance(locations, list):
+                raise ControlPlaneError("locations must be an array")
+            try:
+                for item in locations:
+                    if not isinstance(item, dict):
+                        raise ValueError("locations must contain objects")
+                    ProxyLocation(
+                        str(item.get("path", "")),
+                        str(item.get("forward_scheme", "http")),
+                        str(item.get("forward_host", "")),
+                        int(item.get("forward_port", 0)),
+                        str(item.get("forward_path", "")),
+                        str(item.get("advanced_config", "")),
+                    )
+            except (TypeError, ValueError) as exc:
+                raise ControlPlaneError(str(exc)) from exc
+        if collection == "redirection-hosts":
+            if not str(payload.get("forward_domain_name", "")).strip():
+                raise ControlPlaneError("forward_domain_name is required")
+            if payload.get("forward_scheme", "auto") not in {"auto", "http", "https"}:
+                raise ControlPlaneError("forward_scheme must be auto, http, or https")
+            code = int(payload.get("forward_http_code", 301))
+            if not 300 <= code <= 308:
+                raise ControlPlaneError("forward_http_code must be between 300 and 308")
         if collection == "streams":
-            for key in ("incoming_port", "forward_port"):
+            for key in ("incoming_port", "forwarding_port"):
                 if not 1 <= int(payload.get(key, 0)) <= 65535:
                     raise ControlPlaneError(f"{key} must be between 1 and 65535")
+            if not str(payload.get("forwarding_host", "")).strip():
+                raise ControlPlaneError("forwarding_host is required")
             if not payload.get("tcp_forwarding") and not payload.get("udp_forwarding"):
                 raise ControlPlaneError("at least one stream protocol must be enabled")
+            if payload.get("certificate_id") and not payload.get("tcp_forwarding"):
+                raise ControlPlaneError("stream TLS is supported only for TCP")
+        if collection == "access-lists":
+            if not str(payload.get("name", "")).strip():
+                raise ControlPlaneError("access-list name is required")
+            clients = payload.get("clients", [])
+            if not isinstance(clients, list):
+                raise ControlPlaneError("access-list clients must be an array")
+            try:
+                for item in clients:
+                    if not isinstance(item, dict):
+                        raise ValueError("access-list clients must contain objects")
+                    AccessClient(str(item.get("address", "")), str(item.get("directive", "")))
+            except (TypeError, ValueError) as exc:
+                raise ControlPlaneError(str(exc)) from exc
+        if collection in HOST_COLLECTIONS | {"streams"}:
+            for field in ("certificate_id",):
+                certificate_id = int(payload.get(field) or 0)
+                if certificate_id and (
+                    certificate_id not in self.resources["certificates"]
+                    or self.resources["certificates"][certificate_id].get("is_deleted")
+                ):
+                    raise Conflict(f"{field} does not resolve to an active certificate")
         if collection == "users" and not str(payload.get("email", "")).strip():
             raise ControlPlaneError("email is required")
 
@@ -361,14 +482,7 @@ class ControlPlane:
     def _audit(
         self, action: str, collection: str, row: dict[str, Any], actor: Actor | None
     ) -> None:
-        redacted = {
-            key: "[redacted]"
-            if any(
-                word in key.casefold() for word in ("secret", "password", "token", "private_key")
-            )
-            else deepcopy(value)
-            for key, value in row.items()
-        }
+        redacted = _redact(row)
         self.audit_events.append(
             {
                 "id": len(self.audit_events) + 1,
@@ -380,3 +494,16 @@ class ControlPlane:
                 "meta": redacted,
             }
         )
+
+
+def _redact(value: Any, *, key: str = "") -> Any:
+    if any(
+        word in key.casefold()
+        for word in ("secret", "password", "token", "credential", "private_key", "totp")
+    ):
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {str(item_key): _redact(item, key=str(item_key)) for item_key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact(item, key=key) for item in value]
+    return deepcopy(value)

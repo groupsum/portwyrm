@@ -25,7 +25,10 @@ TABLE_COLLECTIONS = {
     "stream": "streams",
     "setting": "settings",
     "audit_log": "audit_log",
+    "_credentials": "_credentials",
 }
+
+RELATED_TABLES = {"auth", "user_permission", "access_list_auth", "access_list_client"}
 
 JSON_FIELDS = {
     "domain_names",
@@ -103,7 +106,7 @@ def load_npm_sqlite(path: str | Path) -> dict[str, list[dict[str, Any]]]:
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         result: dict[str, list[dict[str, Any]]] = {}
-        for table in TABLE_COLLECTIONS:
+        for table in TABLE_COLLECTIONS.keys() | RELATED_TABLES:
             if table not in available:
                 continue
             rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY id').fetchall()
@@ -117,6 +120,7 @@ def preflight_npm(
     source: Mapping[str, Iterable[Mapping[str, Any]]], *, source_kind: str = "mapping"
 ) -> PreflightReport:
     report = PreflightReport(source_kind=source_kind)
+    source = _normalize_related_tables(source, report)
     seen: dict[str, set[str]] = {}
     for table, rows in source.items():
         collection = TABLE_COLLECTIONS.get(
@@ -151,6 +155,71 @@ def preflight_npm(
         sorted(Counter({key: len(value) for key, value in report.records.items()}).items())
     )
     return report
+
+
+def _normalize_related_tables(
+    source: Mapping[str, Iterable[Mapping[str, Any]]], report: PreflightReport
+) -> dict[str, list[dict[str, Any]]]:
+    normalized = {table: [dict(row) for row in rows] for table, rows in source.items()}
+    users = {str(row.get("id")): row for row in normalized.get("user", [])}
+    access_lists = {str(row.get("id")): row for row in normalized.get("access_list", [])}
+
+    permission_fields = (
+        "proxy_hosts",
+        "redirection_hosts",
+        "dead_hosts",
+        "streams",
+        "access_lists",
+        "certificates",
+    )
+    for permission in normalized.pop("user_permission", []):
+        user = users.get(str(permission.get("user_id")))
+        if user is None:
+            report.warnings.append(
+                f"orphan user_permission ignored: user_id={permission.get('user_id')}"
+            )
+            continue
+        user["visibility"] = permission.get("visibility", "user")
+        user["permissions"] = {
+            field: permission.get(field, "hidden") for field in permission_fields
+        }
+
+    credentials: list[dict[str, Any]] = []
+    for auth in normalized.pop("auth", []):
+        if auth.get("type", "password") != "password":
+            report.warnings.append(f"unsupported auth type ignored: {auth.get('type')}")
+            continue
+        user = users.get(str(auth.get("user_id")))
+        if user is None or not user.get("email") or not auth.get("secret"):
+            report.warnings.append(f"orphan auth record ignored: id={auth.get('id')}")
+            continue
+        credentials.append(
+            {
+                "id": str(user["email"]).strip().casefold(),
+                "password_hash": str(auth["secret"]),
+            }
+        )
+    if credentials:
+        normalized["_credentials"] = credentials
+
+    for related, target_field in (
+        ("access_list_auth", "items"),
+        ("access_list_client", "clients"),
+    ):
+        for item in normalized.pop(related, []):
+            access_list = access_lists.get(str(item.get("access_list_id")))
+            if access_list is None:
+                report.warnings.append(
+                    f"orphan {related} ignored: access_list_id={item.get('access_list_id')}"
+                )
+                continue
+            child = {
+                key: value
+                for key, value in item.items()
+                if key not in {"id", "access_list_id", "created_on", "modified_on"}
+            }
+            access_list.setdefault(target_field, []).append(child)
+    return normalized
 
 
 def preflight_npm_sqlite(path: str | Path) -> PreflightReport:
@@ -215,6 +284,7 @@ def import_npm(
 def _ordered_collections(records: Mapping[str, object]) -> list[str]:
     preferred = [
         "users",
+        "_credentials",
         "certificates",
         "access_lists",
         "proxy_hosts",

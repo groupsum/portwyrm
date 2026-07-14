@@ -1,0 +1,125 @@
+"""Composition root for the all-in-one Portwyrm control plane."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from cryptography.fernet import Fernet
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+from portwyrm.api.compat import create_compat_app
+from portwyrm.api.dependencies import create_default_repository
+from portwyrm.api.native import create_native_router
+from portwyrm.application import ControlPlaneError, MFAStore, PersistentControlPlane
+from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
+from portwyrm.identity import TokenStore
+from portwyrm.operations import HealthService, UpgradeManager, default_upgrades
+from portwyrm.persistence import Repository
+from portwyrm.runtime.coordinator import RuntimeCoordinator
+from portwyrm.uix import mount_uix
+
+
+def create_app(repository: Repository | None = None) -> FastAPI:
+    """Construct the packaged API, runtime coordinator, and UIX."""
+
+    email = os.getenv("PORTWYRM_INITIAL_ADMIN_EMAIL") or os.getenv("INITIAL_ADMIN_EMAIL")
+    password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv("INITIAL_ADMIN_PASSWORD")
+    repository = repository or create_default_repository()
+    UpgradeManager(repository, default_upgrades()).run()
+    control_plane = PersistentControlPlane(repository)
+    certificate_root = Path(
+        os.getenv("PORTWYRM_CERTIFICATE_ROOT", str(Path.cwd() / ".portwyrm" / "certificates"))
+    )
+    certificate_manager = CertificateManager(
+        control_plane,
+        CertificateMaterialStore(certificate_root),
+        issuer=CertbotIssuer(
+            webroot=os.getenv("PORTWYRM_ACME_WEBROOT", "/data/acme-challenge"),
+            server=os.getenv("PORTWYRM_ACME_SERVER") or None,
+            staging=os.getenv("PORTWYRM_ACME_STAGING", "0").lower() in {"1", "true", "yes"},
+        ),
+    )
+    mfa_store = MFAStore(repository, _load_mfa_key())
+    runtime: RuntimeCoordinator | None = None
+    if os.getenv("PORTWYRM_NGINX_RUNTIME", "0").lower() in {"1", "true", "yes"}:
+        root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
+        runtime = RuntimeCoordinator(control_plane, root)
+        control_plane.on_change = runtime.changed
+    if email and password and not control_plane.list("users"):
+        control_plane.bootstrap_admin(email, password)
+
+    async def renewal_loop() -> None:
+        interval = max(300, int(os.getenv("PORTWYRM_CERTIFICATE_RENEW_INTERVAL", "43200")))
+        while True:
+            await asyncio.sleep(interval)
+            await asyncio.to_thread(certificate_manager.renew_due)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        renewal_task: asyncio.Task[None] | None = None
+        if os.getenv("PORTWYRM_CERTIFICATE_AUTO_RENEW", "1").lower() in {"1", "true", "yes"}:
+            renewal_task = asyncio.create_task(renewal_loop())
+        try:
+            yield
+        finally:
+            if renewal_task is not None:
+                renewal_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await renewal_task
+
+    app = create_compat_app(
+        control_plane,
+        tokens=TokenStore(repository=repository),
+        certificates=certificate_manager,
+        lifespan=lifespan,
+        repository=repository,
+        mfa=mfa_store,
+    )
+    app.state.repository = repository
+    app.state.runtime = runtime
+
+    @app.exception_handler(ControlPlaneError)
+    async def control_plane_error(_request: Request, exc: ControlPlaneError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
+    health = HealthService(
+        repository,
+        {
+            "nginx": lambda: {
+                "status": "ok"
+                if runtime is None or (runtime.current / "nginx.conf").is_file()
+                else "failed",
+                "configured": runtime is not None,
+            },
+            "certificate_scheduler": lambda: {
+                "status": "ok",
+                "enabled": os.getenv("PORTWYRM_CERTIFICATE_AUTO_RENEW", "1").lower()
+                in {"1", "true", "yes"},
+            },
+        },
+    )
+
+    app.include_router(create_native_router(control_plane, health))
+    mount_uix(app)
+    return app
+
+
+def _load_mfa_key() -> bytes:
+    configured = os.getenv("PORTWYRM_MFA_ENCRYPTION_KEY")
+    if configured:
+        return configured.encode()
+    data_root = Path(os.getenv("PORTWYRM_DATA_ROOT", str(Path.cwd() / ".portwyrm")))
+    path = Path(os.getenv("PORTWYRM_MFA_KEY_PATH", str(data_root / "mfa.key")))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        return path.read_bytes().strip()
+    key = Fernet.generate_key()
+    path.write_bytes(key + b"\n")
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
+    return key

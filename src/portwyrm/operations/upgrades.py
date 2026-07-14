@@ -39,3 +39,12 @@ class UpgradeManager:
                 )
             applied.append(upgrade.version)
         return applied
+
+
+def default_upgrades() -> tuple[Upgrade, ...]:
+    """Return the forward-only application schema/data upgrade train."""
+
+    def initialize(tx: object) -> None:
+        tx.upsert("_system", {"id": "schema", "version": 1})  # type: ignore[attr-defined]
+
+    return (Upgrade(1, "initialize portable control-plane schema", initialize),)

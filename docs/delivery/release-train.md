@@ -1,20 +1,34 @@
 # Release train
 
-Status: proposed  
+Status: active
 Channels: `edge`, `beta`, `stable`
 
 Portwyrm uses SemVer and trunk development. Stabilization branches are immutable except for
-release fixes. `1.0.0` is the p100 MVP; earlier milestones are pre-release delivery slices.
+release fixes. `1.0.0` is the p100 MVP. Delivery is governed by the dependency-ordered
+[feature slice initiative](../product/delivery-slices.yaml); slices are capability and evidence
+gates, not schedule estimates.
 
-| Milestone | Scope and exit gate |
+| Sequence | Release | Scope and exit gate |
 |---|---|
-| `0.1.0a` | freeze NPM 2.10.4/2.15.1 profiles, npmctl captures, p100 matrix, ADRs |
-| `0.2.0a` | auth, proxy CRUD, SQLite, render/test/reload/rollback, minimal UI |
-| `0.3.0a` | all host families, WebSockets, cache, access lists, advanced config, streams |
-| `0.4.0a` | custom/ACME TLS, provider framework, users, permissions, 2FA, tokens, audit |
-| `0.5.0b` | memory/PostgreSQL/filesystem/hybrid, migration, backup/restore, containers |
-| `0.9.0rc` | complete UI/import, all profiles, npmctl E2E, runbooks, recovery drills |
-| `1.0.0` | every p100 row certified; signed artifacts published; rollback drill passed |
+| `S0` | `0.1.x-alpha` | composed CLI, API, no-build UIX, bootstrap, health, memory/SQLite, container baseline |
+| `S1` | `0.2.x-alpha` | real proxy/redirect/dead/stream/access-list protocols and safe Nginx reconciliation |
+| `S2` | `0.3.x-alpha` | durable passwords, users, permissions, tokens, logout, profiles, permission-aware UIX |
+| `S3` | `0.4.x-alpha` | custom certificates, production ACME, DNS providers, TLS attachment, renewal and recovery |
+| `S4` | `0.5.x-beta` | complete TOTP enrollment, challenge, recovery, backup-code, UIX, API, and audit flows |
+| `S5` | `0.9.x-rc` | p100/NPM/npmctl conformance, all stores, migration, operations, OCI publication and rollback |
+| `GA` | `1.0.0` | every in-scope p100 row certified; signed artifacts published; recovery drills passed |
+
+Runtime implementation for `S0` through `S5` is present on the release-candidate branch. Each
+slice still promotes only after its executable and external gates pass; GA remains blocked until
+the published artifact, ACME, npmctl, migration/recovery, and SSOT certification gates close.
+
+## Scope dispositions
+
+| Category | Items | Rule |
+|---|---|---|
+| In scope | NPM parity, npmctl compatibility, requested persistence modes, native CLI/API/UIX and access tokens | Assigned to exactly one of `S0`-`S5` |
+| Out of bounds | mTLS; HTTP/3/QUIC; advanced durable preferences beyond the S2 baseline | Valid future ideas, but require an approved boundary change, ADR, spec, feature, tests, and release-plan update |
+| Won't do | WebTransport on the current Nginx data plane; Node/npm runtime requirement; copied NPM branding/trade dress | Intentionally excluded; reconsideration requires a superseding architectural or product decision |
 
 Every release follows:
 

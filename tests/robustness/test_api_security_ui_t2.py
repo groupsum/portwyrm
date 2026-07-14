@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
+from portwyrm.persistence import MemoryRepository
 from portwyrm.security import (
     Principal,
     TokenStore,
@@ -239,7 +240,7 @@ def test_npmctl_wire_contract_preserves_raw_arrays_ids_extensions_and_owner_meta
 
     schema = client.get("/api/schema").json()
     assert schema["info"]["version"] == "2.10.4"
-    assert schema["paths"]["/api/nginx/proxy-hosts/{resource_id}"]["patch"]
+    assert schema["paths"]["/nginx/proxy-hosts/{resource_id}"]["patch"]
     assert client.get("/api/").json()["version"] == {"major": 7, "minor": 12, "revision": 31}
 
 
@@ -273,7 +274,7 @@ def test_initial_setup_is_one_shot_casefolded_and_never_echoes_password(
         "INITIAL_ADMIN_PASSWORD",
     ):
         monkeypatch.delenv(name, raising=False)
-    client = TestClient(create_app())
+    client = TestClient(create_app(MemoryRepository()))
     assert client.get("/api/setup").json() == {"setup": False}
     password = "correct horse battery staple"
     created = client.post(
@@ -299,8 +300,8 @@ def test_initial_setup_is_one_shot_casefolded_and_never_echoes_password(
 
 def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     root = Path(__file__).parents[2]
-    html = (root / "src/portwyrm/ui/index.html").read_text(encoding="utf-8")
-    script = (root / "src/portwyrm/ui/app.js").read_text(encoding="utf-8")
+    html = (root / "src/portwyrm/uix/static/index.html").read_text(encoding="utf-8")
+    script = (root / "src/portwyrm/uix/static/app.js").read_text(encoding="utf-8")
     assert '<html lang="en"' in html
     assert 'href="#content"' in html
     assert 'aria-label="Primary"' in html
@@ -310,7 +311,9 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert "<script>" not in html
     assert "http://" not in html and "https://" not in html
     assert "eval(" not in script and "new Function" not in script
-    assert 'localStorage.getItem("portwyrm.token")' in script
+    assert 'localStorage.getItem("portwyrm.token")' not in script
+    assert "/api/v2/browser/login" in script
+    assert "X-CSRF-Token" in script
     assert json.dumps("correct horse battery staple") not in html + script
     assert "function escapeHtml(value)" in script
     assert "function displayValue(key, value)" in script
@@ -318,7 +321,7 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert "<pre>${escapeHtml(JSON.stringify(health.components" in script
     assert "<p>${escapeHtml(error.message)}" in script
 
-    app_client = TestClient(create_app())
+    app_client = TestClient(create_app(MemoryRepository()))
     page = app_client.get("/ui/")
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")

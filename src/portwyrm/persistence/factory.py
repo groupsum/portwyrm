@@ -16,6 +16,7 @@ from .sqlite import SQLiteRepository
 
 def create_repository(config: Mapping[str, Any]) -> Repository:
     backend = str(config.get("backend", "sqlite")).lower()
+    backend = {"postgres": "postgresql", "mariadb": "mysql"}.get(backend, backend)
     data_root = Path(str(config.get("data_root", "/data")))
     if backend == "memory":
         return MemoryRepository()

@@ -4,7 +4,7 @@ from .audit import AuditLog, redact
 from .health import HealthService
 from .logs import LogRotator
 from .settings import Settings
-from .upgrades import Upgrade, UpgradeManager
+from .upgrades import Upgrade, UpgradeManager, default_upgrades
 
 __all__ = [
     "AuditLog",
@@ -13,5 +13,6 @@ __all__ = [
     "Settings",
     "Upgrade",
     "UpgradeManager",
+    "default_upgrades",
     "redact",
 ]

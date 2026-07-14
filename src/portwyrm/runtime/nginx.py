@@ -284,6 +284,10 @@ class NginxRenderer:
             "  listen 80 default_server;\n"
             f"{ipv6}"
             "  server_name _;\n"
+            "  location ^~ /.well-known/acme-challenge/ {\n"
+            "    root /data/acme-challenge;\n"
+            "    try_files $uri =404;\n"
+            "  }\n"
             "  location / {\n"
             f"    {body}\n"
             "  }\n"
@@ -301,6 +305,7 @@ class NginxRenderer:
         lines = ["server {", *_listen(host.domain_names, ssl, self.platform.ipv6)]
         lines.extend(_ssl_lines(ssl))
         lines.extend(_force_ssl_lines(ssl))
+        lines.extend(self._acme_challenge_location())
         lines.extend(
             [
                 f"  set $forward_scheme {host.forward_scheme.value};",
@@ -385,6 +390,7 @@ class NginxRenderer:
         lines = ["server {", *_listen(host.domain_names, ssl, self.platform.ipv6)]
         lines.extend(_ssl_lines(ssl))
         lines.extend(_force_ssl_lines(ssl))
+        lines.extend(self._acme_challenge_location())
         if host.block_exploits:
             lines.append(_block_exploits().rstrip())
         if host.advanced_config:
@@ -407,6 +413,9 @@ class NginxRenderer:
         lines = ["server {", *_listen(host.domain_names, ssl, self.platform.ipv6)]
         lines.extend(_ssl_lines(ssl))
         lines.extend(_force_ssl_lines(ssl))
+        lines.extend(self._acme_challenge_location())
+        if host.block_exploits:
+            lines.append(_block_exploits().rstrip())
         if host.advanced_config:
             lines.append(_indented(host.advanced_config.rstrip()))
         if not self._has_root_location(host.advanced_config):
@@ -416,6 +425,15 @@ class NginxRenderer:
         else:
             lines.extend(["  include custom/server_dead.conf;", "}"])
         return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _acme_challenge_location() -> list[str]:
+        return [
+            "  location ^~ /.well-known/acme-challenge/ {",
+            "    root /data/acme-challenge;",
+            "    try_files $uri =404;",
+            "  }",
+        ]
 
     def render_stream(self, stream: Stream) -> str:
         if not stream.enabled:

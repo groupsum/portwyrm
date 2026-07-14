@@ -1,0 +1,273 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "initiative",
+  "id": "initiative:portwyrm-p100-delivery",
+  "version": "1.1.0",
+  "owner": "Groupsum / Portwyrm maintainers",
+  "status": "active",
+  "review_date": "2026-07-14",
+  "sources": [
+    "docs/product/feature-matrix.md",
+    "docs/product/product-context.md",
+    "docs/architecture/architecture.md",
+    ".ssot/registry.json"
+  ],
+  "facts": [
+    "The CLI, API, no-build UIX, SQLite control plane, and Nginx reconciliation path are composed and runnable.",
+    "HTTP and HTTPS proxy hosts, WebSockets, asset caching, redirects, dead hosts, TCP and UDP streams, forced HTTPS, and HSTS have runtime implementations.",
+    "Durable password lifecycle, permission-aware UI behavior, certificate issuance and renewal adapters, and complete MFA flows are implemented; external release gates remain pending.",
+    "NPM 2.15.1 parity includes MySQL/MariaDB even though it was not named in the initial persistence list.",
+    "NPM parity does not include mTLS, HTTP/3, QUIC, or WebTransport."
+  ],
+  "assumptions": [
+    "NPM 2.10.4 npmctl behavior and NPM 2.15.1 upstream behavior remain the frozen compatibility profiles for 1.0.0.",
+    "A no-Node and no-npm installed runtime remains a product constraint.",
+    "Each slice is a capability and evidence gate, not a time estimate."
+  ],
+  "inferences": [
+    "Identity must close before MFA because enrollment, recovery, and challenge enforcement depend on durable credentials and sessions.",
+    "Certificate lifecycle must close after core routing because issuance and renewal manipulate active host configuration.",
+    "WebTransport would require a new data-plane decision rather than a WebSocket compatibility shim."
+  ],
+  "dependencies": [],
+  "dependency_order": [
+    "S1 depends on the S0 control plane and persistence baseline.",
+    "S2 depends on S0 and uses S1 resources to prove authorization boundaries.",
+    "S3 depends on S1 safe reconciliation and S2 certificate permissions.",
+    "S4 depends on S2 durable identity and session behavior.",
+    "S5 depends on S0-S4 and closes compatibility, migration, packaging, and operations evidence."
+  ],
+  "risks": [
+    "Existing unit-level proof can overstate runtime completeness unless every slice exits through real protocol and container tests.",
+    "DNS provider dependency conflicts can make catalog presence look like issuance support.",
+    "Expanding the data plane for HTTP/3 or WebTransport would delay NPM replacement without improving frozen-profile parity.",
+    "Changing compatibility behavior while closing the native API can break npmctl cutover."
+  ],
+  "metrics": [
+    "Every in-scope feature is assigned to exactly one slice.",
+    "Every p100 parity row has an automated test and linked evidence before S5 exits.",
+    "Current npmctl workflows pass without requiring Node.js or npm on the operator machine.",
+    "No out-of-bounds or won't-do feature appears in the 1.0.0 release boundary."
+  ],
+  "acceptance_criteria": [
+    "Slices execute in dependency order and each exit gate is satisfied before the next release promotion.",
+    "Out-of-bounds items require an approved boundary change, ADR, spec, feature, tests, and release-plan update before implementation.",
+    "Won't-do items remain absent and cannot enter a release boundary without explicitly superseding this decision.",
+    "The SSOT registry validates after feature horizons and lifecycle dispositions are recorded."
+  ],
+  "objective": [
+    "Deliver a complete NPM-compatible replacement and the explicitly requested Portwyrm extensions without allowing protocol experiments or product imitation to destabilize 1.0.0."
+  ],
+  "target_personas": [],
+  "persona_names": [
+    "platform administrator",
+    "scoped operator",
+    "npmctl automation",
+    "service account",
+    "auditor"
+  ],
+  "features": [],
+  "ssot_feature_ids": [
+    "feat:experience.operator-cli",
+    "feat:compat.api-transport",
+    "feat:persistence.memory",
+    "feat:persistence.sqlite",
+    "feat:distribution.runtime-identity",
+    "feat:routing.proxy-hosts",
+    "feat:routing.redirection-dead-hosts",
+    "feat:routing.streams",
+    "feat:routing.access-lists",
+    "feat:runtime.nginx-reconciliation",
+    "feat:runtime.nginx-platform",
+    "feat:identity.users-rbac",
+    "feat:identity.access-tokens",
+    "feat:experience.operator-ui",
+    "feat:operations.settings-audit-health",
+    "feat:certificates.custom",
+    "feat:certificates.acme",
+    "feat:certificates.dns01-providers",
+    "feat:identity.auth-2fa",
+    "feat:compat.npm-api",
+    "feat:compat.npmctl",
+    "feat:persistence.mysql",
+    "feat:persistence.postgresql",
+    "feat:persistence.filesystem",
+    "feat:persistence.hybrid",
+    "feat:migration.npm",
+    "feat:operations.traffic-logs",
+    "feat:operations.upgrades",
+    "feat:distribution.oci",
+    "feat:security.mtls",
+    "feat:routing.http3-quic",
+    "feat:experience.advanced-user-preferences",
+    "feat:routing.webtransport"
+  ],
+  "claims": [],
+  "roadmap_claims": [
+    "S0 and S1 establish an operable control plane and the core Nginx routing loop.",
+    "S2-S4 close the known identity, UI, certificate, and MFA runtime gaps.",
+    "S5 is the only slice authorized to claim 1.0.0 p100 compatibility and release readiness."
+  ],
+  "tests": [],
+  "test_strategy": [
+    "unit and repository conformance tests",
+    "API contract and negative authorization tests",
+    "browser UIX role and lifecycle tests",
+    "real HTTP, HTTPS, WebSocket, TCP, UDP, redirect, 404, cache, and stream-TLS probes",
+    "ACME staging issuance, renewal, and injected-failure recovery",
+    "npmctl replay, NPM migration, backup/restore, upgrade, and OCI smoke tests"
+  ],
+  "evidence": [],
+  "evidence_sources": [
+    ".ssot/evidence",
+    ".ssot/releases",
+    "docs/product/feature-matrix.md",
+    "runtime protocol and container test reports"
+  ],
+  "economics": [
+    "No schedule or cost estimate is asserted; sequencing is dependency-, parity-, and risk-driven."
+  ],
+  "decision_gates": [
+    "A slice may start only when its declared prerequisites have passed their exit gates.",
+    "An OOB item requires an approved scope change and cannot borrow a parity feature's claim chain.",
+    "A won't-do item requires a superseding ADR and architecture review before it can return to planning.",
+    "1.0.0 promotion requires all in-scope p100 rows and requested extensions to pass S5."
+  ],
+  "boundary_semantics": "Each frozen boundary is cumulative through its named slice so it includes every prerequisite feature required for independent release evaluation.",
+  "slices": [
+    {
+      "id": "S0",
+      "boundary_id": "bnd:portwyrm-s0",
+      "name": "Composed control plane",
+      "state": "delivered-baseline",
+      "outcome": "An operator can install and run Portwyrm, bootstrap it, use the CLI/API/UIX, and persist desired state without Node.js or npm.",
+      "feature_ids": [
+        "feat:experience.operator-cli",
+        "feat:compat.api-transport",
+        "feat:persistence.memory",
+        "feat:persistence.sqlite",
+        "feat:distribution.runtime-identity"
+      ],
+      "exit_gate": "Installed-wheel and container smoke tests prove setup, login, status, schema, CRUD, health, and restart persistence."
+    },
+    {
+      "id": "S1",
+      "boundary_id": "bnd:portwyrm-s1",
+      "name": "Core proxy operator loop",
+      "state": "delivered-baseline",
+      "outcome": "An operator can reconcile reverse-proxy, redirect, dead-host, access-list, TCP, and UDP desired state into safe active Nginx configuration.",
+      "feature_ids": [
+        "feat:routing.proxy-hosts",
+        "feat:routing.redirection-dead-hosts",
+        "feat:routing.streams",
+        "feat:routing.access-lists",
+        "feat:runtime.nginx-reconciliation",
+        "feat:runtime.nginx-platform"
+      ],
+      "exit_gate": "Real HTTP/HTTPS/WebSocket/cache/redirect/404/TCP/UDP/stream-TLS probes and invalid-config rollback tests pass."
+    },
+    {
+      "id": "S2",
+      "boundary_id": "bnd:portwyrm-s2",
+      "name": "Identity and operator completion",
+      "state": "implemented",
+      "outcome": "Admins and scoped users have durable credentials, correct permissions, revocable access tokens, complete login/logout behavior, and permission-aware UIX.",
+      "feature_ids": [
+        "feat:identity.users-rbac",
+        "feat:identity.access-tokens",
+        "feat:experience.operator-ui",
+        "feat:operations.settings-audit-health"
+      ],
+      "included": [
+        "password set/change/admin reset for created users",
+        "disabled/deleted user denial",
+        "hidden/view/manage and user/all enforcement in API and UIX",
+        "browser logout plus token revocation where the token type supports revocation",
+        "baseline profile, password, theme, accessibility, and locale settings"
+      ],
+      "exit_gate": "Admin, scoped-user, guessed-ID, token lifecycle, password lifecycle, and browser route/action matrices pass."
+    },
+    {
+      "id": "S3",
+      "boundary_id": "bnd:portwyrm-s3",
+      "name": "Certificate and TLS lifecycle",
+      "state": "implemented",
+      "outcome": "Operators can upload, issue, attach, renew, rotate, and recover certificates through complete runtime flows.",
+      "feature_ids": [
+        "feat:certificates.custom",
+        "feat:certificates.acme",
+        "feat:certificates.dns01-providers"
+      ],
+      "included": [
+        "custom PEM upload, protected storage, validation, and atomic replacement",
+        "HTTP-01 and DNS-01 production adapters",
+        "certificate attachment and SSL termination",
+        "manual and scheduled renewal with expiry and failure recovery"
+      ],
+      "exit_gate": "Custom certificate and ACME staging flows pass end to end, including wildcard DNS-01, renewal, failed challenge cleanup, and active-host restoration."
+    },
+    {
+      "id": "S4",
+      "boundary_id": "bnd:portwyrm-s4",
+      "name": "MFA and recovery",
+      "state": "implemented",
+      "outcome": "Users can enroll, enable, challenge, recover, regenerate, disable, and audit TOTP MFA safely.",
+      "feature_ids": [
+        "feat:identity.auth-2fa"
+      ],
+      "exit_gate": "Encrypted secret persistence, five-minute challenge, one-use backup codes, regeneration, recovery, UIX, API, and login enforcement pass."
+    },
+    {
+      "id": "S5",
+      "boundary_id": "bnd:portwyrm-s5",
+      "name": "Compatibility and release closure",
+      "state": "implementation-complete",
+      "outcome": "A published OCI release can replace frozen NPM profiles with zero-change npmctl workflows and rehearsed migration and recovery.",
+      "feature_ids": [
+        "feat:compat.npm-api",
+        "feat:compat.npmctl",
+        "feat:persistence.mysql",
+        "feat:persistence.postgresql",
+        "feat:persistence.filesystem",
+        "feat:persistence.hybrid",
+        "feat:migration.npm",
+        "feat:operations.traffic-logs",
+        "feat:operations.upgrades",
+        "feat:distribution.oci"
+      ],
+      "exit_gate": "Full p100 matrix, npmctl replay, adapter conformance, migration, backup/restore, upgrade/rollback, multi-architecture image, SBOM, signature, and public pull gates pass."
+    }
+  ],
+  "out_of_bounds": [
+    {
+      "feature_id": "feat:security.mtls",
+      "reason": "Client-certificate authentication and upstream client certificates are valuable security extensions but are not NPM parity or required for the frozen 1.0.0 boundary.",
+      "reentry_gate": "Approve a security boundary, trust-store and revocation model, dedicated spec, threat model, and protocol tests."
+    },
+    {
+      "feature_id": "feat:routing.http3-quic",
+      "reason": "HTTP/3 and QUIC require a data-plane and container networking expansion beyond NPM parity.",
+      "reentry_gate": "Approve a data-plane ADR and prove runtime, observability, fallback, and packaging support."
+    },
+    {
+      "feature_id": "feat:experience.advanced-user-preferences",
+      "reason": "Arbitrary durable per-user preferences exceed the baseline profile, password, theme, accessibility, and locale needs in S2.",
+      "reentry_gate": "Demonstrate a concrete operator job and define a versioned preference schema and migration policy."
+    }
+  ],
+  "wont_do": [
+    {
+      "feature_id": "feat:routing.webtransport",
+      "reason": "WebTransport is not WebSocket parity and is not supported by the selected Nginx OSS data-plane contract; a compatibility shim would be misleading.",
+      "reconsideration_gate": "A superseding data-plane ADR with native WebTransport support, security analysis, and an independent product outcome."
+    },
+    {
+      "item": "Require Node.js or npm to install, build, or operate Portwyrm",
+      "reason": "This contradicts the product's portability objective and no-build UIX contract."
+    },
+    {
+      "item": "Copy NPM branding or trade dress",
+      "reason": "Compatibility targets observable behavior, not product identity."
+    }
+  ]
+}

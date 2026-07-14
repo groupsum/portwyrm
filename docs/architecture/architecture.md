@@ -1,7 +1,10 @@
 # Architecture
 
-Status: proposed for contract freeze  
+Status: accepted and implemented
 Decision date: 2026-07-13
+
+The canonical source and package tree is defined in
+[Repository and package layout](repository-layout.md).
 
 ```text
 NPM-compatible /api       Native /api/v2       Operator UI

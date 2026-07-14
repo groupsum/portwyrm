@@ -12,9 +12,12 @@ license = "Apache-2.0"
 authors = [{ name = "Groupsum" }]
 dependencies = [
   "argon2-cffi>=25.1,<26",
-  "cryptography>=45,<47",
+  "bcrypt>=4,<6",
+  "cryptography>=48.0.1,<49",
   "fastapi>=0.116,<1",
+  "psycopg[binary]>=3.2,<4",
   "pyjwt[crypto]>=2.10,<3",
+  "pymysql>=1.1,<2",
   "pyotp>=2.9,<3",
   "uvicorn>=0.35,<1",
 ]
@@ -37,6 +40,7 @@ dev = [
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
   "ssot-registry>=0.2.26,<0.3",
+  "websockets>=15,<16",
 ]
 
 [project.scripts]
@@ -49,7 +53,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-portwyrm = ["ui/*.html", "ui/*.css", "ui/*.js"]
+"portwyrm.uix" = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --import-mode=importlib -p no:cacheprovider"
