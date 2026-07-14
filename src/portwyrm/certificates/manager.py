@@ -55,8 +55,9 @@ class CertificateMaterialStore:
             raise ValueError("certificate ID must be a positive integer")
         if certificate_id < 1:
             raise ValueError("certificate ID must be a positive integer")
-        name = f"{prefix}{certificate_id}{suffix}"
-        if Path(name).name != name:
+        candidate = f"{prefix}{certificate_id}{suffix}"
+        name = os.path.basename(candidate)
+        if name != candidate:
             raise ValueError("certificate path component is invalid")
         target = (self.root / name).resolve()
         if target.parent != self.root:

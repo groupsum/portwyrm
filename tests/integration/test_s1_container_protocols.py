@@ -9,6 +9,7 @@ import secrets
 import socket
 import socketserver
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -242,25 +243,34 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
         stack.enter_context(_server(tcp_server))
         stack.enter_context(_server(udp_server))
         websocket_port = stack.enter_context(_websocket_server())
-        _docker("network", "create", network)
-        stack.callback(lambda: _docker("network", "rm", network, check=False))
+        linux_host_network = sys.platform.startswith("linux")
+        if not linux_host_network:
+            _docker("network", "create", network)
+            stack.callback(lambda: _docker("network", "rm", network, check=False))
+        network_args = (
+            ["--network", "host"]
+            if linux_host_network
+            else [
+                "--network",
+                network,
+                "--add-host",
+                "host.docker.internal:host-gateway",
+                "-p",
+                "127.0.0.1::80",
+                "-p",
+                "127.0.0.1::81",
+                "-p",
+                "127.0.0.1::19091/tcp",
+                "-p",
+                "127.0.0.1::19092/udp",
+            ]
+        )
         _docker(
             "run",
             "-d",
             "--name",
             container,
-            "--network",
-            network,
-            "--add-host",
-            "host.docker.internal:host-gateway",
-            "-p",
-            "127.0.0.1::80",
-            "-p",
-            "127.0.0.1::81",
-            "-p",
-            "127.0.0.1::19091/tcp",
-            "-p",
-            "127.0.0.1::19092/udp",
+            *network_args,
             "-e",
             "INITIAL_ADMIN_EMAIL=admin@example.test",
             "-e",
@@ -269,10 +279,11 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
         )
         stack.callback(lambda: _docker("rm", "-f", container, check=False))
 
-        http_port = _published_port(container, "80/tcp")
-        api_port = _published_port(container, "81/tcp")
-        tcp_port = _published_port(container, "19091/tcp")
-        udp_port = _published_port(container, "19092/udp")
+        http_port = 80 if linux_host_network else _published_port(container, "80/tcp")
+        api_port = 81 if linux_host_network else _published_port(container, "81/tcp")
+        tcp_port = 19091 if linux_host_network else _published_port(container, "19091/tcp")
+        udp_port = 19092 if linux_host_network else _published_port(container, "19092/udp")
+        upstream_host = "127.0.0.1" if linux_host_network else "host.docker.internal"
         _wait_ready(api_port, container)
         login = _json_request(
             f"http://127.0.0.1:{api_port}/api/tokens",
@@ -298,7 +309,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             {
                 "domain_names": ["app.example.test"],
                 "forward_scheme": "http",
-                "forward_host": "host.docker.internal",
+                "forward_host": upstream_host,
                 "forward_port": http_server.server_port,
                 "caching_enabled": 1,
                 "enabled": 1,
@@ -318,7 +329,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             {
                 "domain_names": ["socket.example.test"],
                 "forward_scheme": "http",
-                "forward_host": "host.docker.internal",
+                "forward_host": upstream_host,
                 "forward_port": websocket_port,
                 "allow_websocket_upgrade": 1,
                 "enabled": 1,
@@ -355,7 +366,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             "/api/nginx/streams",
             {
                 "incoming_port": 19091,
-                "forwarding_host": "host.docker.internal",
+                "forwarding_host": upstream_host,
                 "forwarding_port": tcp_server.server_address[1],
                 "tcp_forwarding": 1,
                 "udp_forwarding": 0,
@@ -367,7 +378,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             "/api/nginx/streams",
             {
                 "incoming_port": 19092,
-                "forwarding_host": "host.docker.internal",
+                "forwarding_host": upstream_host,
                 "forwarding_port": udp_server.server_address[1],
                 "tcp_forwarding": 0,
                 "udp_forwarding": 1,

@@ -21,7 +21,11 @@ class _Session:
 
 
 def _token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    # Tokens carry at least 256 bits of entropy. This is a deterministic lookup digest,
+    # not a password verifier; domain separation prevents cross-protocol digest reuse.
+    return hashlib.blake2b(
+        token.encode("utf-8"), digest_size=32, person=b"portwyrm-token1"
+    ).hexdigest()
 
 
 def _principal_record(principal: Principal) -> dict[str, Any]:
