@@ -3,22 +3,26 @@ kind: "spec"
 id: "spc:1017"
 number: 1017
 slug: "no-build-operator-ui-contract"
-title: "No-build operator UI contract"
+title: "Compiled operator UI contract"
 status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The complete permission-aware operator UI SHALL ship as Python package and OCI static assets without Node.js or npm at build, install, or runtime. It SHALL provide setup, authentication and 2FA, dashboards, all resource surfaces, tokens, audit, settings and health with keyboard, responsive, theme, localization, CSP, and WCAG 2.2 AA behavior."
+summary: "The production Portwyrm operator UI SHALL be built from the maintained React component source and committed as compiled Python-package and OCI assets. Node.js tooling MAY be used only to regenerate checked-in frontend assets; Python package installation, container startup, and self-hosted operation SHALL NOT require Node.js or npm. The UI SHALL use authenticated Portwyrm APIs only and SHALL NOT ship mock stores, seeded demo identities, simulated reconciliation state, AI Studio metadata, or plaintext credentials. It SHALL provide setup, authentication and MFA challenge completion, overview, unified hosts and certificates, access lists, users and permissions, audit, settings, account security, and persistent system health. Relationship controls SHALL present human-readable resource names rather than requiring operators to copy or paste resource IDs."
 supersedes: []
 superseded_by: []
 status_notes:
   -
-    status: "accepted"
-    note: "Accepted for the Portwyrm p100 boundary."
     at: "2026-07-13T23:16:57Z"
+    note: "Accepted for the Portwyrm p100 boundary."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Updated to the source-integrated React UI with checked-in runtime assets and no npm deployment dependency."
+    at: "2026-07-15T09:38:23Z"
 references: []
 body: |-
-  The complete permission-aware operator UI SHALL ship as Python package and OCI static assets without Node.js or npm at build, install, or runtime. It SHALL provide setup, authentication and 2FA, dashboards, all resource surfaces, tokens, audit, settings and health with keyboard, responsive, theme, localization, CSP, and WCAG 2.2 AA behavior.
+  The production Portwyrm operator UI SHALL be built from the maintained React component source and committed as compiled Python-package and OCI assets. Node.js tooling MAY be used only to regenerate checked-in frontend assets; Python package installation, container startup, and self-hosted operation SHALL NOT require Node.js or npm. The UI SHALL use authenticated Portwyrm APIs only and SHALL NOT ship mock stores, seeded demo identities, simulated reconciliation state, AI Studio metadata, or plaintext credentials. It SHALL provide setup, authentication and MFA challenge completion, overview, unified hosts and certificates, access lists, users and permissions, audit, settings, account security, and persistent system health. Relationship controls SHALL present human-readable resource names rather than requiring operators to copy or paste resource IDs.
 spec_kind: "normative"
 adr_ids:
   - "adr:1001"

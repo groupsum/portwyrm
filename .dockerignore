@@ -10,3 +10,4 @@ __pycache__
 tests
 dist
 build
+frontend/node_modules

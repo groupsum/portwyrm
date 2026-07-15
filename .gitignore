@@ -10,6 +10,7 @@ __pycache__/
 htmlcov/
 dist/
 build/
+frontend/node_modules/
 *.egg-info/
 .env
 .DS_Store

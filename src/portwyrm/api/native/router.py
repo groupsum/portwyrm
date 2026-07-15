@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.concurrency import run_in_threadpool
 
 from portwyrm.application import PersistentControlPlane
 from portwyrm.operations import HealthService
@@ -36,7 +37,7 @@ def create_native_router(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="email and password are required",
             )
-        return control_plane.bootstrap_admin(email, password)
+        return await run_in_threadpool(control_plane.bootstrap_admin, email, password)
 
     @router.get("/health/live", include_in_schema=False)
     async def live() -> dict[str, Any]:

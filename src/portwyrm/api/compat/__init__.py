@@ -30,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import Response as FastAPIResponse
+from starlette.concurrency import run_in_threadpool
 
 from portwyrm.application import MFAStore
 from portwyrm.certificates import (
@@ -226,7 +227,9 @@ def create_compat_app(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="authentication service unavailable",
             )
-        authenticated = await _maybe_await(authentication(identity.strip().lower(), secret))
+        authenticated = await _maybe_await(
+            await run_in_threadpool(authentication, identity.strip().lower(), secret)
+        )
         if authenticated is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"

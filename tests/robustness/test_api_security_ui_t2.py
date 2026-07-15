@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -298,6 +299,7 @@ def test_initial_setup_is_one_shot_casefolded_and_never_echoes_password(
     )
 
 
+@pytest.mark.skip(reason="superseded by the compiled React UI security contract")
 def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     root = Path(__file__).parents[2]
     html = (root / "src/portwyrm/uix/static/index.html").read_text(encoding="utf-8")
@@ -305,6 +307,14 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert '<html lang="en"' in html
     assert 'href="#content"' in html
     assert 'aria-label="Primary"' in html
+    assert '<header class="topbar">' in html
+    assert '<aside id="sidebar">' not in html
+    assert 'aria-haspopup="menu"' in html
+    assert 'id="account-menu" class="account-menu" role="menu"' in html
+    primary_navigation = html.split('<nav aria-label="Primary">', 1)[1].split("</nav>", 1)[0]
+    assert "System Health" not in primary_navigation
+    assert '<footer id="system-status-bar"' in html
+    assert 'aria-label="System status"' in html
     assert 'role="status"' in html and 'aria-live="polite"' in html
     assert 'aria-busy="true"' in html
     assert '<script type="module" src="/ui/app.js"></script>' in html
@@ -313,11 +323,29 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert "eval(" not in script and "new Function" not in script
     assert 'localStorage.getItem("portwyrm.token")' not in script
     assert "/api/v2/browser/login" in script
+    assert 'authForm.setAttribute("aria-busy", "true")' in script
+    assert "submit.disabled = true" in script
+    assert "function syncSessionControls()" in script
+    assert "closeAccountMenu(true)" in script
+    assert "function refreshSystemStatus()" in script
+    assert "setInterval(refreshSystemStatus, 30000)" in script
+    assert "Access list ID" not in script
+    assert "Certificate ID" not in script
+    assert "function resourceLabel(" in script
+    assert "function resourceFieldMarkup(" in script
+    assert 'field[2] === "resource"' in script
     assert "X-CSRF-Token" in script
     assert json.dumps("correct horse battery staple") not in html + script
     assert "function escapeHtml(value)" in script
     assert "function displayValue(key, value)" in script
-    assert "displayValue(key, row[key])" in script
+    assert "function renderHostsTable(" in script
+    assert "function renderCertificatesTable(" in script
+    assert "function renderSimpleTable(" in script
+    assert 'data-table-search' in script
+    assert 'month: "long", day: "numeric", year: "numeric"' in script
+    assert '<th>Owner</th><th>Source</th><th>Destination</th>' in script
+    assert "<th>ID</th>" not in script
+    assert "&#8942;" in script
     assert "<pre>${escapeHtml(JSON.stringify(health.components" in script
     assert "<p>${escapeHtml(error.message)}" in script
 
@@ -327,3 +355,45 @@ def test_no_build_ui_has_accessibility_and_static_security_invariants() -> None:
     assert page.headers["content-type"].startswith("text/html")
     assert app_client.get("/ui/app.js").headers["content-type"].startswith("text/javascript")
     assert app_client.get("/ui/styles.css").headers["content-type"].startswith("text/css")
+
+
+def test_compiled_ui_has_static_security_and_real_api_invariants() -> None:
+    root = Path(__file__).parents[2]
+    html = (root / "src/portwyrm/uix/static/index.html").read_text(encoding="utf-8")
+    script_path = re.search(r'src="/ui/(assets/[^"]+\.js)"', html)
+    style_path = re.search(r'href="/ui/(assets/[^"]+\.css)"', html)
+    assert script_path is not None and style_path is not None
+    script = (root / "src/portwyrm/uix/static" / script_path.group(1)).read_text(encoding="utf-8")
+    sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (root / "frontend/src").rglob("*.tsx")
+    ) + (root / "frontend/src/store/index.ts").read_text(encoding="utf-8")
+    assert "eval(" not in script and "new Function" not in script
+    assert "GEMINI_API_KEY" not in html + script + sources
+    assert ".aistudio" not in html + script + sources
+    assert "INITIAL_USERS" not in sources and "INITIAL_HOSTS" not in sources
+    assert "localStorage.setItem(key, JSON.stringify(value))" not in sources
+    assert "/api/v2/browser/login" in sources
+    assert "/api/v2/browser/2fa" in sources
+    assert "/api/nginx/" in sources and "proxy-hosts" in sources
+    assert "X-CSRF-Token" in sources
+    assert 'role="dialog"' in sources and 'aria-modal="true"' in sources
+    assert "event.key === 'Escape'" in sources
+    assert "event.target === event.currentTarget" in sources
+    assert "createPortal(" in sources
+    assert "domains.map((dom)" in sources
+    assert 'aria-label={`Copy source domain ${dom}`}' in sources
+    assert "sourceDomainHref(host, dom)" in sources
+    assert 'target="_blank"' in sources and 'rel="noreferrer"' in sources
+    settings_source = (root / "frontend/src/components/SettingsView.tsx").read_text(encoding="utf-8")
+    layout_source = (root / "frontend/src/components/Layout.tsx").read_text(encoding="utf-8")
+    assert 'role="tablist"' in settings_source and 'role="tabpanel"' in settings_source
+    assert "Runtime & persistence" in settings_source and "Portability" in settings_source
+    assert "/api/v2/import/preview" in sources and "/api/v2/import?" in sources
+    assert "My account" not in settings_source
+    assert "setIsAccountSettingsOpen(true)" in layout_source
+    assert "AccountSettingsModal" in layout_source
+    assert "absolute right-6 mt-1 w-48" not in sources
+    assert "absolute right-6 mt-1 w-44" not in sources
+    assert "absolute right-0 bottom-full" not in sources
+    assert json.dumps("correct horse battery staple") not in html + script + sources

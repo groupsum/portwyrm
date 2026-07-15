@@ -39,8 +39,18 @@ def test_legacy_root_modules_and_ui_collision_are_absent() -> None:
 
 def test_uix_assets_are_owned_and_packaged_by_uix() -> None:
     static = PACKAGE_ROOT / "uix" / "static"
-    assert {path.name for path in static.iterdir()} == {"app.js", "index.html", "styles.css"}
+    assert {path.name for path in static.iterdir()} == {"assets", "index.html"}
+    assets = {path.suffix for path in (static / "assets").iterdir()}
+    assert assets == {".js", ".css"}
 
     configuration = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     package_data = configuration["tool"]["setuptools"]["package-data"]
-    assert package_data == {"portwyrm.uix": ["static/*.html", "static/*.css", "static/*.js"]}
+    assert package_data == {
+        "portwyrm.uix": [
+            "static/*.html",
+            "static/*.css",
+            "static/*.js",
+            "static/assets/*.css",
+            "static/assets/*.js",
+        ]
+    }

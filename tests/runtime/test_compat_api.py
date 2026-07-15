@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from copy import deepcopy
 from typing import Any
 
@@ -97,6 +98,22 @@ def login(client: TestClient, identity: str = "admin@example.com") -> dict[str, 
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['result']['token']}"}
+
+
+def test_password_verification_runs_outside_the_event_loop(service: FakeService) -> None:
+    verifier_threads: list[str] = []
+
+    def authenticate(identity: str, _secret: str) -> Principal:
+        verifier_threads.append(threading.current_thread().name)
+        return Principal(1, identity, is_admin=True, visibility="all")
+
+    response = TestClient(create_compat_app(service, authenticator=authenticate)).post(
+        "/api/tokens",
+        json={"identity": "admin@example.com", "secret": "correct", "scope": "user"},
+    )
+
+    assert response.status_code == 200
+    assert verifier_threads == ["AnyIO worker thread"]
 
 
 def test_health_schema_login_and_refresh(client: TestClient) -> None:

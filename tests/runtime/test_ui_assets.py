@@ -1,24 +1,36 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from portwyrm.uix import mount_uix
 
 
-def test_no_build_console_is_packaged_and_accessible() -> None:
+def test_compiled_console_is_packaged_and_accessible() -> None:
     app = FastAPI()
     mount_uix(app)
     client = TestClient(app)
     page = client.get("/ui/")
     assert page.status_code == 200
-    assert "Skip to content" in page.text
-    assert "System Health" in page.text
-    assert 'aria-live="polite"' in page.text
-    assert client.get("/ui/app.js").status_code == 200
-    stylesheet = client.get("/ui/styles.css")
+    assert '<html lang="en">' in page.text
+    assert '<div id="root"></div>' in page.text
+    script_match = re.search(r'src="(/ui/assets/[^"]+\.js)"', page.text)
+    style_match = re.search(r'href="(/ui/assets/[^"]+\.css)"', page.text)
+    assert script_match is not None
+    assert style_match is not None
+
+    script = client.get(script_match.group(1))
+    stylesheet = client.get(style_match.group(1))
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("text/javascript")
     assert stylesheet.status_code == 200
-    assert "[hidden]{display:none!important}" in stylesheet.text
+    assert stylesheet.headers["content-type"].startswith("text/css")
+    assert "/api/v2/browser/login" in script.text
+    assert "/api/nginx/" in script.text and "proxy-hosts" in script.text
+    assert "GEMINI_API_KEY" not in script.text
+    assert client.get("/ui/app.js").status_code == 404
 
 
 def test_root_redirects_to_console() -> None:
