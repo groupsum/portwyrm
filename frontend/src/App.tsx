@@ -10,6 +10,7 @@ import UsersView from './components/UsersView';
 import AuditView from './components/AuditView';
 import SettingsView from './components/SettingsView';
 import HostDialog from './components/HostDialog';
+import { useFeedback } from './components/Feedback';
 
 function AuthScreen() {
   const [email, setEmail] = useState('');
@@ -45,6 +46,7 @@ function AuthScreen() {
 }
 
 export default function App() {
+  const feedback = useFeedback();
   const [, setTick] = useState(0);
   const [isCreateHostOpen, setIsCreateHostOpen] = useState(false);
   const [editingHost, setEditingHost] = useState<Host | null>(null);
@@ -67,14 +69,14 @@ export default function App() {
   const navigate = (tab: string) => { window.location.hash = tab; };
   const openCreate = () => { setEditingHost(null); setIsCreateHostOpen(true); };
   const openEdit = (host: Host) => { setEditingHost(host); setIsCreateHostOpen(true); };
-  const deleteHost = (id: string) => { const host = portwyrmStore.hosts.find(item => item.id === id); if (host && confirm(`Permanently delete ${host.source}?`)) void portwyrmStore.deleteHost(id); };
+  const deleteHost = (id: string) => { const host = portwyrmStore.hosts.find(item => item.id === id); if (!host) return; void feedback.confirm({title: 'Delete routing host?', description: `Permanently delete ${host.source}? This removes its active Nginx configuration.`, confirmLabel: 'Delete host', destructive: true}).then(accepted => { if (accepted) void portwyrmStore.deleteHost(id); }); };
   const renew = (id: string, progress: (message: string, done: boolean, error?: string) => void) => { void portwyrmStore.renewCertificate(id, progress); };
 
   const hosts = <HostsView hosts={portwyrmStore.hosts} certificates={portwyrmStore.certificates} accessLists={portwyrmStore.accessLists} currentUser={currentUser} onAddHost={openCreate} onEditHost={openEdit} onDeleteHost={deleteHost} onToggleHostStatus={id => void portwyrmStore.toggleHostStatus(id)} defaultSubTab={currentTab === 'certificates' ? 'certificates' : 'hosts'} onAddCert={data => void portwyrmStore.addCertificate(data)} onRequestLetsEncrypt={(name, domains, challenge, progress) => void portwyrmStore.requestLetsEncrypt(name, domains, challenge, progress)} onRenewCert={renew} onDeleteCert={id => portwyrmStore.deleteCertificate(id)} onDuplicateHost={host => { setEditingHost({...host, id: '', source: `copy-${host.source}`}); setIsCreateHostOpen(true); }} />;
 
   return (
     <Layout currentTab={currentTab} onTabChange={navigate} onSignOut={() => void portwyrmStore.signOut()} storeState={{health: portwyrmStore.health, currentUser, allUsers: portwyrmStore.users}}>
-      {currentTab === 'overview' && <OverviewView hosts={portwyrmStore.hosts} certificates={portwyrmStore.certificates} auditLogs={portwyrmStore.auditLogs} health={portwyrmStore.health} onNavigate={(tab, filter) => navigate(tab === 'hosts' && filter === 'certificates' ? 'certificates' : tab)} onOpenCreateHost={openCreate} onRenewCert={id => renew(id, message => alert(message))} onReconcileDrift={() => void portwyrmStore.refresh()} />}
+      {currentTab === 'overview' && <OverviewView hosts={portwyrmStore.hosts} certificates={portwyrmStore.certificates} auditLogs={portwyrmStore.auditLogs} health={portwyrmStore.health} onNavigate={(tab, filter) => navigate(tab === 'hosts' && filter === 'certificates' ? 'certificates' : tab)} onOpenCreateHost={openCreate} onRenewCert={id => renew(id, (message, done, error) => { if (done) feedback.toast(error || message, error ? 'error' : 'success'); })} onReconcileDrift={() => void portwyrmStore.refresh()} />}
       {(currentTab === 'hosts' || currentTab === 'certificates') && hosts}
       {currentTab === 'access-lists' && <AccessListsView accessLists={portwyrmStore.accessLists} hosts={portwyrmStore.hosts} users={portwyrmStore.users} currentUser={currentUser} onAddAccessList={data => void portwyrmStore.addAccessList(data)} onUpdateAccessList={(id, data) => void portwyrmStore.updateAccessList(id, data)} onDeleteAccessList={id => portwyrmStore.deleteAccessList(id)} />}
       {currentTab === 'users' && <UsersView users={portwyrmStore.users} accessLists={portwyrmStore.accessLists} currentUser={currentUser} onAddUser={(data, aclIds) => void portwyrmStore.addUser(data, aclIds)} onUpdateUser={(id, data) => void portwyrmStore.updateUser(id, data)} onDeleteUser={id => portwyrmStore.deleteUser(id)} />}

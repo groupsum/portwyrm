@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import ActionModal from './ActionModal';
 import MultiSelect from './MultiSelect';
+import { useFeedback } from './Feedback';
 
 interface UsersViewProps {
   users: User[];
@@ -44,6 +45,7 @@ export default function UsersView({
   onUpdateUser,
   onDeleteUser
 }: UsersViewProps) {
+  const feedback = useFeedback();
 
   // Search & Sorting state
   const [searchTerm, setSearchTerm] = useState('');
@@ -208,7 +210,7 @@ export default function UsersView({
     setErrorMessage(null);
     const success = onDeleteUser(id);
     if (!success) {
-      alert('Operation Rejected: You cannot delete or revoke your own active administrator profile!');
+      feedback.toast('You cannot delete your own active administrator profile.', 'error');
     }
   };
 

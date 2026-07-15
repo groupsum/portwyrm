@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import ActionModal from './ActionModal';
 import { can } from '../utils/permissions';
+import { useFeedback } from './Feedback';
 
 interface CertificatesViewProps {
   certificates: Certificate[];
@@ -39,6 +40,7 @@ export default function CertificatesView({
   onRenewCert,
   onDeleteCert
 }: CertificatesViewProps) {
+  const feedback = useFeedback();
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -216,7 +218,7 @@ export default function CertificatesView({
   const triggerForceRenew = (id: string) => {
     setOpenActionMenuId(null);
     onRenewCert(id, (msg, done, err) => {
-      alert(msg);
+      if (done) feedback.toast(err || msg, err ? 'error' : 'success');
     });
   };
 

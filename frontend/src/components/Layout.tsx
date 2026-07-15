@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import AccountSettingsModal from './AccountSettingsModal';
 import { can, HOST_PERMISSION_RESOURCES } from '../utils/permissions';
+import { useFeedback } from './Feedback';
 
 interface LayoutProps {
   currentTab: string;
@@ -40,6 +41,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ currentTab, onTabChange, onSignOut, children, storeState }: LayoutProps) {
+  const feedback = useFeedback();
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
   const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
@@ -215,7 +217,7 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
                       <button
                         onClick={() => {
                           setIsUserDropdownOpen(false);
-                          alert("Access tokens configuration.");
+                          feedback.toast('Access token management is not available in this build.', 'info');
                         }}
                         className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer"
                       >

@@ -20,6 +20,7 @@ import {
   Trash2
 } from 'lucide-react';
 import MultiSelect from './MultiSelect';
+import { useFeedback } from './Feedback';
 
 interface HostDialogProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ export default function HostDialog({
   editingHost,
   onDeleteHost
 }: HostDialogProps) {
+  const feedback = useFeedback();
   const [hostType, setHostType] = useState<HostType>('proxy');
 
   // Form values
@@ -297,9 +299,7 @@ export default function HostDialog({
 
   const handleClose = (force = false) => {
     if (!force && hasChanges()) {
-      if (confirm('You have unsaved changes. Are you sure you want to discard them?')) {
-        onClose();
-      }
+      void feedback.confirm({title: 'Discard unsaved changes?', description: 'Your edits have not been applied and will be lost.', confirmLabel: 'Discard changes', destructive: true}).then(accepted => { if (accepted) onClose(); });
     } else {
       onClose();
     }

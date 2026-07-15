@@ -27,6 +27,7 @@ import {
 import CertificatesView from './CertificatesView';
 import ActionModal from './ActionModal';
 import { can, hostPermissionResource } from '../utils/permissions';
+import { useFeedback } from './Feedback';
 
 interface HostsViewProps {
   hosts: Host[];
@@ -64,6 +65,7 @@ export default function HostsView({
   onDeleteCert,
   onDuplicateHost
 }: HostsViewProps) {
+  const feedback = useFeedback();
 
   // Sub-workspace tab control
   const [activeSubTab, setActiveSubTab] = useState<'hosts' | 'certificates'>(defaultSubTab);
@@ -793,10 +795,10 @@ ${customDirectives}
             {actionHost && <>
               {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onToggleHostStatus(actionHost.id); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><RefreshCw className="h-4 w-4" />{actionHost.status === 'disabled' ? 'Enable Host' : 'Disable Host'}</button>}
               {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onEditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Edit3 className="h-4 w-4" />Configure & Edit</button>}
-              {can(currentUser, hostPermissionResource(actionHost.type), 'create') && <button onClick={() => { setOpenActionMenuId(null); onDuplicateHost ? onDuplicateHost(actionHost) : alert(`Duplicating host ${actionHost.source}`); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Copy className="h-4 w-4" />Duplicate Host</button>}
+              {can(currentUser, hostPermissionResource(actionHost.type), 'create') && <button onClick={() => { setOpenActionMenuId(null); if (onDuplicateHost) onDuplicateHost(actionHost); else feedback.toast(`Unable to duplicate ${actionHost.source}.`, 'error'); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Copy className="h-4 w-4" />Duplicate Host</button>}
               <button onClick={() => { setOpenActionMenuId(null); setInspectedConfigHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><FileCode className="h-4 w-4" />View Applied Config</button>
               <button onClick={() => { setOpenActionMenuId(null); setInspectedAuditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><History className="h-4 w-4" />View Audit History</button>
-              {actionHost.sslId && can(currentUser, 'certificates', 'update') && <button onClick={() => { setOpenActionMenuId(null); onRenewCert(actionHost.sslId!, msg => alert(msg)); }} className="text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/20"><RefreshCw className="h-4 w-4" />Renew SSL Cert</button>}
+              {actionHost.sslId && can(currentUser, 'certificates', 'update') && <button onClick={() => { setOpenActionMenuId(null); onRenewCert(actionHost.sslId!, (message, done, error) => { if (done) feedback.toast(error || message, error ? 'error' : 'success'); }); }} className="text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/20"><RefreshCw className="h-4 w-4" />Renew SSL Cert</button>}
               {can(currentUser, hostPermissionResource(actionHost.type), 'delete') && <button onClick={() => { setOpenActionMenuId(null); onDeleteHost(actionHost.id); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Host</button>}
             </>}
           </ActionModal>
