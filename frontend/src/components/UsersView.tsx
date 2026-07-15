@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, UserRole, AccessList } from '../types';
+import { User, UserRole, AccessList, PermissionAction, PermissionResource, UserPermissions } from '../types';
 import { formatDate } from '../utils/formatting';
+import { grantSummary, normalizePermissions, PERMISSION_ACTIONS, PERMISSION_RESOURCES, readGrant } from '../utils/permissions';
 import {
   Users,
   UserCheck,
@@ -26,6 +27,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import ActionModal from './ActionModal';
+import MultiSelect from './MultiSelect';
 
 interface UsersViewProps {
   users: User[];
@@ -68,10 +70,7 @@ export default function UsersView({
   const [status, setStatus] = useState<'Active' | 'Disabled'>('Active');
   const [selectedAclIds, setSelectedAclIds] = useState<string[]>([]);
 
-  // Permission toggles
-  const [hostsPerm, setHostsPerm] = useState<'manage' | 'view' | 'hidden'>('manage');
-  const [streamsPerm, setStreamsPerm] = useState<'manage' | 'view' | 'hidden'>('view');
-  const [certsPerm, setCertsPerm] = useState<'manage' | 'view' | 'hidden'>('view');
+  const [permissionMatrix, setPermissionMatrix] = useState<UserPermissions>(() => normalizePermissions({proxy_hosts: 'manage', streams: 'view', certificates: 'view'}));
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -103,6 +102,25 @@ export default function UsersView({
     }
   };
 
+  const setPermission = (resource: PermissionResource, action: PermissionAction, enabled: boolean) => {
+    setPermissionMatrix(current => ({
+      ...current,
+      [resource]: {...current[resource], [action]: enabled},
+    }));
+  };
+
+  const applyRolePreset = (nextRole: UserRole) => {
+    setRole(nextRole);
+    if (nextRole === 'Administrator') {
+      setVisibility('all');
+      setPermissionMatrix(normalizePermissions({}, true));
+    } else if (nextRole === 'Viewer') {
+      setPermissionMatrix(Object.fromEntries(PERMISSION_RESOURCES.map(resource => [resource.id, readGrant()])) as UserPermissions);
+    } else {
+      setPermissionMatrix(normalizePermissions({proxy_hosts: 'manage', redirection_hosts: 'manage', dead_hosts: 'manage', streams: 'view', access_lists: 'view', certificates: 'view'}));
+    }
+  };
+
   const openNewUser = () => {
     setEditingId(null);
     setDisplayName('');
@@ -112,9 +130,7 @@ export default function UsersView({
     setRole('Operator');
     setVisibility('owned');
     setStatus('Active');
-    setHostsPerm('manage');
-    setStreamsPerm('view');
-    setCertsPerm('view');
+    setPermissionMatrix(normalizePermissions({proxy_hosts: 'manage', redirection_hosts: 'manage', dead_hosts: 'manage', streams: 'view', access_lists: 'view', certificates: 'view'}));
     setSelectedAclIds([]);
     setErrorMessage(null);
     setIsEditorOpen(true);
@@ -129,13 +145,11 @@ export default function UsersView({
     setRole(u.role);
     setVisibility(u.visibility);
     setStatus(u.status);
-    setHostsPerm(u.permissions.hosts);
-    setStreamsPerm(u.permissions.streams);
-    setCertsPerm(u.permissions.certificates);
+    setPermissionMatrix(u.permissions);
 
     // Compute current ACL associations
     const userAcls = accessLists
-      .filter(acl => acl.users.some(b => b.username === u.username))
+      .filter(acl => acl.identityIds.includes(u.id))
       .map(acl => acl.id);
     setSelectedAclIds(userAcls);
 
@@ -148,8 +162,13 @@ export default function UsersView({
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!displayName.trim() || !username.trim() || !email.trim() || !password.trim()) {
-      setErrorMessage('Please fill in all operator profile fields (name, handle, email, password).');
+    if (!displayName.trim() || !username.trim() || !email.trim()) {
+      setErrorMessage('Please fill in the operator name, handle, and email.');
+      return;
+    }
+
+    if (!editingId && !password.trim()) {
+      setErrorMessage('A password is required when creating an operator.');
       return;
     }
 
@@ -166,11 +185,7 @@ export default function UsersView({
       role,
       visibility,
       status,
-      permissions: {
-        hosts: hostsPerm,
-        streams: streamsPerm,
-        certificates: certsPerm,
-      },
+      permissions: permissionMatrix,
       aclIds: selectedAclIds
     };
 
@@ -315,7 +330,7 @@ export default function UsersView({
             ) : (
               paginatedUsers.map((user) => {
                 const isSelf = user.id === currentUser.id;
-                const associatedAcls = accessLists.filter(acl => acl.users.some(u => u.username === user.username));
+                const associatedAcls = accessLists.filter(acl => acl.identityIds.includes(user.id));
                 const isRevealed = !!revealPasswords[user.id];
 
                 return (
@@ -387,10 +402,11 @@ export default function UsersView({
 
                     {/* Permission Summary blueprint box */}
                     <td className="px-6 py-4.5">
-                      <div className="text-[10px] font-mono leading-relaxed space-y-0.5 text-slate-600 dark:text-zinc-400 font-semibold">
-                        <div>Proxy Hosts: <span className={user.permissions.hosts === 'manage' ? 'text-emerald-600 dark:text-emerald-400' : user.permissions.hosts === 'view' ? 'text-slate-500' : 'text-red-500'}>{user.permissions.hosts.toUpperCase()}</span></div>
-                        <div>TCP Streams: <span className={user.permissions.streams === 'manage' ? 'text-emerald-600 dark:text-emerald-400' : user.permissions.streams === 'view' ? 'text-slate-500' : 'text-red-500'}>{user.permissions.streams.toUpperCase()}</span></div>
-                        <div>Certs TLS: <span className={user.permissions.certificates === 'manage' ? 'text-emerald-600 dark:text-emerald-400' : user.permissions.certificates === 'view' ? 'text-slate-500' : 'text-red-500'}>{user.permissions.certificates.toUpperCase()}</span></div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] font-mono text-slate-600 dark:text-zinc-400 font-semibold">
+                        {PERMISSION_RESOURCES.map(resource => {
+                          const summary = grantSummary(user.permissions[resource.id]);
+                          return <div key={resource.id} className="flex justify-between gap-2"><span>{resource.shortLabel}</span><strong className={summary === 'CRUD' ? 'text-emerald-600 dark:text-emerald-400' : summary === 'None' ? 'text-red-500' : 'text-indigo-600 dark:text-indigo-400'}>{summary}</strong></div>;
+                        })}
                       </div>
                     </td>
 
@@ -497,7 +513,7 @@ export default function UsersView({
       {/* --- ENROLL / MODIFY USER DIALOG --- */}
       {isEditorOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
 
             <div className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center bg-slate-50 dark:bg-zinc-900/50">
               <h3 className="font-extrabold text-sm text-slate-800 dark:text-zinc-100">
@@ -558,51 +574,35 @@ export default function UsersView({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Plaintext Password</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">{editingId ? 'New Password (Optional)' : 'Initial Password'}</label>
                   <input
-                    type="text"
-                    placeholder="Set user password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder={editingId ? 'Leave blank to keep current password' : 'Set user password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full p-2.5 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-sm font-mono text-slate-800 dark:text-zinc-100 focus:outline-hidden"
-                    required
+                    required={!editingId}
                   />
                 </div>
               </div>
 
-              {/* Access Lists Association checklist */}
-              <div className="space-y-2 border-t border-slate-100 dark:border-zinc-800 pt-4">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Access Control Lists (ACL) Association</span>
-                <span className="text-[11px] text-slate-400 block -mt-1">Add this user handle and credentials directly to the following basic authentication firewall filters:</span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                  {accessLists.length === 0 ? (
-                    <span className="text-xs italic text-slate-400 block p-2">No Access Control Lists found. Create an Access List page first.</span>
-                  ) : (
-                    accessLists.map(acl => {
-                      const isAssociated = selectedAclIds.includes(acl.id);
-                      return (
-                        <label key={acl.id} className="p-3 border border-slate-200 dark:border-zinc-800 rounded-xl flex items-center gap-3 bg-slate-50 dark:bg-zinc-950 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isAssociated}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedAclIds(prev => [...prev, acl.id]);
-                              } else {
-                                setSelectedAclIds(prev => prev.filter(id => id !== acl.id));
-                              }
-                            }}
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                          />
-                          <div>
-                            <span className="font-bold text-slate-800 dark:text-zinc-200 text-xs block">{acl.name}</span>
-                            <span className="text-[10px] text-slate-400">{acl.usersCount} users • {acl.rulesCount} subnets</span>
-                          </div>
-                        </label>
-                      );
-                    })
-                  )}
-                </div>
+              {/* Access list associations */}
+              <div className="space-y-2 border-t border-slate-100 pt-4 dark:border-zinc-800">
+                <MultiSelect
+                  id="identity-access-lists"
+                  label="Access control lists"
+                  options={accessLists.map(acl => ({
+                    value: acl.id,
+                    label: acl.name,
+                    description: `${acl.usersCount} identities · ${acl.rulesCount} network rules`,
+                  }))}
+                  values={selectedAclIds}
+                  onChange={setSelectedAclIds}
+                  placeholder="None"
+                  noResultsText="No matching access lists"
+                />
+                <p className="text-[10px] leading-relaxed text-slate-500">Assign this identity to one or more access policies without copying usernames or passwords.</p>
               </div>
 
               {/* Role & Visibility Scope */}
@@ -611,20 +611,7 @@ export default function UsersView({
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">System Role Profile</label>
                   <select
                     value={role}
-                    onChange={(e) => {
-                      const rVal = e.target.value as UserRole;
-                      setRole(rVal);
-                      if (rVal === 'Administrator') {
-                        setVisibility('all');
-                        setHostsPerm('manage');
-                        setStreamsPerm('manage');
-                        setCertsPerm('manage');
-                      } else if (rVal === 'Viewer') {
-                        setHostsPerm('view');
-                        setStreamsPerm('view');
-                        setCertsPerm('view');
-                      }
-                    }}
+                    onChange={(e) => applyRolePreset(e.target.value as UserRole)}
                     className="w-full p-2.5 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-sm font-semibold text-slate-800 dark:text-zinc-100"
                   >
                     <option value="Administrator">Administrator (Full Access)</option>
@@ -651,49 +638,24 @@ export default function UsersView({
               <div className="space-y-3 border-t border-slate-100 dark:border-zinc-800 pt-4">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Fine-Grained Permissions Blueprint</span>
 
-                <div className="p-3 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">HTTP Proxy Hosts:</span>
-                    <select
-                      value={hostsPerm}
-                      disabled={role === 'Administrator' || role === 'Viewer'}
-                      onChange={(e) => setHostsPerm(e.target.value as any)}
-                      className="p-1 border border-slate-200 dark:border-zinc-800 rounded text-xs bg-white dark:bg-zinc-900"
-                    >
-                      <option value="manage">Manage (Create/Edit/Delete)</option>
-                      <option value="view">View Only (Read-Only)</option>
-                      <option value="hidden">Hidden (No visibility)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">TCP/UDP Streams:</span>
-                    <select
-                      value={streamsPerm}
-                      disabled={role === 'Administrator' || role === 'Viewer'}
-                      onChange={(e) => setStreamsPerm(e.target.value as any)}
-                      className="p-1 border border-slate-200 dark:border-zinc-800 rounded text-xs bg-white dark:bg-zinc-900"
-                    >
-                      <option value="manage">Manage (Create/Edit/Delete)</option>
-                      <option value="view">View Only (Read-Only)</option>
-                      <option value="hidden">Hidden (No visibility)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">TLS Certificates:</span>
-                    <select
-                      value={certsPerm}
-                      disabled={role === 'Administrator' || role === 'Viewer'}
-                      onChange={(e) => setCertsPerm(e.target.value as any)}
-                      className="p-1 border border-slate-200 dark:border-zinc-800 rounded text-xs bg-white dark:bg-zinc-900"
-                    >
-                      <option value="manage">Manage (Create/Edit/Delete)</option>
-                      <option value="view">View Only (Read-Only)</option>
-                      <option value="hidden">Hidden (No visibility)</option>
-                    </select>
-                  </div>
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-950">
+                  <table className="w-full min-w-[560px] text-xs">
+                    <thead className="border-b border-slate-200 bg-slate-100/70 text-[10px] uppercase tracking-wider text-slate-500 dark:border-zinc-800 dark:bg-zinc-900">
+                      <tr><th className="px-3 py-2 text-left">Capability</th>{PERMISSION_ACTIONS.map(action => <th key={action} className="px-3 py-2 text-center">{action}</th>)}</tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-zinc-800">
+                      {PERMISSION_RESOURCES.map(resource => <tr key={resource.id}>
+                        <th scope="row" className="px-3 py-2.5 text-left font-bold text-slate-800 dark:text-zinc-200">{resource.label}</th>
+                        {PERMISSION_ACTIONS.map(action => {
+                          const forced = role === 'Administrator' || (role === 'Viewer' && action !== 'read');
+                          const checked = role === 'Administrator' ? true : role === 'Viewer' && action !== 'read' ? false : permissionMatrix[resource.id][action];
+                          return <td key={action} className="px-3 py-2.5 text-center"><input type="checkbox" checked={checked} disabled={forced} onChange={event => setPermission(resource.id, action, event.target.checked)} aria-label={`${resource.label}: allow ${action}`} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50" /></td>;
+                        })}
+                      </tr>)}
+                    </tbody>
+                  </table>
                 </div>
+                <p className="text-[10px] leading-relaxed text-slate-500">Create, read, update, and delete are enforced independently by the API. Visibility still limits which records a non-administrator may read or mutate.</p>
               </div>
 
               {/* Status Toggle */}

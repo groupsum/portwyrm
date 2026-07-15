@@ -25,6 +25,7 @@ import {
   Info
 } from 'lucide-react';
 import AccountSettingsModal from './AccountSettingsModal';
+import { can, HOST_PERMISSION_RESOURCES } from '../utils/permissions';
 
 interface LayoutProps {
   currentTab: string;
@@ -129,8 +130,8 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
             <nav className="hidden md:flex items-center gap-1">
               {[
                 { id: 'overview', label: 'Overview', icon: Activity, perm: true },
-                { id: 'hosts', label: 'Hosts', icon: Globe, perm: currentUser.permissions.hosts !== 'hidden' },
-                { id: 'access-lists', label: 'Access Lists', icon: Shield, perm: currentUser.permissions.hosts !== 'hidden' }, // visible if they can see hosts
+                { id: 'hosts', label: 'Hosts', icon: Globe, perm: HOST_PERMISSION_RESOURCES.some(resource => can(currentUser, resource, 'read')) },
+                { id: 'access-lists', label: 'Access Lists', icon: Shield, perm: can(currentUser, 'access_lists', 'read') },
                 { id: 'users', label: 'Users', icon: Users, perm: currentUser.role === 'Administrator' }, // admin only
                 { id: 'audit', label: 'Audit', icon: FileText, perm: true },
                 { id: 'settings', label: 'Settings', icon: SettingsIcon, perm: currentUser.role === 'Administrator' },
@@ -254,8 +255,8 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
       <div className="md:hidden sticky top-[64px] z-30 bg-slate-100 dark:bg-zinc-800 border-b border-slate-200 dark:border-zinc-700 px-4 py-2 overflow-x-auto flex gap-1.5">
         {[
           { id: 'overview', label: 'Overview', perm: true },
-          { id: 'hosts', label: 'Hosts', perm: currentUser.permissions.hosts !== 'hidden' },
-          { id: 'access-lists', label: 'Access Lists', perm: currentUser.permissions.hosts !== 'hidden' },
+          { id: 'hosts', label: 'Hosts', perm: HOST_PERMISSION_RESOURCES.some(resource => can(currentUser, resource, 'read')) },
+          { id: 'access-lists', label: 'Access Lists', perm: can(currentUser, 'access_lists', 'read') },
           { id: 'users', label: 'Users', perm: currentUser.role === 'Administrator' },
           { id: 'audit', label: 'Audit', perm: true },
           { id: 'settings', label: 'Settings', perm: currentUser.role === 'Administrator' },

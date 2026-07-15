@@ -1,10 +1,15 @@
 import type { AccessList, AuditLog, Certificate, Host, HostType, SystemHealth, User } from '../types';
+import { can, hostPermissionResource, normalizePermissions } from '../utils/permissions';
 
 type Listener = () => void;
 type Json = Record<string, any>;
 
 const hostFamily: Record<HostType, string> = {
   proxy: 'proxy-hosts', redirect: 'redirection-hosts', '404': 'dead-hosts', stream: 'streams',
+};
+
+const hostTypeByFamily: Record<string, HostType> = {
+  'proxy-hosts': 'proxy', 'redirection-hosts': 'redirect', 'dead-hosts': '404', streams: 'stream',
 };
 
 function csrfToken(): string | undefined {
@@ -37,20 +42,19 @@ function displayOwner(row: Json, users: User[]): string {
 
 function mapUser(row: Json): User {
   const permissions = row.permissions || {};
-  const values = Object.values(permissions);
+  const normalizedPermissions = normalizePermissions(permissions, Boolean(row.is_admin));
+  const hasMutationGrant = Object.values(normalizedPermissions).some(
+    grant => grant.create || grant.update || grant.delete,
+  );
   return {
     id: String(row.id),
     displayName: row.name || row.nickname || row.email,
     username: row.nickname ? `@${String(row.nickname).replace(/^@/, '')}` : `@${String(row.email).split('@')[0]}`,
     email: row.email || '',
     password: '',
-    role: row.is_admin ? 'Administrator' : values.length && values.every(value => value !== 'manage') ? 'Viewer' : 'Operator',
+    role: row.is_admin ? 'Administrator' : hasMutationGrant ? 'Operator' : 'Viewer',
     visibility: row.visibility === 'all' ? 'all' : 'owned',
-    permissions: {
-      hosts: row.is_admin ? 'manage' : permissions.proxy_hosts || 'hidden',
-      streams: row.is_admin ? 'manage' : permissions.streams || 'hidden',
-      certificates: row.is_admin ? 'manage' : permissions.certificates || 'hidden',
-    },
+    permissions: normalizedPermissions,
     mfa: Boolean(row.mfa_enabled),
     status: row.is_disabled ? 'Disabled' : 'Active',
     lastActivity: row.last_login_on || row.modified_on || row.created_on,
@@ -71,12 +75,21 @@ function mapHost(row: Json, family: string, users: User[], certs: Certificate[],
     destination = `${row.forwarding_host}:${row.forwarding_port}`;
   }
   const certificate = certs.find(item => item.id === String(row.certificate_id));
-  const accessList = acls.find(item => item.id === String(row.access_list_id));
+  const accessListIds = Array.isArray(row.access_list_ids)
+    ? row.access_list_ids.map(String)
+    : row.access_list_id ? [String(row.access_list_id)] : [];
+  const selectedAccessLists = accessListIds
+    .map(id => acls.find(item => item.id === id))
+    .filter((item): item is AccessList => Boolean(item));
   return {
     id: `${family}:${row.id}`, ownerId: String(row.owner_user_id || ''), ownerName: displayOwner(row, users),
     provenance: row.meta?.managed_by === 'npmctl' ? `npmctl · ${row.meta?.owner || 'managed'}` : 'human',
     type, source, destination, sslId: certificate?.id || null, sslName: certificate?.name || 'None',
-    accessListId: accessList?.id || null, accessListName: accessList?.name || (type === 'stream' ? 'Network only' : 'Public'),
+    accessListId: accessListIds[0] || null,
+    accessListIds,
+    accessListName: selectedAccessLists.length
+      ? selectedAccessLists.map(item => item.name).join(', ')
+      : (type === 'stream' ? 'Network only' : 'Public'),
     status: row.enabled ? 'online' : 'disabled', created: row.created_on, modified: row.modified_on,
     websocket: Boolean(row.allow_websocket_upgrade), caching: Boolean(row.caching_enabled),
     blockExploits: Boolean(row.block_exploits), http2: Boolean(row.http2_support), forwardSsl: row.forward_scheme === 'https',
@@ -87,7 +100,8 @@ function mapHost(row: Json, family: string, users: User[], certs: Certificate[],
 
 function hostPayload(host: Partial<Host>): Json {
   const domains = String(host.source || '').split(',').map(value => value.trim()).filter(Boolean);
-  const base: Json = {enabled: 1, certificate_id: Number(host.sslId || 0), access_list_id: Number(host.accessListId || 0), ssl_forced: host.forceHttps ? 1 : 0, hsts_enabled: host.hsts ? 1 : 0, hsts_subdomains: host.hstsSubdomains ? 1 : 0, advanced_config: host.customNginxConfig || ''};
+  const accessListIds = host.accessListIds || (host.accessListId ? [host.accessListId] : []);
+  const base: Json = {enabled: 1, certificate_id: Number(host.sslId || 0), access_list_id: Number(accessListIds[0] || 0), access_list_ids: accessListIds.map(Number), ssl_forced: host.forceHttps ? 1 : 0, hsts_enabled: host.hsts ? 1 : 0, hsts_subdomains: host.hstsSubdomains ? 1 : 0, advanced_config: host.customNginxConfig || ''};
   if (host.type === 'proxy') {
     const match = String(host.destination).match(/^([^:]+):\/\/([^:]+):(\d+)$/);
     return {...base, domain_names: domains, forward_scheme: match?.[1] || 'http', forward_host: match?.[2] || '', forward_port: Number(match?.[3] || 80), allow_websocket_upgrade: host.websocket ? 1 : 0, caching_enabled: host.caching ? 1 : 0, block_exploits: host.blockExploits ? 1 : 0, http2_support: host.http2 ? 1 : 0};
@@ -120,7 +134,7 @@ export class PortwyrmStore {
 
   subscribe(listener: Listener): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private emit(): void { this.listeners.forEach(listener => listener()); }
-  getCurrentUser(): User { return this.currentUser || {id: '', displayName: 'Portwyrm', username: '@portwyrm', email: '', password: '', role: 'Viewer', visibility: 'owned', permissions: {hosts: 'hidden', streams: 'hidden', certificates: 'hidden'}, mfa: false, status: 'Active', lastActivity: '', created: '', modified: ''}; }
+  getCurrentUser(): User { return this.currentUser || {id: '', displayName: 'Portwyrm', username: '@portwyrm', email: '', password: '', role: 'Viewer', visibility: 'owned', permissions: normalizePermissions({}), mfa: false, status: 'Active', lastActivity: '', created: '', modified: ''}; }
 
   async initialize(): Promise<void> {
     this.loading = true; this.emit();
@@ -167,14 +181,21 @@ export class PortwyrmStore {
     const hostFamilies = ['proxy-hosts', 'redirection-hosts', 'dead-hosts', 'streams'];
     const [users, certRows, aclRows, auditRows, health, version, ...hostRows] = await Promise.all([
       this.currentUser?.role === 'Administrator' ? api('/api/users') : Promise.resolve([]),
-      api('/api/nginx/certificates'), api('/api/nginx/access-lists'),
+      this.currentUser && can(this.currentUser, 'certificates', 'read') ? api('/api/nginx/certificates') : Promise.resolve([]),
+      this.currentUser && can(this.currentUser, 'access_lists', 'read') ? api('/api/nginx/access-lists') : Promise.resolve([]),
       this.currentUser?.role === 'Administrator' ? api('/api/audit-log') : Promise.resolve([]),
-      api('/health/ready'), api('/version'), ...hostFamilies.map(family => api(`/api/nginx/${family}`).catch(() => [])),
+      api('/health/ready'), api('/version'), ...hostFamilies.map(family => {
+        const type = hostTypeByFamily[family];
+        return this.currentUser && can(this.currentUser, hostPermissionResource(type), 'read') ? api(`/api/nginx/${family}`) : Promise.resolve([]);
+      }),
     ]);
     this.users = users.map(mapUser);
     if (this.currentUser && !this.users.some(user => user.id === this.currentUser!.id)) this.users.unshift(this.currentUser);
     this.certificates = certRows.map((row: Json) => ({id: String(row.id), name: row.nice_name || (row.domain_names || []).join(', '), domains: row.domain_names || [], provider: row.provider === 'letsencrypt' ? "Let's Encrypt" : 'Custom Upload', ownerName: displayOwner(row, this.users), status: row.expires_on && new Date(row.expires_on) < new Date() ? 'expired' : 'valid', expiration: row.expires_on || '', autoRenewal: row.provider === 'letsencrypt', lastRenewal: row.renewed_on || null, created: row.created_on, modified: row.modified_on}));
-    this.accessLists = aclRows.map((row: Json) => ({id: String(row.id), name: row.name, ownerName: displayOwner(row, this.users), usersCount: (row.items || []).length, rulesCount: (row.clients || []).length, policyComposition: row.satisfy_any ? 'satisfy_any' : 'satisfy_all', forwardHeader: Boolean(row.pass_auth), created: row.created_on, modified: row.modified_on, users: (row.items || []).map((item: Json) => ({username: item.username, passwordHint: ''})), rules: (row.clients || []).map((item: Json) => ({type: item.directive === 'deny' ? 'deny' : 'allow', subnet: item.address}))}));
+    this.accessLists = aclRows.map((row: Json) => {
+      const identityIds = Array.isArray(row.identity_ids) ? row.identity_ids.map(String) : [];
+      return {id: String(row.id), name: row.name, ownerName: displayOwner(row, this.users), usersCount: identityIds.length + (row.items || []).length, rulesCount: (row.clients || []).length, policyComposition: row.satisfy_any ? 'satisfy_any' : 'satisfy_all', forwardHeader: Boolean(row.pass_auth), created: row.created_on, modified: row.modified_on, identityIds, users: (row.items || []).map((item: Json) => ({username: item.username, passwordHint: ''})), rules: (row.clients || []).map((item: Json) => ({type: item.directive === 'deny' ? 'deny' : 'allow', subnet: item.address}))};
+    });
     this.hosts = hostFamilies.flatMap((family, index) => hostRows[index].map((row: Json) => mapHost(row, family, this.users, this.certificates, this.accessLists)));
     this.auditLogs = auditRows.map((row: Json) => ({id: String(row.id), timestamp: row.created_on, actor: row.actor || row.user_email || 'System', action: row.action || row.event || 'Changed', resource: row.object_type || row.resource_type || 'Resource', outcome: row.outcome === 'failure' ? 'Failure' : row.outcome === 'rolled_back' ? 'Rolled Back' : 'Success', summary: row.summary || row.action || '', details: JSON.stringify(row, null, 2)}));
     this.health = {nginxState: health.components?.nginx?.status === 'ok' ? 'Active' : 'Degraded', activeConnections: 0, reading: 0, writing: 0, waiting: 0, version: version.version || '-', databaseBackend: health.components?.database?.backend || 'unknown', currentGeneration: Number(health.components?.nginx?.generation || 0), driftDetected: false, pendingApplies: 0, schedulerState: health.components?.certificate_scheduler?.enabled ? 'Active' : 'Idling'};
@@ -191,14 +212,23 @@ export class PortwyrmStore {
   async renewCertificate(id: string, progress: (message: string, done: boolean, error?: string) => void): Promise<void> { try { progress('Renewing certificate', false); await api(`/api/nginx/certificates/${id}/renew?force=true`, {method: 'POST'}); await this.refresh(); progress('Certificate renewed', true); } catch (error) { progress('Renewal failed', true, error instanceof Error ? error.message : 'Renewal failed'); } }
   deleteCertificate(id: string): {success: boolean; attachedHostsCount: number} { const attachedHostsCount = this.hosts.filter(host => host.sslId === id).length; if (attachedHostsCount) return {success: false, attachedHostsCount}; void api(`/api/nginx/certificates/${id}`, {method: 'DELETE'}).then(() => this.refresh()); return {success: true, attachedHostsCount: 0}; }
 
-  private accessPayload(data: Json): Json { return {name: data.name, satisfy_any: data.policyComposition === 'satisfy_any' ? 1 : 0, pass_auth: data.forwardHeader ? 1 : 0, items: (data.users || []).map((user: Json) => ({username: user.username, password: user.passwordHint})), clients: (data.rules || []).map((rule: Json) => ({directive: rule.type, address: rule.subnet}))}; }
+  private accessPayload(data: Json): Json { return {name: data.name, satisfy_any: data.policyComposition === 'satisfy_any' ? 1 : 0, pass_auth: data.forwardHeader ? 1 : 0, identity_ids: (data.identityIds || []).map(Number), items: [], clients: (data.rules || []).map((rule: Json) => ({directive: rule.type, address: rule.subnet}))}; }
   async addAccessList(data: Json): Promise<void> { await api('/api/nginx/access-lists', {method: 'POST', body: JSON.stringify(this.accessPayload(data))}); await this.refresh(); }
   async updateAccessList(id: string, data: Json): Promise<void> { await api(`/api/nginx/access-lists/${id}`, {method: 'PUT', body: JSON.stringify(this.accessPayload(data))}); await this.refresh(); }
-  deleteAccessList(id: string): {success: boolean; attachedHostsCount: number} { const attachedHostsCount = this.hosts.filter(host => host.accessListId === id).length; if (attachedHostsCount) return {success: false, attachedHostsCount}; void api(`/api/nginx/access-lists/${id}`, {method: 'DELETE'}).then(() => this.refresh()); return {success: true, attachedHostsCount: 0}; }
+  deleteAccessList(id: string): {success: boolean; attachedHostsCount: number} { const attachedHostsCount = this.hosts.filter(host => host.accessListIds.includes(id)).length; if (attachedHostsCount) return {success: false, attachedHostsCount}; void api(`/api/nginx/access-lists/${id}`, {method: 'DELETE'}).then(() => this.refresh()); return {success: true, attachedHostsCount: 0}; }
 
-  private userPayload(data: Json): Json { return {name: data.displayName, nickname: String(data.username || '').replace(/^@/, ''), email: data.email, password: data.password || undefined, is_admin: data.role === 'Administrator' ? 1 : 0, is_disabled: data.status === 'Disabled' ? 1 : 0, visibility: data.visibility, permissions: {proxy_hosts: data.permissions?.hosts || 'hidden', streams: data.permissions?.streams || 'hidden', certificates: data.permissions?.certificates || 'hidden'}}; }
-  async addUser(data: Json, _aclIds: string[] = []): Promise<void> { await api('/api/users', {method: 'POST', body: JSON.stringify(this.userPayload(data))}); await this.refresh(); }
-  async updateUser(id: string, data: Json): Promise<void> { const payload = this.userPayload(data); await api(`/api/users/${id}`, {method: 'PUT', body: JSON.stringify(payload)}); if (data.password) await api(`/api/users/${id}/auth`, {method: 'PUT', body: JSON.stringify({password: data.password})}); await this.refresh(); }
+  private userPayload(data: Json): Json { return {name: data.displayName, nickname: String(data.username || '').replace(/^@/, ''), email: data.email, password: data.password || undefined, is_admin: data.role === 'Administrator' ? 1 : 0, is_disabled: data.status === 'Disabled' ? 1 : 0, visibility: data.visibility, permissions: data.permissions || normalizePermissions({})}; }
+  private async syncUserAccessLists(userId: string, selectedIds: string[]): Promise<void> {
+    const selected = new Set(selectedIds);
+    await Promise.all(this.accessLists.map(accessList => {
+      const identityIds = accessList.identityIds.filter(id => id !== userId);
+      if (selected.has(accessList.id)) identityIds.push(userId);
+      if (identityIds.length === accessList.identityIds.length && identityIds.every((id, index) => id === accessList.identityIds[index])) return Promise.resolve();
+      return api(`/api/nginx/access-lists/${accessList.id}`, {method: 'PUT', body: JSON.stringify(this.accessPayload({...accessList, identityIds}))});
+    }));
+  }
+  async addUser(data: Json, aclIds: string[] = []): Promise<void> { const created = await api('/api/users', {method: 'POST', body: JSON.stringify(this.userPayload(data))}); await this.syncUserAccessLists(String(created.id), aclIds); await this.refresh(); }
+  async updateUser(id: string, data: Json): Promise<void> { const payload = this.userPayload(data); await api(`/api/users/${id}`, {method: 'PUT', body: JSON.stringify(payload)}); if (data.password) await api(`/api/users/${id}/auth`, {method: 'PUT', body: JSON.stringify({current: data.currentPassword, password: data.password})}); await this.syncUserAccessLists(id, data.aclIds || []); await this.refresh(); }
   deleteUser(id: string): boolean { if (this.currentUser?.id === id) return false; void api(`/api/users/${id}`, {method: 'DELETE'}).then(() => this.refresh()); return true; }
 
   resolveDrift(): void { void this.refresh(); }

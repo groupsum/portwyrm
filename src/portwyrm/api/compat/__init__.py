@@ -14,7 +14,7 @@ from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from fastapi import (
     Cookie,
@@ -165,6 +165,25 @@ def create_compat_app(
         if "user" not in principal.scopes:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="MFA challenge pending"
+            )
+        # Sessions and PATs carry an identity snapshot for durable verification. Rehydrate
+        # mutable authorization fields so an administrator's permission changes take effect
+        # on the user's very next request instead of waiting for a new login.
+        current_user = await _service_get(service, "users", principal.user_id, principal)
+        current_identity = str((current_user or {}).get("email", principal.identity)).casefold()
+        if current_user is not None and current_identity == principal.identity.casefold():
+            if current_user.get("is_deleted") or current_user.get("is_disabled"):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="user is disabled"
+                )
+            principal = Principal(
+                user_id=principal.user_id,
+                identity=str(current_user.get("email") or principal.identity),
+                is_admin=bool(current_user.get("is_admin")),
+                permissions=dict(current_user.get("permissions") or {}),
+                visibility="all" if current_user.get("visibility") == "all" else "user",
+                scopes=principal.scopes,
+                owner=principal.owner,
             )
         return principal
 
@@ -588,7 +607,7 @@ def create_compat_app(
     async def dns_providers(
         principal: Principal = Depends(principal_from_bearer),
     ) -> list[Resource]:
-        _authorize(principal, "certificates", admin_only=False, write=False)
+        _authorize(principal, "certificates", admin_only=False, action="read")
         return [
             {
                 "id": provider.id,
@@ -603,7 +622,7 @@ def create_compat_app(
     async def validate_certificate(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
-        _authorize(principal, "certificates", admin_only=False, write=True)
+        _authorize(principal, "certificates", admin_only=False, action="create")
         manager = _require_certificate_manager(certificates)
         bundle = _certificate_bundle(payload)
         info = manager.validator.validate(bundle)
@@ -620,7 +639,7 @@ def create_compat_app(
     async def upload_certificate(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
-        _authorize(principal, "certificates", admin_only=False, write=True)
+        _authorize(principal, "certificates", admin_only=False, action="create")
         manager = _require_certificate_manager(certificates)
         return manager.upload(
             _certificate_bundle(payload), nice_name=str(payload.get("nice_name", ""))
@@ -632,7 +651,7 @@ def create_compat_app(
         payload: dict[str, Any],
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
-        _authorize(principal, "certificates", admin_only=False, write=True)
+        _authorize(principal, "certificates", admin_only=False, action="update")
         manager = _require_certificate_manager(certificates)
         return manager.upload(
             _certificate_bundle(payload),
@@ -644,7 +663,7 @@ def create_compat_app(
     async def request_certificate(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
-        _authorize(principal, "certificates", admin_only=False, write=True)
+        _authorize(principal, "certificates", admin_only=False, action="create")
         manager = _require_certificate_manager(certificates)
         domains = payload.get("domain_names")
         if not isinstance(domains, list):
@@ -687,7 +706,7 @@ def create_compat_app(
         force: bool = Query(default=False),
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
-        _authorize(principal, "certificates", admin_only=False, write=True)
+        _authorize(principal, "certificates", admin_only=False, action="update")
         return _require_certificate_manager(certificates).renew(certificate_id, force=force)
 
     @app.get("/api/nginx/certificates/{certificate_id}/download")
@@ -695,7 +714,7 @@ def create_compat_app(
         certificate_id: int,
         principal: Principal = Depends(principal_from_bearer),
     ) -> FastAPIResponse:
-        _authorize(principal, "certificates", admin_only=False, write=False)
+        _authorize(principal, "certificates", admin_only=False, action="read")
         try:
             content = _require_certificate_manager(certificates).download(certificate_id)
         except FileNotFoundError as exc:
@@ -715,7 +734,7 @@ def create_compat_app(
         certificate_id: int,
         principal: Principal = Depends(principal_from_bearer),
     ) -> bool:
-        _authorize(principal, "certificates", admin_only=False, write=True)
+        _authorize(principal, "certificates", admin_only=False, action="delete")
         if certificates is None:
             deleted = await _service_delete(service, "certificates", certificate_id, principal)
             if not deleted:
@@ -815,7 +834,7 @@ def _list_handler(
     service: CompatibilityService, principal_dependency: Any, collection: str, admin_only: bool
 ) -> Any:
     async def handler(principal: Principal = Depends(principal_dependency)) -> list[Resource]:
-        _authorize(principal, collection, admin_only=admin_only, write=False)
+        _authorize(principal, collection, admin_only=admin_only, action="read")
         items = await _service_list(service, collection, principal)
         return [_copy_visible(item, principal) for item in items if _is_visible(item, principal)]
 
@@ -828,7 +847,7 @@ def _get_handler(
     async def handler(
         resource_id: str, principal: Principal = Depends(principal_dependency)
     ) -> Resource:
-        _authorize(principal, collection, admin_only=admin_only, write=False)
+        _authorize(principal, collection, admin_only=admin_only, action="read")
         normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
         item = await _service_get(service, collection, normalized_id, principal)
         if item is None or not _is_visible(item, principal):
@@ -844,7 +863,7 @@ def _create_handler(
     async def handler(
         payload: dict[str, Any], principal: Principal = Depends(principal_dependency)
     ) -> Resource:
-        _authorize(principal, collection, admin_only=admin_only, write=True)
+        _authorize(principal, collection, admin_only=admin_only, action="create")
         _validate_payload(payload)
         created = await _service_create(service, collection, dict(payload), principal)
         return _valid_resource(created, collection)
@@ -860,7 +879,7 @@ def _update_handler(
         payload: dict[str, Any],
         principal: Principal = Depends(principal_dependency),
     ) -> Resource:
-        _authorize(principal, collection, admin_only=admin_only, write=True)
+        _authorize(principal, collection, admin_only=admin_only, action="update")
         _validate_payload(payload)
         normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
         existing = await _service_get(service, collection, normalized_id, principal)
@@ -883,7 +902,7 @@ def _delete_handler(
     async def handler(
         resource_id: str, principal: Principal = Depends(principal_dependency)
     ) -> bool:
-        _authorize(principal, collection, admin_only=admin_only, write=True)
+        _authorize(principal, collection, admin_only=admin_only, action="delete")
         normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
         existing = await _service_get(service, collection, normalized_id, principal)
         if existing is None or not _is_visible(existing, principal):
@@ -912,7 +931,7 @@ def _toggle_handler(
     async def handler(
         resource_id: str, principal: Principal = Depends(principal_dependency)
     ) -> Resource:
-        _authorize(principal, collection, admin_only=admin_only, write=True)
+        _authorize(principal, collection, admin_only=admin_only, action="update")
         normalized_id = _resource_id(resource_id, allow_string=False)
         existing = await _service_get(service, collection, normalized_id, principal)
         if existing is None or not _is_visible(existing, principal):
@@ -942,12 +961,18 @@ def _as_principal(value: Principal | Mapping[str, Any], *, fallback_identity: st
     )
 
 
-def _authorize(principal: Principal, collection: str, *, admin_only: bool, write: bool) -> None:
+def _authorize(
+    principal: Principal,
+    collection: str,
+    *,
+    admin_only: bool,
+    action: Literal["create", "read", "update", "delete"],
+) -> None:
     if admin_only:
         _require_admin(principal)
         return
     section = SECTION_BY_COLLECTION[collection]
-    if not principal.may(section, write=write):
+    if not principal.may(section, action=action):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
 
 

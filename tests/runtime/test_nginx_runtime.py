@@ -72,6 +72,43 @@ def test_proxy_render_covers_websocket_cache_tls_access_and_advanced_config() ->
     assert rendered.files["access/8"] == "alice:$2y$hash\n"
 
 
+def test_proxy_render_combines_multiple_access_lists_into_host_policy() -> None:
+    first = AccessList(
+        8,
+        "team",
+        credentials=[AccessListCredential("alice", "hash-a")],
+        satisfy_any=True,
+        pass_auth=True,
+    )
+    second = AccessList(
+        9,
+        "network",
+        credentials=[AccessListCredential("bob", "hash-b")],
+        clients=[AccessClient("10.0.0.0/8", "allow")],
+        satisfy_any=False,
+        pass_auth=False,
+    )
+    host = ProxyHost(
+        2,
+        ["app.example.com"],
+        "http",
+        "backend",
+        8080,
+        access_list_ids=[9, 8],
+    )
+
+    rendered = NginxRenderer().render(
+        proxy_hosts=[host], access_lists=[second, first]
+    )
+    config = rendered.files["http/proxy-2.conf"]
+
+    assert "auth_basic_user_file /data/access/proxy-host-2" in config
+    assert "allow 10.0.0.0/8" in config
+    assert "satisfy all" in config
+    assert 'proxy_set_header Authorization ""' in config
+    assert rendered.files["access/proxy-host-2"] == "alice:hash-a\nbob:hash-b\n"
+
+
 def test_custom_root_location_suppresses_generated_default() -> None:
     host = ProxyHost(
         id=1,

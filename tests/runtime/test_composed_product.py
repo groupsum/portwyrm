@@ -123,6 +123,79 @@ def test_user_credentials_profile_logout_and_pat_lifecycle_survive_restart(tmp_p
     assert _login_with(restarted, "user@example.test", "replacement-password")
 
 
+def test_admin_can_crud_action_grants_and_existing_session_updates_immediately(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(SQLiteRepository(tmp_path / "permissions.sqlite")))
+    assert (
+        client.post(
+            "/api/setup", json={"email": "admin@example.test", "password": "admin-password"}
+        ).status_code
+        == 201
+    )
+    admin = _login_with(client, "admin@example.test", "admin-password")
+    created_user = client.post(
+        "/api/users",
+        headers=admin,
+        json={
+            "email": "creator@example.test",
+            "name": "Creator",
+            "password": "creator-password",
+            "permissions": {
+                "proxy_hosts": {
+                    "create": False,
+                    "read": True,
+                    "update": False,
+                    "delete": False,
+                }
+            },
+        },
+    )
+    assert created_user.status_code == 201
+    creator = _login_with(client, "creator@example.test", "creator-password")
+    host_payload = {
+        "domain_names": ["creator.example.test"],
+        "forward_scheme": "http",
+        "forward_host": "application",
+        "forward_port": 8080,
+    }
+    assert client.get("/api/nginx/proxy-hosts", headers=creator).status_code == 200
+    assert (
+        client.post("/api/nginx/proxy-hosts", headers=creator, json=host_payload).status_code
+        == 403
+    )
+
+    grant = {
+        "create": True,
+        "read": True,
+        "update": False,
+        "delete": False,
+    }
+    updated = client.put(
+        f"/api/users/{created_user.json()['id']}",
+        headers=admin,
+        json={"permissions": {"proxy_hosts": grant}},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["permissions"]["proxy_hosts"] == grant
+    # No re-login: the authorization dependency reloads the persisted grant.
+    assert (
+        client.post("/api/nginx/proxy-hosts", headers=creator, json=host_payload).status_code
+        == 201
+    )
+
+    invalid = client.post(
+        "/api/users",
+        headers=admin,
+        json={
+            "email": "invalid@example.test",
+            "password": "invalid-password",
+            "permissions": {"proxy_hosts": {"publish": True}},
+        },
+    )
+    assert invalid.status_code == 400
+
+
 def test_mfa_enrollment_totp_and_one_use_backup_code_survive_restart(tmp_path: Path) -> None:
     path = tmp_path / "mfa.sqlite"
     first = TestClient(create_app(SQLiteRepository(path)))
@@ -203,6 +276,40 @@ def test_routing_mutation_publishes_active_nginx_generation(tmp_path: Path) -> N
     assert "server_name socket.example.test" in config
     assert "proxy_set_header Upgrade $http_upgrade" in config
     assert "proxy_cache public-cache" in config
+
+
+def test_identity_membership_renders_write_only_access_credentials(tmp_path: Path) -> None:
+    service = PersistentControlPlane(SQLiteRepository(tmp_path / "identity-acl.sqlite"))
+    identity = service.create(
+        "users",
+        {
+            "email": "operator@example.test",
+            "nickname": "operator",
+            "password": "operator-password",
+        },
+    )
+    access_list = service.create(
+        "access-lists",
+        {"name": "operators", "identity_ids": [identity["id"]], "clients": []},
+    )
+    coordinator = RuntimeCoordinator(service, tmp_path / "nginx", validate=False, reload=False)
+    service.on_change = coordinator.changed
+
+    service.create(
+        "proxy-hosts",
+        {
+            "domain_names": ["private.example.test"],
+            "forward_scheme": "http",
+            "forward_host": "application",
+            "forward_port": 8080,
+            "access_list_ids": [access_list["id"]],
+        },
+    )
+
+    active = tmp_path / "nginx" / "current"
+    credentials = (active / "access" / str(access_list["id"])).read_text(encoding="utf-8")
+    assert credentials.startswith("operator:$argon2")
+    assert "operator-password" not in credentials
 
 
 def test_cli_resource_commands_use_compatible_api_paths(monkeypatch) -> None:

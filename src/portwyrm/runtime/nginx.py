@@ -12,7 +12,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from portwyrm.domain.routing import (
+    AccessClient,
     AccessList,
+    AccessListCredential,
     DeadHost,
     ProxyHost,
     ProxyLocation,
@@ -72,7 +74,9 @@ def _force_ssl_lines(ssl: SSLSettings) -> list[str]:
     return [f"  if ({condition}) {{", "    return 301 https://$host$request_uri;", "  }"]
 
 
-def _access_lines(access_list: AccessList | None) -> list[str]:
+def _access_lines(
+    access_list: AccessList | None, password_file: str | None = None
+) -> list[str]:
     if access_list is None:
         return []
     lines: list[str] = []
@@ -80,7 +84,7 @@ def _access_lines(access_list: AccessList | None) -> list[str]:
         lines.extend(
             [
                 'auth_basic "Authorization required";',
-                f"auth_basic_user_file /data/access/{access_list.id};",
+                f"auth_basic_user_file /data/access/{password_file or access_list.id};",
             ]
         )
         if not access_list.pass_auth:
@@ -201,8 +205,17 @@ class NginxRenderer:
         for access_list in sorted(access_lists, key=lambda item: item.id):
             files[f"access/{access_list.id}"] = self.render_htpasswd(access_list)
         for host in sorted(proxy_hosts, key=lambda item: item.id):
+            selected_ids = host.access_list_ids or (
+                (host.access_list_id,) if host.access_list_id else ()
+            )
+            selected_access = [access_by_id[item] for item in selected_ids if item in access_by_id]
+            effective_access = self._merge_access_lists(selected_access)
+            password_file = None
+            if len(selected_access) > 1 and effective_access is not None:
+                password_file = f"proxy-host-{host.id}"
+                files[f"access/{password_file}"] = self.render_htpasswd(effective_access)
             files[f"http/proxy-{host.id}.conf"] = self.render_proxy(
-                host, access_by_id.get(host.access_list_id)
+                host, effective_access, password_file
             )
         for host in sorted(redirection_hosts, key=lambda item: item.id):
             files[f"http/redirection-{host.id}.conf"] = self.render_redirection(host)
@@ -298,7 +311,42 @@ class NginxRenderer:
     def render_htpasswd(access_list: AccessList) -> str:
         return "".join(f"{item.username}:{item.password}\n" for item in access_list.credentials)
 
-    def render_proxy(self, host: ProxyHost, access_list: AccessList | None = None) -> str:
+    @staticmethod
+    def _merge_access_lists(access_lists: list[AccessList]) -> AccessList | None:
+        """Combine selected lists into one deterministic, conservative Nginx policy."""
+        if not access_lists:
+            return None
+        ordered = sorted(access_lists, key=lambda item: item.id)
+        credentials: dict[str, AccessListCredential] = {}
+        clients: dict[tuple[str, str], AccessClient] = {}
+        for access_list in ordered:
+            for credential in access_list.credentials:
+                existing = credentials.get(credential.username)
+                if existing is not None and existing.password != credential.password:
+                    raise ValueError(
+                        "conflicting credentials for "
+                        f"{credential.username!r} in selected access lists"
+                    )
+                credentials[credential.username] = credential
+            for client in access_list.clients:
+                clients[(client.directive.value, client.address)] = client
+        first = ordered[0]
+        return AccessList(
+            id=first.id,
+            name=" + ".join(item.name for item in ordered),
+            credentials=[credentials[key] for key in sorted(credentials)],
+            clients=[clients[key] for key in sorted(clients)],
+            satisfy_any=all(item.satisfy_any for item in ordered),
+            pass_auth=all(item.pass_auth for item in ordered),
+            owner_user_id=first.owner_user_id,
+        )
+
+    def render_proxy(
+        self,
+        host: ProxyHost,
+        access_list: AccessList | None = None,
+        password_file: str | None = None,
+    ) -> str:
         if not host.enabled:
             return f"# proxy host {host.id} disabled\n"
         ssl = host.ssl.normalized()
@@ -322,10 +370,10 @@ class NginxRenderer:
         if host.caching_enabled:
             lines.extend(_indented(line) for line in _asset_cache_lines())
         for location in sorted(host.locations, key=lambda item: item.path):
-            lines.extend(self._render_location(location, host, access_list))
+            lines.extend(self._render_location(location, host, access_list, password_file))
         has_location_root = any(location.path == "/" for location in host.locations)
         if not has_location_root and not self._has_root_location(host.advanced_config):
-            lines.extend(self._render_default_proxy_location(host, access_list))
+            lines.extend(self._render_default_proxy_location(host, access_list, password_file))
         lines.extend(["  include custom/server_proxy.conf;", "}"])
         return "\n".join(lines) + "\n"
 
@@ -335,10 +383,15 @@ class NginxRenderer:
         return "location / {" in compact
 
     def _render_default_proxy_location(
-        self, host: ProxyHost, access_list: AccessList | None
+        self,
+        host: ProxyHost,
+        access_list: AccessList | None,
+        password_file: str | None = None,
     ) -> list[str]:
         lines = ["  location / {"]
-        lines.extend(f"    {line}" for line in _access_lines(access_list))
+        lines.extend(
+            f"    {line}" for line in _access_lines(access_list, password_file)
+        )
         if host.allow_websocket_upgrade:
             lines.extend(
                 [
@@ -355,6 +408,7 @@ class NginxRenderer:
         location: ProxyLocation,
         host: ProxyHost,
         access_list: AccessList | None,
+        password_file: str | None = None,
     ) -> list[str]:
         lines = [f"  location {location.path} {{"]
         if location.advanced_config:
@@ -369,7 +423,9 @@ class NginxRenderer:
                 f"    proxy_pass {location.forward_scheme.value}://{location.forward_host}:{location.forward_port}{location.forward_path};",
             ]
         )
-        lines.extend(f"    {line}" for line in _access_lines(access_list))
+        lines.extend(
+            f"    {line}" for line in _access_lines(access_list, password_file)
+        )
         if host.allow_websocket_upgrade:
             lines.extend(
                 [

@@ -37,6 +37,34 @@ class FakeService:
                 section: "manage" for section in self.data if section not in {"users", "settings"}
             }
             return Principal(2, identity, permissions=permissions, visibility="user")
+        if identity == "creator@example.com":
+            return Principal(
+                2,
+                identity,
+                permissions={
+                    "proxy_hosts": {
+                        "create": True,
+                        "read": True,
+                        "update": False,
+                        "delete": False,
+                    }
+                },
+                visibility="user",
+            )
+        if identity == "updater@example.com":
+            return Principal(
+                2,
+                identity,
+                permissions={
+                    "proxy_hosts": {
+                        "create": False,
+                        "read": True,
+                        "update": True,
+                        "delete": False,
+                    }
+                },
+                visibility="user",
+            )
         return None
 
     def list_resources(self, collection: str) -> list[dict[str, Any]]:
@@ -287,6 +315,42 @@ def test_rbac_visibility_and_write_fences(client: TestClient, service: FakeServi
     )
     assert created.status_code == 201
     assert client.delete("/api/nginx/proxy-hosts/2", headers=manager).status_code == 404
+
+
+def test_crud_grants_are_enforced_independently(client: TestClient, service: FakeService) -> None:
+    service.data["proxy_hosts"] = [
+        {"id": 1, "owner_user_id": 2, "domain_names": ["mine.test"]},
+    ]
+
+    creator = login(client, "creator@example.com")
+    assert client.get("/api/nginx/proxy-hosts", headers=creator).status_code == 200
+    assert (
+        client.post(
+            "/api/nginx/proxy-hosts",
+            headers=creator,
+            json={"owner_user_id": 2, "domain_names": ["new.test"]},
+        ).status_code
+        == 201
+    )
+    assert (
+        client.put(
+            "/api/nginx/proxy-hosts/1", headers=creator, json={"domain_names": ["no.test"]}
+        ).status_code
+        == 403
+    )
+    assert client.delete("/api/nginx/proxy-hosts/1", headers=creator).status_code == 403
+
+    updater = login(client, "updater@example.com")
+    assert client.post("/api/nginx/proxy-hosts", headers=updater, json={}).status_code == 403
+    assert (
+        client.put(
+            "/api/nginx/proxy-hosts/1",
+            headers=updater,
+            json={"domain_names": ["updated.test"]},
+        ).status_code
+        == 200
+    )
+    assert client.delete("/api/nginx/proxy-hosts/1", headers=updater).status_code == 403
 
 
 def test_facade_adapts_the_shared_control_plane_service() -> None:

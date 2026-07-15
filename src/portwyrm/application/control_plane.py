@@ -12,7 +12,19 @@ import bcrypt
 from argon2 import PasswordHasher
 
 from portwyrm.domain.routing import AccessClient, ProxyLocation, canonical_domains
+from portwyrm.identity import PERMISSION_ACTIONS
 from portwyrm.security import Principal
+
+PERMISSION_SECTIONS = frozenset(
+    {
+        "proxy_hosts",
+        "redirection_hosts",
+        "dead_hosts",
+        "streams",
+        "access_lists",
+        "certificates",
+    }
+)
 
 
 class ControlPlaneError(Exception):
@@ -146,6 +158,16 @@ class ControlPlane:
         if self.authenticate(str(user["email"]), current) is None:
             raise Forbidden("current password is invalid")
         self.set_password(user_id, password)
+
+    def access_list_credential(self, user_id: int | str) -> tuple[str, str]:
+        """Return an identity's Nginx credential internally without exposing it via the API."""
+        user = self.get("users", user_id)
+        email = str(user["email"]).strip().casefold()
+        encoded = self._passwords.get(email)
+        if encoded is None:
+            raise Conflict(f"user {user_id!r} does not have an active password")
+        username = str(user.get("nickname") or email.split("@", 1)[0]).lstrip("@")
+        return username, encoded
 
     @staticmethod
     def _compat_collection(collection: str) -> str:
@@ -357,6 +379,27 @@ class ControlPlane:
     def _validate(self, collection: str, payload: dict[str, Any]) -> None:
         if not isinstance(payload, dict):
             raise ControlPlaneError("payload must be an object")
+        if collection == "users":
+            permissions = payload.get("permissions", {})
+            if not isinstance(permissions, dict):
+                raise ControlPlaneError("permissions must be an object")
+            unknown_sections = set(permissions) - PERMISSION_SECTIONS
+            if unknown_sections:
+                raise ControlPlaneError(
+                    f"unknown permission section: {sorted(unknown_sections)[0]}"
+                )
+            for section, grant in permissions.items():
+                if isinstance(grant, str) and grant in {"hidden", "view", "manage"}:
+                    continue
+                if not isinstance(grant, dict):
+                    raise ControlPlaneError(f"permission {section} must be a level or CRUD object")
+                unknown_actions = set(grant) - set(PERMISSION_ACTIONS)
+                if unknown_actions:
+                    raise ControlPlaneError(
+                        f"unknown permission action: {sorted(unknown_actions)[0]}"
+                    )
+                if any(type(value) is not bool for value in grant.values()):
+                    raise ControlPlaneError(f"permission {section} actions must be booleans")
         if collection in HOST_COLLECTIONS:
             domains = payload.get("domain_names", [])
             if not isinstance(domains, list) or not 1 <= len(domains) <= 100:
@@ -423,6 +466,26 @@ class ControlPlane:
                     AccessClient(str(item.get("address", "")), str(item.get("directive", "")))
             except (TypeError, ValueError) as exc:
                 raise ControlPlaneError(str(exc)) from exc
+            raw_identity_ids = payload.get("identity_ids", [])
+            if not isinstance(raw_identity_ids, list):
+                raise ControlPlaneError("access-list identity_ids must be an array")
+            try:
+                identity_ids = [int(value) for value in raw_identity_ids]
+            except (TypeError, ValueError) as exc:
+                raise ControlPlaneError(
+                    "access-list identity_ids must contain integer IDs"
+                ) from exc
+            if any(value <= 0 for value in identity_ids) or len(identity_ids) != len(
+                set(identity_ids)
+            ):
+                raise ControlPlaneError("access-list identity_ids must contain unique positive IDs")
+            for identity_id in identity_ids:
+                if (
+                    identity_id not in self.resources["users"]
+                    or self.resources["users"][identity_id].get("is_deleted")
+                    or self.resources["users"][identity_id].get("is_disabled")
+                ):
+                    raise Conflict(f"identity_ids contains inactive user {identity_id}")
         if collection in HOST_COLLECTIONS | {"streams"}:
             for field in ("certificate_id",):
                 certificate_id = int(payload.get(field) or 0)
@@ -431,6 +494,28 @@ class ControlPlane:
                     or self.resources["certificates"][certificate_id].get("is_deleted")
                 ):
                     raise Conflict(f"{field} does not resolve to an active certificate")
+        if collection == "proxy-hosts":
+            raw_access_ids = payload.get("access_list_ids")
+            if raw_access_ids is None:
+                raw_access_ids = (
+                    [payload.get("access_list_id")] if payload.get("access_list_id") else []
+                )
+            if not isinstance(raw_access_ids, list):
+                raise ControlPlaneError("access_list_ids must be an array")
+            try:
+                access_ids = [int(value) for value in raw_access_ids]
+            except (TypeError, ValueError) as exc:
+                raise ControlPlaneError("access_list_ids must contain integer IDs") from exc
+            if any(value <= 0 for value in access_ids) or len(access_ids) != len(set(access_ids)):
+                raise ControlPlaneError("access_list_ids must contain unique positive IDs")
+            for access_id in access_ids:
+                if (
+                    access_id not in self.resources["access-lists"]
+                    or self.resources["access-lists"][access_id].get("is_deleted")
+                ):
+                    raise Conflict(
+                        f"access_list_ids contains inactive access list {access_id}"
+                    )
         if collection == "users" and not str(payload.get("email", "")).strip():
             raise ControlPlaneError("email is required")
 

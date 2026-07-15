@@ -21,10 +21,13 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import ActionModal from './ActionModal';
+import MultiSelect from './MultiSelect';
+import { can } from '../utils/permissions';
 
 interface AccessListsViewProps {
   accessLists: AccessList[];
   hosts: Host[];
+  users: User[];
   currentUser: User;
   onAddAccessList: (acl: any) => void;
   onUpdateAccessList: (id: string, updates: any) => void;
@@ -34,6 +37,7 @@ interface AccessListsViewProps {
 export default function AccessListsView({
   accessLists,
   hosts,
+  users: identities,
   currentUser,
   onAddAccessList,
   onUpdateAccessList,
@@ -61,12 +65,10 @@ export default function AccessListsView({
   const [forwardHeader, setForwardHeader] = useState(true);
 
   // Lists inside the ACL
-  const [users, setUsers] = useState<{ username: string; passwordHint: string }[]>([]);
+  const [identityIds, setIdentityIds] = useState<string[]>([]);
   const [rules, setRules] = useState<{ type: 'allow' | 'deny'; subnet: string }[]>([]);
 
   // Temporary inputs
-  const [newUsername, setNewUsername] = useState('');
-  const [newPasswordHint, setNewPasswordHint] = useState('');
   const [newRuleType, setNewRuleType] = useState<'allow' | 'deny'>('allow');
   const [newRuleSubnet, setNewRuleSubnet] = useState('');
 
@@ -82,7 +84,7 @@ export default function AccessListsView({
       result = result.filter(a =>
         a.name.toLowerCase().includes(q) ||
         a.ownerName.toLowerCase().includes(q) ||
-        a.users.some(u => u.username.toLowerCase().includes(q)) ||
+        a.identityIds.some(id => identities.find(identity => identity.id === id)?.displayName.toLowerCase().includes(q)) ||
         a.rules.some(r => r.subnet.toLowerCase().includes(q))
       );
     }
@@ -100,7 +102,7 @@ export default function AccessListsView({
     });
 
     return result;
-  }, [accessLists, searchTerm, sortField, sortOrder]);
+  }, [accessLists, identities, searchTerm, sortField, sortOrder]);
 
   // Paginated Slicing
   const paginatedAcls = useMemo(() => {
@@ -115,7 +117,7 @@ export default function AccessListsView({
     setName('');
     setPolicyComposition('satisfy_all');
     setForwardHeader(true);
-    setUsers([]);
+    setIdentityIds([]);
     setRules([]);
     setIsEditorOpen(true);
   };
@@ -125,20 +127,9 @@ export default function AccessListsView({
     setName(acl.name);
     setPolicyComposition(acl.policyComposition);
     setForwardHeader(acl.forwardHeader);
-    setUsers([...acl.users]);
+    setIdentityIds([...acl.identityIds]);
     setRules([...acl.rules]);
     setIsEditorOpen(true);
-  };
-
-  const handleAddUser = () => {
-    if (!newUsername.trim()) return;
-    setUsers(prev => [...prev, { username: newUsername, passwordHint: newPasswordHint }]);
-    setNewUsername('');
-    setNewPasswordHint('');
-  };
-
-  const handleRemoveUser = (idx: number) => {
-    setUsers(prev => prev.filter((_, i) => i !== idx));
   };
 
   const handleAddRule = () => {
@@ -159,7 +150,8 @@ export default function AccessListsView({
       name,
       policyComposition,
       forwardHeader,
-      users,
+      identityIds,
+      users: [],
       rules
     };
 
@@ -175,7 +167,7 @@ export default function AccessListsView({
   const handleDeleteTrigger = (acl: AccessList) => {
     const res = onDeleteAccessList(acl.id);
     if (!res.success) {
-      const affectedHosts = hosts.filter(h => h.accessListId === acl.id).map(h => h.source);
+      const affectedHosts = hosts.filter(h => h.accessListIds.includes(acl.id)).map(h => h.source);
       setWarningMessage(
         `This Access Control List (ACL) cannot be deleted because it is protecting traffic for ${res.attachedHostsCount} active routing host(s):\n\n` +
         affectedHosts.join(', ') +
@@ -198,7 +190,7 @@ export default function AccessListsView({
           </p>
         </div>
 
-        {currentUser.permissions.hosts === 'manage' && (
+        {can(currentUser, 'access_lists', 'create') && (
           <button
             onClick={openNewAcl}
             className="px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
@@ -244,7 +236,7 @@ export default function AccessListsView({
           </div>
         ) : (
           paginatedAcls.map((acl) => {
-            const attachedHosts = hosts.filter(h => h.accessListId === acl.id);
+            const attachedHosts = hosts.filter(h => h.accessListIds.includes(acl.id));
             const attachedHostsCount = attachedHosts.length;
             return (
               <div key={acl.id} className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 shadow-3xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all flex flex-col justify-between space-y-4">
@@ -308,7 +300,7 @@ export default function AccessListsView({
                 <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-zinc-800/80 text-xs">
                   <span className="text-slate-400 font-medium">Modified: {formatDate(acl.modified)}</span>
 
-                  {currentUser.permissions.hosts === 'manage' && (
+                  {(can(currentUser, 'access_lists', 'update') || can(currentUser, 'access_lists', 'delete')) && (
                     <button
                       type="button"
                       onClick={() => setOpenActionMenuId(acl.id)}
@@ -359,8 +351,8 @@ export default function AccessListsView({
         onClose={() => setOpenActionMenuId(null)}
       >
         {actionAccessList && <>
-          <button type="button" onClick={() => { setOpenActionMenuId(null); openEditAcl(actionAccessList); }} className="text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-800"><Edit3 className="h-4 w-4" />Edit Policy</button>
-          <button type="button" onClick={() => { setOpenActionMenuId(null); handleDeleteTrigger(actionAccessList); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Policy</button>
+          {can(currentUser, 'access_lists', 'update') && <button type="button" onClick={() => { setOpenActionMenuId(null); openEditAcl(actionAccessList); }} className="text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-800"><Edit3 className="h-4 w-4" />Edit Policy</button>}
+          {can(currentUser, 'access_lists', 'delete') && <button type="button" onClick={() => { setOpenActionMenuId(null); handleDeleteTrigger(actionAccessList); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Policy</button>}
         </>}
       </ActionModal>
 
@@ -423,53 +415,24 @@ export default function AccessListsView({
                 </div>
               </div>
 
-              {/* Basic authentication accounts */}
-              <div className="space-y-3.5 border-t border-slate-100 dark:border-zinc-800 pt-5">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Basic Authentication Users ({users.length})</span>
-
-                <div className="flex gap-2.5">
-                  <input
-                    type="text"
-                    placeholder="Username"
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value)}
-                    className="p-2 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-sm flex-1 focus:outline-hidden"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Password Hint (Write-Only)"
-                    value={newPasswordHint}
-                    onChange={(e) => setNewPasswordHint(e.target.value)}
-                    className="p-2 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-sm flex-1 focus:outline-hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddUser}
-                    className="px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add
-                  </button>
-                </div>
-
-                {users.length > 0 && (
-                  <div className="border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden divide-y divide-slate-200 dark:divide-zinc-800 text-xs bg-slate-50/40">
-                    {users.map((u, i) => (
-                      <div key={i} className="p-2.5 flex justify-between items-center">
-                        <div className="font-mono">
-                          <strong className="text-slate-800 dark:text-zinc-200">{u.username}</strong>
-                          <span className="text-slate-400 ml-3">({u.passwordHint || 'No hint provided'})</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveUser(i)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {/* Portwyrm identities */}
+              <div className="space-y-3.5 border-t border-slate-100 pt-5 dark:border-zinc-800">
+                <MultiSelect
+                  id="access-list-identities"
+                  label={`Authorized identities (${identityIds.length})`}
+                  options={identities.filter(identity => identity.status === 'Active').map(identity => ({
+                    value: identity.id,
+                    label: identity.displayName,
+                    description: `${identity.username} · ${identity.email}`,
+                  }))}
+                  values={identityIds}
+                  onChange={setIdentityIds}
+                  placeholder="None"
+                  noResultsText="No matching identities"
+                />
+                <p className="text-[10px] leading-relaxed text-slate-500">
+                  Selected identities use their existing Portwyrm credentials. Passwords remain write-only and are never displayed here.
+                </p>
               </div>
 
               {/* Firewall subnet rules */}

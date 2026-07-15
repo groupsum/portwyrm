@@ -112,6 +112,7 @@ class RuntimeCoordinator:
             forward_port=int(row["forward_port"]),
             owner_user_id=int(row.get("owner_user_id") or 1),
             access_list_id=int(row.get("access_list_id") or 0),
+            access_list_ids=[int(value) for value in row.get("access_list_ids", [])],
             ssl=_ssl(row),
             caching_enabled=bool(row.get("caching_enabled")),
             block_exploits=bool(row.get("block_exploits")),
@@ -177,13 +178,20 @@ class RuntimeCoordinator:
             row.get("meta", {}),
         )
 
-    @staticmethod
-    def _access(row: dict[str, Any]) -> AccessList:
+    def _access(self, row: dict[str, Any]) -> AccessList:
         credentials = row.get("items", row.get("credentials", []))
+        identity_credentials = [
+            self.service.access_list_credential(user_id)
+            for user_id in row.get("identity_ids", [])
+        ]
         return AccessList(
             int(row["id"]),
             row["name"],
-            [AccessListCredential(item["username"], item["password"]) for item in credentials],
+            [AccessListCredential(item["username"], item["password"]) for item in credentials]
+            + [
+                AccessListCredential(username, password)
+                for username, password in identity_credentials
+            ],
             [AccessClient(item["address"], item["directive"]) for item in row.get("clients", [])],
             bool(row.get("satisfy_any")),
             bool(row.get("pass_auth")),

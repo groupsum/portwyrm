@@ -106,6 +106,48 @@ def test_routing_payloads_are_validated_before_desired_state_changes() -> None:
     assert stream["forwarding_port"] == 53
 
 
+def test_proxy_accepts_multiple_active_access_lists_and_rejects_unknown_ids() -> None:
+    service = ControlPlane()
+    first = service.create("access-lists", {"name": "team", "clients": []})
+    second = service.create("access-lists", {"name": "network", "clients": []})
+
+    created = service.create(
+        "proxy-hosts",
+        {**proxy("protected.example"), "access_list_ids": [first["id"], second["id"]]},
+    )
+    assert created["access_list_ids"] == [first["id"], second["id"]]
+
+    with pytest.raises(Conflict, match="inactive access list"):
+        service.create(
+            "proxy-hosts",
+            {**proxy("invalid-acl.example"), "access_list_ids": [999]},
+        )
+
+
+def test_access_list_identity_membership_is_validated_and_credentials_stay_internal() -> None:
+    service = ControlPlane()
+    identity = service.create(
+        "users",
+        {
+            "email": "rider@example.test",
+            "nickname": "rider",
+            "password": "correct-horse-battery",
+        },
+    )
+    access_list = service.create(
+        "access-lists", {"name": "riders", "identity_ids": [identity["id"]], "clients": []}
+    )
+
+    assert access_list["identity_ids"] == [identity["id"]]
+    assert "password" not in access_list
+    username, encoded = service.access_list_credential(identity["id"])
+    assert username == "rider"
+    assert encoded != "correct-horse-battery"
+
+    with pytest.raises(Conflict, match="inactive user"):
+        service.create("access-lists", {"name": "invalid", "identity_ids": [999]})
+
+
 def test_preserved_compatibility_ids_advance_allocator() -> None:
     service = ControlPlane()
     imported = service.create("certificates", {"id": 187, "nice_name": "legacy"}, preserve_id=True)

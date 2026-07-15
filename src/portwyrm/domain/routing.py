@@ -122,6 +122,7 @@ class ProxyHost:
     forward_port: int
     owner_user_id: int = 1
     access_list_id: int = 0
+    access_list_ids: tuple[int, ...] | list[int] = ()
     ssl: SSLSettings = field(default_factory=SSLSettings)
     caching_enabled: bool = False
     block_exploits: bool = False
@@ -141,6 +142,16 @@ class ProxyHost:
         _port(self.forward_port, "forward_port")
         if self.access_list_id < 0:
             raise DomainValidationError("access_list_id cannot be negative")
+        selected_access_lists = tuple(int(value) for value in self.access_list_ids)
+        if any(value <= 0 for value in selected_access_lists):
+            raise DomainValidationError("access_list_ids must contain positive IDs")
+        if len(selected_access_lists) != len(set(selected_access_lists)):
+            raise DomainValidationError("access_list_ids must be unique")
+        if self.access_list_id and self.access_list_id not in selected_access_lists:
+            selected_access_lists = (self.access_list_id, *selected_access_lists)
+        if not self.access_list_id and selected_access_lists:
+            object.__setattr__(self, "access_list_id", selected_access_lists[0])
+        object.__setattr__(self, "access_list_ids", selected_access_lists)
         object.__setattr__(self, "ssl", self.ssl.normalized())
         object.__setattr__(self, "locations", tuple(self.locations))
         paths = [location.path for location in self.locations]

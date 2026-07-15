@@ -27,6 +27,27 @@ def test_principal_admin_and_section_permissions() -> None:
     assert not manager.may("certificates")
 
 
+def test_principal_supports_independent_crud_grants() -> None:
+    creator = Principal(
+        4,
+        "creator@example.com",
+        permissions={
+            "proxy_hosts": {
+                "create": True,
+                "read": True,
+                "update": False,
+                "delete": False,
+            }
+        },
+    )
+
+    assert creator.may("proxy_hosts", action="create")
+    assert creator.may("proxy_hosts", action="read")
+    assert not creator.may("proxy_hosts", action="update")
+    assert not creator.may("proxy_hosts", action="delete")
+    assert not creator.may("certificates", action="read")
+
+
 def test_session_refresh_expiry_and_invalid_token() -> None:
     store = TokenStore(session_ttl_seconds=60)
     principal = Principal(1, "admin@example.com", is_admin=True)

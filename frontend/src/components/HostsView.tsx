@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import CertificatesView from './CertificatesView';
 import ActionModal from './ActionModal';
+import { can, hostPermissionResource } from '../utils/permissions';
 
 interface HostsViewProps {
   hosts: Host[];
@@ -185,9 +186,9 @@ export default function HostsView({
     // Access list filter
     if (accessFilter !== 'all') {
       if (accessFilter === 'public') {
-        result = result.filter(h => !h.accessListId);
+        result = result.filter(h => h.accessListIds.length === 0);
       } else {
-        result = result.filter(h => h.accessListId === accessFilter);
+        result = result.filter(h => h.accessListIds.includes(accessFilter));
       }
     }
 
@@ -306,12 +307,12 @@ ${customDirectives}
 `;
     }
 
-    if (host.accessListId) {
+    if (host.accessListIds.length) {
       config += `
-    # Access Control List Guard rules (ID: ${host.accessListId})
+    # Combined Access Control Lists (IDs: ${host.accessListIds.join(', ')})
     satisfy all;
     auth_basic "Protected Area";
-    auth_basic_user_file /etc/nginx/auth/${host.accessListId}.htpasswd;
+    auth_basic_user_file /data/access/${host.accessListIds.length > 1 ? `proxy-host-${host.id.split(':').pop()}` : host.accessListIds[0]};
 `;
     }
 
@@ -422,7 +423,7 @@ ${customDirectives}
               </p>
             </div>
 
-            {currentUser.permissions.hosts === 'manage' && (
+            {(['proxy_hosts', 'redirection_hosts', 'dead_hosts', 'streams'] as const).some(resource => can(currentUser, resource, 'create')) && (
               <button
                 onClick={onAddHost}
                 className="px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
@@ -702,8 +703,8 @@ ${customDirectives}
 
                           {/* Access Restrictions */}
                           <td className="px-6 py-4">
-                            <span className={`inline-flex items-center gap-1 text-xs font-semibold ${host.accessListId ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500'}`}>
-                              {host.accessListId ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                            <span className={`inline-flex items-center gap-1 text-xs font-semibold ${host.accessListIds.length ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-slate-500'}`}>
+                              {host.accessListIds.length ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
                               {host.accessListName}
                             </span>
                           </td>
@@ -720,7 +721,7 @@ ${customDirectives}
 
                           {/* TRIPLE DOT ACTIONS MENU */}
                           <td className="px-6 py-4 text-right">
-                            {currentUser.permissions.hosts === 'manage' && (
+                            {(can(currentUser, hostPermissionResource(host.type), 'update') || can(currentUser, hostPermissionResource(host.type), 'delete')) && (
                               <button
                                 onClick={() => setOpenActionMenuId(host.id)}
                                 className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-500 dark:text-zinc-400 cursor-pointer"
@@ -790,13 +791,13 @@ ${customDirectives}
             onClose={() => setOpenActionMenuId(null)}
           >
             {actionHost && <>
-              <button onClick={() => { setOpenActionMenuId(null); onToggleHostStatus(actionHost.id); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><RefreshCw className="h-4 w-4" />{actionHost.status === 'disabled' ? 'Enable Host' : 'Disable Host'}</button>
-              <button onClick={() => { setOpenActionMenuId(null); onEditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Edit3 className="h-4 w-4" />Configure & Edit</button>
-              <button onClick={() => { setOpenActionMenuId(null); onDuplicateHost ? onDuplicateHost(actionHost) : alert(`Duplicating host ${actionHost.source}`); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Copy className="h-4 w-4" />Duplicate Host</button>
+              {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onToggleHostStatus(actionHost.id); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><RefreshCw className="h-4 w-4" />{actionHost.status === 'disabled' ? 'Enable Host' : 'Disable Host'}</button>}
+              {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onEditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Edit3 className="h-4 w-4" />Configure & Edit</button>}
+              {can(currentUser, hostPermissionResource(actionHost.type), 'create') && <button onClick={() => { setOpenActionMenuId(null); onDuplicateHost ? onDuplicateHost(actionHost) : alert(`Duplicating host ${actionHost.source}`); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Copy className="h-4 w-4" />Duplicate Host</button>}
               <button onClick={() => { setOpenActionMenuId(null); setInspectedConfigHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><FileCode className="h-4 w-4" />View Applied Config</button>
               <button onClick={() => { setOpenActionMenuId(null); setInspectedAuditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><History className="h-4 w-4" />View Audit History</button>
-              {actionHost.sslId && <button onClick={() => { setOpenActionMenuId(null); onRenewCert(actionHost.sslId!, msg => alert(msg)); }} className="text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/20"><RefreshCw className="h-4 w-4" />Renew SSL Cert</button>}
-              <button onClick={() => { setOpenActionMenuId(null); onDeleteHost(actionHost.id); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Host</button>
+              {actionHost.sslId && can(currentUser, 'certificates', 'update') && <button onClick={() => { setOpenActionMenuId(null); onRenewCert(actionHost.sslId!, msg => alert(msg)); }} className="text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/20"><RefreshCw className="h-4 w-4" />Renew SSL Cert</button>}
+              {can(currentUser, hostPermissionResource(actionHost.type), 'delete') && <button onClick={() => { setOpenActionMenuId(null); onDeleteHost(actionHost.id); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Host</button>}
             </>}
           </ActionModal>
 

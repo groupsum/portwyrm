@@ -18,6 +18,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import ActionModal from './ActionModal';
+import { can } from '../utils/permissions';
 
 interface CertificatesViewProps {
   certificates: Certificate[];
@@ -233,7 +234,7 @@ export default function CertificatesView({
           </p>
         </div>
 
-        {currentUser.permissions.certificates === 'manage' && (
+        {can(currentUser, 'certificates', 'create') && (
           <div className="flex gap-2 shrink-0">
             <button
               onClick={() => {
@@ -460,7 +461,7 @@ export default function CertificatesView({
                     </td>
 
                     <td className="px-6 py-4 text-right">
-                      {currentUser.permissions.certificates === 'manage' && (
+                      {(can(currentUser, 'certificates', 'update') || can(currentUser, 'certificates', 'delete')) && (
                         <button
                           onClick={() => setOpenActionMenuId(cert.id)}
                           className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-500 dark:text-zinc-400 cursor-pointer"
@@ -541,7 +542,7 @@ export default function CertificatesView({
                     {cert.status}
                   </span>
 
-                  {currentUser.permissions.certificates === 'manage' && (
+                  {(can(currentUser, 'certificates', 'update') || can(currentUser, 'certificates', 'delete')) && (
                     <button
                       onClick={() => setOpenActionMenuId(cert.id)}
                       className="p-1 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded cursor-pointer"
@@ -576,8 +577,8 @@ export default function CertificatesView({
         onClose={() => setOpenActionMenuId(null)}
       >
         {actionCertificate && <>
-          <button onClick={() => { setOpenActionMenuId(null); triggerForceRenew(actionCertificate.id); }} className="text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-800"><RefreshCw className="h-4 w-4" />Force Renew</button>
-          <button onClick={() => { setOpenActionMenuId(null); triggerDeleteCert(actionCertificate.id, actionCertificate.name); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Certificate</button>
+          {can(currentUser, 'certificates', 'update') && <button onClick={() => { setOpenActionMenuId(null); triggerForceRenew(actionCertificate.id); }} className="text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-800"><RefreshCw className="h-4 w-4" />Force Renew</button>}
+          {can(currentUser, 'certificates', 'delete') && <button onClick={() => { setOpenActionMenuId(null); triggerDeleteCert(actionCertificate.id, actionCertificate.name); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Certificate</button>}
         </>}
       </ActionModal>
 

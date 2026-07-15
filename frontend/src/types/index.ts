@@ -22,6 +22,7 @@ export interface Host {
   sslId: string | null;
   sslName: string;
   accessListId: string | null;
+  accessListIds: string[];
   accessListName: string;
   status: HostStatus;
   created: string; // ISO String
@@ -83,17 +84,17 @@ export interface AccessList {
   forwardHeader: boolean;
   created: string; // ISO String
   modified: string; // ISO String
+  identityIds: string[];
   users: BasicAuthUser[];
   rules: IpRule[];
 }
 
 export type UserRole = 'Administrator' | 'Operator' | 'Viewer';
 
-export interface UserPermissions {
-  hosts: 'manage' | 'view' | 'hidden';
-  streams: 'manage' | 'view' | 'hidden';
-  certificates: 'manage' | 'view' | 'hidden';
-}
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete';
+export type PermissionResource = 'proxy_hosts' | 'redirection_hosts' | 'dead_hosts' | 'streams' | 'access_lists' | 'certificates';
+export type CrudPermission = Record<PermissionAction, boolean>;
+export type UserPermissions = Record<PermissionResource, CrudPermission>;
 
 export interface User {
   id: string;

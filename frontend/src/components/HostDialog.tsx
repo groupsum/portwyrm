@@ -19,6 +19,7 @@ import {
   ChevronUp,
   Trash2
 } from 'lucide-react';
+import MultiSelect from './MultiSelect';
 
 interface HostDialogProps {
   isOpen: boolean;
@@ -60,7 +61,7 @@ export default function HostDialog({
   const [hstsSubdomains, setHstsSubdomains] = useState(false);
 
   // Access control
-  const [accessListId, setAccessListId] = useState<string>('public');
+  const [accessListIds, setAccessListIds] = useState<string[]>([]);
 
   // Performance & Options
   const [websocket, setWebsocket] = useState(true);
@@ -119,7 +120,7 @@ export default function HostDialog({
       setForceHttps(editingHost.forceHttps || false);
       setHsts(editingHost.hsts || false);
       setHstsSubdomains(editingHost.hstsSubdomains || false);
-      setAccessListId(editingHost.accessListId || 'public');
+      setAccessListIds(editingHost.accessListIds || (editingHost.accessListId ? [editingHost.accessListId] : []));
       setWebsocket(editingHost.websocket);
       setCaching(editingHost.caching);
       setBlockExploits(editingHost.blockExploits);
@@ -144,7 +145,7 @@ export default function HostDialog({
       setForceHttps(false);
       setHsts(false);
       setHstsSubdomains(false);
-      setAccessListId('public');
+      setAccessListIds([]);
       setWebsocket(true);
       setCaching(false);
       setBlockExploits(true);
@@ -171,7 +172,7 @@ export default function HostDialog({
       }
 
       if (!destHost.trim()) {
-        errors.destHost = 'Destination host/IP is required';
+        errors.destHost = 'Enter an upstream IP address, hostname, or Docker service name';
       }
 
       if (!destPort) {
@@ -196,7 +197,7 @@ export default function HostDialog({
 
       if (hostType === 'proxy') {
         if (!destHost.trim()) {
-          errors.destHost = 'Destination host is required';
+          errors.destHost = 'Enter an upstream IP address, hostname, or Docker service name';
         }
 
         if (!destPort) {
@@ -262,7 +263,8 @@ export default function HostDialog({
       if (forceHttps !== (editingHost.forceHttps || false)) return true;
       if (hsts !== (editingHost.hsts || false)) return true;
       if (hstsSubdomains !== (editingHost.hstsSubdomains || false)) return true;
-      if (accessListId !== (editingHost.accessListId || 'public')) return true;
+      const originalAccessListIds = editingHost.accessListIds || (editingHost.accessListId ? [editingHost.accessListId] : []);
+      if (accessListIds.join(',') !== originalAccessListIds.join(',')) return true;
       if (websocket !== editingHost.websocket) return true;
       if (caching !== editingHost.caching) return true;
       if (blockExploits !== editingHost.blockExploits) return true;
@@ -282,7 +284,7 @@ export default function HostDialog({
       if (forceHttps !== false) return true;
       if (hsts !== false) return true;
       if (hstsSubdomains !== false) return true;
-      if (accessListId !== 'public') return true;
+      if (accessListIds.length !== 0) return true;
       if (websocket !== true) return true;
       if (caching !== false) return true;
       if (blockExploits !== true) return true;
@@ -352,7 +354,9 @@ export default function HostDialog({
     setApplyError(null);
 
     const sslRecord = certificates.find(c => c.id === sslId);
-    const aclRecord = accessLists.find(a => a.id === accessListId);
+    const selectedAccessLists = accessListIds
+      .map(id => accessLists.find(accessList => accessList.id === id))
+      .filter((accessList): accessList is AccessList => Boolean(accessList));
 
     const hostPayload = {
       type: hostType,
@@ -364,8 +368,11 @@ export default function HostDialog({
         : `${destScheme}://${destHost}:${destPort}`,
       sslId: sslId === 'none' ? null : sslId,
       sslName: sslRecord ? sslRecord.name : 'None',
-      accessListId: accessListId === 'public' ? null : accessListId,
-      accessListName: hostType === 'stream' ? 'Network only' : (aclRecord ? aclRecord.name : 'Public'),
+      accessListId: accessListIds[0] || null,
+      accessListIds,
+      accessListName: hostType === 'stream'
+        ? 'Network only'
+        : selectedAccessLists.length ? selectedAccessLists.map(accessList => accessList.name).join(', ') : 'Public',
       websocket,
       caching,
       blockExploits,
@@ -550,7 +557,9 @@ export default function HostDialog({
               {/* Target Upstream Endpoint (Hidden for 404) */}
               {hostType !== '404' && (
                 <div className="space-y-2 border-t border-slate-200 dark:border-zinc-800/60 pt-4">
-                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">Upstream Destination Target</label>
+                  <span className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
+                    {hostType === 'redirect' ? 'Redirect destination' : 'Upstream destination'}
+                  </span>
 
                   {hostType === 'redirect' ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -601,51 +610,64 @@ export default function HostDialog({
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-1">
-                      <div className="flex gap-3">
+                    <div className="space-y-1.5">
+                      <div className={`grid grid-cols-1 gap-3 ${hostType === 'proxy' ? 'sm:grid-cols-[auto_minmax(0,1fr)_6rem]' : 'sm:grid-cols-[minmax(0,1fr)_6rem]'}`}>
                         {hostType === 'proxy' && (
-                          <select
-                            value={destScheme}
-                            onChange={(e) => setDestScheme(e.target.value)}
-                            className="p-2.5 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-sm font-semibold text-slate-800 dark:text-zinc-100 focus:outline-hidden"
-                          >
-                            <option value="http">http://</option>
-                            <option value="https">https://</option>
-                          </select>
+                          <label className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Protocol</span>
+                            <select
+                              value={destScheme}
+                              onChange={(e) => setDestScheme(e.target.value)}
+                              className="w-full p-2.5 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-sm font-semibold text-slate-800 dark:text-zinc-100 focus:outline-hidden"
+                            >
+                              <option value="http">HTTP</option>
+                              <option value="https">HTTPS</option>
+                            </select>
+                          </label>
                         )}
-                        <input
-                          type="text"
-                          placeholder="Hostname / Container / IP (e.g. localhost, webapp)"
-                          value={destHost}
-                          onChange={(e) => {
-                            setDestHost(e.target.value);
-                            markTouched('destHost');
-                          }}
-                          onBlur={() => markTouched('destHost')}
-                          className={`flex-1 p-2.5 border bg-white dark:bg-zinc-900 rounded-lg text-sm font-mono text-slate-800 dark:text-zinc-100 focus:outline-hidden ${
-                            touchedFields.destHost && validationErrors.destHost
-                              ? 'border-red-500 focus:border-red-500'
-                              : 'border-slate-200 dark:border-zinc-800 focus:border-indigo-500'
-                          }`}
-                          required
-                        />
-                        <input
-                          type="number"
-                          placeholder="Port"
-                          value={destPort}
-                          onChange={(e) => {
-                            setDestPort(e.target.value);
-                            markTouched('destPort');
-                          }}
-                          onBlur={() => markTouched('destPort')}
-                          className={`w-24 p-2.5 border bg-white dark:bg-zinc-900 rounded-lg text-sm font-mono text-slate-800 dark:text-zinc-100 focus:outline-hidden ${
-                            touchedFields.destPort && validationErrors.destPort
-                              ? 'border-red-500 focus:border-red-500'
-                              : 'border-slate-200 dark:border-zinc-800 focus:border-indigo-500'
-                          }`}
-                          required
-                        />
+                        <label className="space-y-1 min-w-0">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">Address</span>
+                          <input
+                            type="text"
+                            placeholder="10.0.0.42, api.internal, or web"
+                            aria-describedby="upstream-address-help"
+                            value={destHost}
+                            onChange={(e) => {
+                              setDestHost(e.target.value);
+                              markTouched('destHost');
+                            }}
+                            onBlur={() => markTouched('destHost')}
+                            className={`w-full p-2.5 border bg-white dark:bg-zinc-900 rounded-lg text-sm font-mono text-slate-800 dark:text-zinc-100 focus:outline-hidden ${
+                              touchedFields.destHost && validationErrors.destHost
+                                ? 'border-red-500 focus:border-red-500'
+                                : 'border-slate-200 dark:border-zinc-800 focus:border-indigo-500'
+                            }`}
+                            required
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">Port</span>
+                          <input
+                            type="number"
+                            placeholder="8080"
+                            value={destPort}
+                            onChange={(e) => {
+                              setDestPort(e.target.value);
+                              markTouched('destPort');
+                            }}
+                            onBlur={() => markTouched('destPort')}
+                            className={`w-full p-2.5 border bg-white dark:bg-zinc-900 rounded-lg text-sm font-mono text-slate-800 dark:text-zinc-100 focus:outline-hidden ${
+                              touchedFields.destPort && validationErrors.destPort
+                                ? 'border-red-500 focus:border-red-500'
+                                : 'border-slate-200 dark:border-zinc-800 focus:border-indigo-500'
+                            }`}
+                            required
+                          />
+                        </label>
                       </div>
+                      <p id="upstream-address-help" className="text-[10px] text-slate-400 leading-normal">
+                        Use an IP address, DNS hostname, or Docker service/container name. Docker names require Portwyrm and the upstream container to share a network.
+                      </p>
                       {((touchedFields.destHost && validationErrors.destHost) || (touchedFields.destPort && validationErrors.destPort)) && (
                         <div className="flex flex-col gap-0.5 mt-1">
                           {touchedFields.destHost && validationErrors.destHost && (
@@ -669,9 +691,13 @@ export default function HostDialog({
               <div className="p-4 border border-slate-200 dark:border-zinc-800 rounded-xl space-y-3 bg-white dark:bg-zinc-900">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block border-b border-slate-100 dark:border-zinc-800 pb-1.5 flex items-center gap-1.5">
                   <Lock className="h-3.5 w-3.5 text-indigo-500" />
-                  TLS / SSL Encryption
+                  Client-facing HTTPS
                 </span>
+                <label htmlFor="tls-certificate" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  TLS certificate
+                </label>
                 <select
+                  id="tls-certificate"
                   value={sslId}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -684,13 +710,16 @@ export default function HostDialog({
                   }}
                   className="w-full p-2.5 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-xs font-semibold text-slate-800 dark:text-zinc-100"
                 >
-                  <option value="none">No TLS Certificate (Served via port 80 only)</option>
+                  <option value="none">None</option>
                   {certificates.map(c => (
                     <option key={c.id} value={c.id}>
                       {c.name} (Domains: {c.domains.join(', ')})
                     </option>
                   ))}
                 </select>
+                <p className="text-[10px] text-slate-400 leading-normal">
+                  Choose the certificate Portwyrm presents to clients connecting over HTTPS.
+                </p>
 
                 {sslId !== 'none' && (
                   <div className="space-y-2 pt-2 text-xs">
@@ -748,20 +777,21 @@ export default function HostDialog({
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <select
-                      value={accessListId}
-                      onChange={(e) => setAccessListId(e.target.value)}
-                      className="w-full p-2.5 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-xs font-semibold text-slate-800 dark:text-zinc-100"
-                    >
-                      <option value="public">Public Access (No firewalls or Basic Auth)</option>
-                      {accessLists.map(acl => (
-                        <option key={acl.id} value={acl.id}>
-                          {acl.name} ({acl.usersCount} users, {acl.rulesCount} subnets)
-                        </option>
-                      ))}
-                    </select>
+                    <MultiSelect
+                      id="host-access-lists"
+                      label="Access lists"
+                      options={accessLists.map(accessList => ({
+                        value: accessList.id,
+                        label: accessList.name,
+                        description: `${accessList.usersCount} identities · ${accessList.rulesCount} network rules`,
+                      }))}
+                      values={accessListIds}
+                      onChange={setAccessListIds}
+                      placeholder="Public Access"
+                      noResultsText="No matching access lists"
+                    />
                     <span className="text-[10px] text-slate-400 leading-normal block">
-                      Restricts incoming routing requests based on Basic Auth credentials and IP address white/black lists.
+                      Selected lists are combined into one effective policy. The strictest selected satisfy mode is enforced.
                     </span>
                   </div>
                 )}
