@@ -128,7 +128,8 @@ class MySQLRepository(DBAPIRepository):
         *,
         connect_factory: ConnectFactory | None = None,
     ) -> None:
-        super().__init__("mysql", connect_factory or _driver_factory("pymysql", config or {}))
+        self.config = dict(config or {})
+        super().__init__("mysql", connect_factory or _driver_factory("pymysql", self.config))
 
 
 class PostgreSQLRepository(DBAPIRepository):
@@ -138,4 +139,7 @@ class PostgreSQLRepository(DBAPIRepository):
         *,
         connect_factory: ConnectFactory | None = None,
     ) -> None:
-        super().__init__("postgresql", connect_factory or _driver_factory("psycopg", config or {}))
+        self.config = dict(config or {})
+        super().__init__(
+            "postgresql", connect_factory or _driver_factory("psycopg", self.config)
+        )

@@ -3,14 +3,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from tigrbl import TigrblApp
 
+from portwyrm.api import create_app
+from portwyrm.persistence import MemoryRepository
 from portwyrm.uix import mount_uix
+from tests.support import TestClient
 
 
 def test_compiled_console_is_packaged_and_accessible() -> None:
-    app = FastAPI()
+    app = TigrblApp(mount_system=False)
     mount_uix(app)
     client = TestClient(app)
     page = client.get("/ui/")
@@ -66,8 +68,15 @@ def test_data_tables_do_not_reserve_an_actions_header() -> None:
 
 
 def test_root_redirects_to_console() -> None:
-    app = FastAPI()
+    app = TigrblApp(mount_system=False)
     mount_uix(app)
     response = TestClient(app).get("/", follow_redirects=False)
     assert response.status_code == 307
     assert response.headers["location"] == "/ui/"
+
+
+def test_composed_initialized_application_serves_console() -> None:
+    app = create_app(MemoryRepository())
+    response = TestClient(app).get("/ui/")
+    assert response.status_code == 200
+    assert '<div id="root"></div>' in response.text

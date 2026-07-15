@@ -10,22 +10,24 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from tigrbl import TigrblApp
 
 from portwyrm.api.compat import create_compat_app
 from portwyrm.api.dependencies import create_default_repository
 from portwyrm.api.native import create_native_router
-from portwyrm.application import ControlPlaneError, MFAStore, PersistentControlPlane
+from portwyrm.application import MFAStore, PersistentControlPlane
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
 from portwyrm.identity import TokenStore
 from portwyrm.operations import HealthService, NginxStatusClient, UpgradeManager, default_upgrades
 from portwyrm.persistence import Repository
 from portwyrm.runtime.coordinator import RuntimeCoordinator
+from portwyrm.tables import PORTWYRM_TABLES
+from portwyrm.tables.engine import engine_for_repository
+from portwyrm.tables.legacy import LegacyProjector
 from portwyrm.uix import mount_uix
 
 
-def create_app(repository: Repository | None = None) -> FastAPI:
+def create_app(repository: Repository | None = None) -> TigrblApp:
     """Construct the packaged API, runtime coordinator, and UIX."""
 
     email = os.getenv("PORTWYRM_INITIAL_ADMIN_EMAIL") or os.getenv("INITIAL_ADMIN_EMAIL")
@@ -46,6 +48,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
         ),
     )
     mfa_store = MFAStore(repository, _load_mfa_key())
+    token_store = TokenStore(repository=repository)
     runtime: RuntimeCoordinator | None = None
     if os.getenv("PORTWYRM_NGINX_RUNTIME", "0").lower() in {"1", "true", "yes"}:
         root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
@@ -61,7 +64,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             await asyncio.to_thread(certificate_manager.renew_due)
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI):
+    async def lifespan(_app: TigrblApp):
         renewal_task: asyncio.Task[None] | None = None
         if os.getenv("PORTWYRM_CERTIFICATE_AUTO_RENEW", "1").lower() in {"1", "true", "yes"}:
             renewal_task = asyncio.create_task(renewal_loop())
@@ -108,22 +111,39 @@ def create_app(repository: Repository | None = None) -> FastAPI:
 
     app = create_compat_app(
         control_plane,
-        tokens=TokenStore(repository=repository),
+        tokens=token_store,
         certificates=certificate_manager,
         lifespan=lifespan,
         repository=repository,
         mfa=mfa_store,
         system_status=system_status,
+        engine=engine_for_repository(repository),
     )
     app.state.repository = repository
     app.state.runtime = runtime
+    app.state.tigrbl_tables = PORTWYRM_TABLES
 
-    @app.exception_handler(ControlPlaneError)
-    async def control_plane_error(_request: Request, exc: ControlPlaneError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
+    for table in PORTWYRM_TABLES:
+        app.include_table(table, mount_router=False)
     app.include_router(create_native_router(control_plane, health))
     mount_uix(app)
+
+    # Tigrbl freezes the composed ASGI router during initialization. Register
+    # every compatibility, native, and UI route before this boundary so the
+    # Uvicorn application exposes the complete packaged surface.
+    app.initialize(tables=PORTWYRM_TABLES)
+    projector = LegacyProjector(app, repository)
+    projector.rebuild()
+    app.state.legacy_projector = projector
+
+    def after_legacy_change(collection: str) -> Any:
+        projector.rebuild()
+        return runtime.changed(collection) if runtime is not None else None
+
+    control_plane.on_change = after_legacy_change
+    token_store.on_change = projector.rebuild
+    mfa_store.on_change = projector.rebuild
+
     return app
 
 

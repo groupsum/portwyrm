@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+from http import HTTPStatus
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import JSONResponse, PlainTextResponse
-from starlette.concurrency import run_in_threadpool
+from tigrbl import HTTPException, JSONResponse, PlainTextResponse
 
+from portwyrm.api.compat.transport import CompatibilityTigrblRouter
 from portwyrm.application import PersistentControlPlane
 from portwyrm.operations import HealthService
 
@@ -15,29 +16,29 @@ from portwyrm.operations import HealthService
 def create_native_router(
     control_plane: PersistentControlPlane,
     health: HealthService,
-) -> APIRouter:
+) -> CompatibilityTigrblRouter:
     """Build setup, observability, and product metadata routes."""
-    router = APIRouter()
+    router = CompatibilityTigrblRouter(prefix="")
 
     @router.get("/api/setup")
     async def setup_status() -> dict[str, bool]:
         return {"setup": bool(control_plane.list("users"))}
 
-    @router.post("/api/setup", status_code=status.HTTP_201_CREATED)
+    @router.post("/api/setup", status_code=HTTPStatus.CREATED)
     async def initial_setup(payload: dict[str, Any]) -> dict[str, Any]:
         if control_plane.list("users"):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=HTTPStatus.FORBIDDEN,
                 detail="initial setup is already complete",
             )
         email = payload.get("email")
         password = payload.get("password")
         if not isinstance(email, str) or not isinstance(password, str):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
                 detail="email and password are required",
             )
-        return await run_in_threadpool(control_plane.bootstrap_admin, email, password)
+        return await asyncio.to_thread(control_plane.bootstrap_admin, email, password)
 
     @router.get("/health/live", include_in_schema=False)
     async def live() -> dict[str, Any]:
@@ -69,6 +70,9 @@ def create_native_router(
                 f"portwyrm_ready {1 if readiness['status'] == 'ok' else 0}",
             ]
         )
-        return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+        return PlainTextResponse(
+            "\n".join(lines) + "\n",
+            headers={"content-type": "text/plain; version=0.0.4; charset=utf-8"},
+        )
 
     return router

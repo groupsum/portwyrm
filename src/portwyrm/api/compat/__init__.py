@@ -1,10 +1,10 @@
 """Nginx Proxy Manager facade consumed by npmctl 0.3.x."""
 
-# ruff: noqa: B008 - FastAPI dependencies are declared in function defaults by design.
+# ruff: noqa: B008 - Tigrbl dependencies are declared in function defaults by design.
 
 from __future__ import annotations
 
-import hmac
+import asyncio
 import inspect
 import os
 import secrets
@@ -16,22 +16,18 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, Protocol, cast
 
-from fastapi import (
-    Cookie,
+from tigrbl import (
+    CORSMiddleware,
     Depends,
-    FastAPI,
-    Header,
     HTTPException,
-    Query,
+    Request,
     Response,
-    status,
+    TigrblApp,
 )
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.responses import Response as FastAPIResponse
-from starlette.concurrency import run_in_threadpool
+from tigrbl_typing.status.mappings import status
 
+from portwyrm.api.compat.transport import CompatibilityTigrblApp
+from portwyrm.api.middleware import ControlPlaneHTTPMiddleware
 from portwyrm.application import MFAStore
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
@@ -102,14 +98,21 @@ def create_compat_app(
     repository: Repository | None = None,
     mfa: MFAStore | None = None,
     system_status: Callable[[], Mapping[str, Any]] | None = None,
-) -> FastAPI:
+    engine: Any | None = None,
+) -> TigrblApp:
     token_store = tokens or TokenStore()
-    app = FastAPI(title="Portwyrm NPM compatibility API", version="2.10.4", lifespan=lifespan)
+    app = CompatibilityTigrblApp(
+        title="Portwyrm NPM compatibility API",
+        version="2.10.4",
+        lifespan=lifespan,
+        mount_system=False,
+        engine=engine,
+    )
     app.state.control_plane = service
     app.state.token_store = token_store
     app.state.certificate_manager = certificates
     app.state.repository = repository
-    app.add_middleware(GZipMiddleware, minimum_size=500)
+    app.add_middleware(ControlPlaneHTTPMiddleware)
     origins = [
         item.strip() for item in os.getenv("PORTWYRM_CORS_ORIGINS", "").split(",") if item.strip()
     ]
@@ -122,38 +125,9 @@ def create_compat_app(
             allow_headers=["Authorization", "Content-Type"],
         )
 
-    @app.middleware("http")
-    async def security_headers(request: Any, call_next: Any) -> Any:
+    async def principal_from_bearer(request: Request) -> Principal:
+        authorization = request.headers.get("authorization")
         session_cookie = request.cookies.get("portwyrm_session")
-        if (
-            session_cookie
-            and request.method in {"POST", "PUT", "PATCH", "DELETE"}
-            and request.url.path
-            not in {
-                "/api/v2/browser/login",
-                "/api/v2/browser/2fa",
-            }
-        ):
-            cookie_csrf = request.cookies.get("portwyrm_csrf")
-            header_csrf = request.headers.get("X-CSRF-Token")
-            if (
-                not cookie_csrf
-                or not header_csrf
-                or not hmac.compare_digest(cookie_csrf, header_csrf)
-            ):
-                return JSONResponse(status_code=403, content={"detail": "CSRF validation failed"})
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = os.getenv("PORTWYRM_X_FRAME_OPTIONS", "DENY")
-        response.headers["Referrer-Policy"] = "same-origin"
-        if request.url.path.startswith("/api"):
-            response.headers["Cache-Control"] = "no-store"
-        return response
-
-    async def principal_from_bearer(
-        authorization: str | None = Header(default=None),
-        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
-    ) -> Principal:
         if authorization and authorization.startswith("Bearer "):
             token = authorization.removeprefix("Bearer ").strip()
         elif session_cookie:
@@ -163,7 +137,7 @@ def create_compat_app(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="bearer token required"
             )
         try:
-            principal = await run_in_threadpool(token_store.verify, token)
+            principal = await asyncio.to_thread(token_store.verify, token)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         if "user" not in principal.scopes:
@@ -200,10 +174,9 @@ def create_compat_app(
             )
         return principal
 
-    async def principal_from_mfa_bearer(
-        authorization: str | None = Header(default=None),
-        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
-    ) -> Principal:
+    async def principal_from_mfa_bearer(request: Request) -> Principal:
+        authorization = request.headers.get("authorization")
+        session_cookie = request.cookies.get("portwyrm_session")
         if authorization and authorization.startswith("Bearer "):
             token = authorization.removeprefix("Bearer ").strip()
         elif session_cookie:
@@ -211,7 +184,7 @@ def create_compat_app(
         else:
             raise HTTPException(status_code=401, detail="MFA challenge token required")
         try:
-            principal = await run_in_threadpool(token_store.verify, token)
+            principal = await asyncio.to_thread(token_store.verify, token)
         except ValueError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
         if principal.scopes != frozenset({"mfa"}):
@@ -260,7 +233,7 @@ def create_compat_app(
                 detail="authentication service unavailable",
             )
         authenticated = await _maybe_await(
-            await run_in_threadpool(authentication, identity.strip().lower(), secret)
+            await asyncio.to_thread(authentication, identity.strip().lower(), secret)
         )
         if authenticated is None:
             raise HTTPException(
@@ -289,16 +262,13 @@ def create_compat_app(
     @app.post("/api/tokens/2fa")
     async def complete_mfa_challenge(
         payload: dict[str, Any],
-        authorization: str | None = Header(default=None),
-        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
+        request: Request,
         challenge: Principal = Depends(principal_from_mfa_bearer),
     ) -> Resource:
         code = payload.get("code")
         if mfa is None or not isinstance(code, str) or not mfa.verify(challenge.user_id, code):
             raise HTTPException(status_code=401, detail="invalid MFA code")
-        challenge_token = (
-            authorization.removeprefix("Bearer ").strip() if authorization else session_cookie
-        )
+        challenge_token = request.bearer_token or request.cookies.get("portwyrm_session")
         assert challenge_token is not None
         token_store.revoke_session(challenge_token)
         user = await _service_get(service, "users", challenge.user_id, challenge)
@@ -331,12 +301,10 @@ def create_compat_app(
     async def browser_mfa(
         payload: dict[str, Any],
         response: Response,
-        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
+        request: Request,
         challenge: Principal = Depends(principal_from_mfa_bearer),
     ) -> Resource:
-        result = await complete_mfa_challenge(
-            payload, authorization=None, session_cookie=session_cookie, challenge=challenge
-        )
+        result = await complete_mfa_challenge(payload, request=request, challenge=challenge)
         api_token = str(result["result"]["token"])
         browser_principal = token_store.verify(api_token)
         token_store.revoke_session(api_token)
@@ -347,30 +315,34 @@ def create_compat_app(
     @app.delete("/api/v2/browser/session", status_code=status.HTTP_204_NO_CONTENT)
     async def browser_logout(
         response: Response,
-        session_cookie: str | None = Cookie(default=None, alias="portwyrm_session"),
+        request: Request,
         _: Principal = Depends(principal_from_bearer),
     ) -> None:
+        session_cookie = request.cookies.get("portwyrm_session")
         if session_cookie:
             token_store.revoke_session(session_cookie)
-        response.delete_cookie("portwyrm_session", path="/")
-        response.delete_cookie("portwyrm_csrf", path="/")
+        _expire_browser_cookies(response)
 
     @app.get("/api/tokens")
     async def refresh(
-        authorization: str | None = Header(default=None),
+        request: Request,
         _: Principal = Depends(principal_from_bearer),
     ) -> dict[str, Any]:
-        assert authorization is not None
-        token, expires = token_store.refresh_session(authorization.removeprefix("Bearer ").strip())
+        token_value = request.bearer_token
+        if token_value is None:
+            raise HTTPException(status_code=401, detail="bearer token required")
+        token, expires = token_store.refresh_session(token_value)
         return {"token": token, "expires": expires}
 
     @app.delete("/api/tokens", status_code=status.HTTP_204_NO_CONTENT)
     async def logout(
-        authorization: str | None = Header(default=None),
+        request: Request,
         _: Principal = Depends(principal_from_bearer),
     ) -> None:
-        assert authorization is not None
-        token_store.revoke_session(authorization.removeprefix("Bearer ").strip())
+        token_value = request.bearer_token
+        if token_value is None:
+            raise HTTPException(status_code=401, detail="bearer token required")
+        token_store.revoke_session(token_value)
         await _record_event(service, "session.revoked", "users", _.user_id, _)
 
     @app.get("/api/v2/me")
@@ -389,7 +361,7 @@ def create_compat_app(
     ) -> Mapping[str, Any]:
         if system_status is None:
             return {"status": "unavailable", "components": {}}
-        return await run_in_threadpool(system_status)
+        return await asyncio.to_thread(system_status)
 
     @app.post("/api/v2/mfa/enroll")
     async def enroll_mfa(principal: Principal = Depends(principal_from_bearer)) -> Resource:
@@ -445,7 +417,7 @@ def create_compat_app(
         allowed = {key: payload[key] for key in ("name", "nickname", "email") if key in payload}
         if not allowed:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="no editable profile fields supplied",
             )
         updated = await _service_update(service, "users", principal.user_id, allowed, principal)
@@ -463,7 +435,7 @@ def create_compat_app(
         current = payload.get("current")
         if not isinstance(password, str):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="password is required"
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="password is required"
             )
         if principal.is_admin and str(principal.user_id) != str(user_id):
             setter = getattr(service, "set_password", None)
@@ -502,9 +474,10 @@ def create_compat_app(
 
     @app.get("/api/v2/tokens")
     async def list_personal_tokens(
-        include_all: bool = Query(default=False),
+        request: Request,
         principal: Principal = Depends(principal_from_bearer),
     ) -> list[Resource]:
+        include_all = _query_bool(request, "include_all")
         records = token_store.list_pats(principal)
         if not (include_all and principal.is_admin):
             records = [
@@ -523,7 +496,7 @@ def create_compat_app(
         scopes = payload.get("scopes", sorted(principal.scopes))
         if not isinstance(name, str) or not isinstance(scopes, list):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="name and scopes are required",
             )
         requested = frozenset(str(scope).strip() for scope in scopes)
@@ -548,7 +521,7 @@ def create_compat_app(
             owner=principal.owner,
         )
         try:
-            record, plaintext = await run_in_threadpool(
+            record, plaintext = await asyncio.to_thread(
                 lambda: token_store.create_pat(
                     name=name,
                     principal=pat_principal,
@@ -557,7 +530,7 @@ def create_compat_app(
             )
         except (TypeError, ValueError) as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
             ) from exc
         await _record_event(
             service,
@@ -579,7 +552,7 @@ def create_compat_app(
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
         try:
-            replacement, plaintext = await run_in_threadpool(token_store.rotate_pat, token_id)
+            replacement, plaintext = await asyncio.to_thread(token_store.rotate_pat, token_id)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail=str(exc)
@@ -614,9 +587,10 @@ def create_compat_app(
     @app.post("/api/v2/import/preview")
     async def preview_state_import(
         payload: dict[str, Any],
-        replace: bool = Query(default=False),
+        request: Request,
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
+        replace = _query_bool(request, "replace")
         _require_admin(principal)
         if repository is None:
             raise HTTPException(status_code=501, detail="state import unavailable")
@@ -625,9 +599,10 @@ def create_compat_app(
     @app.post("/api/v2/import")
     async def apply_state_import(
         payload: dict[str, Any],
-        replace: bool = Query(default=False),
+        request: Request,
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
+        replace = _query_bool(request, "replace")
         _require_admin(principal)
         if repository is None:
             raise HTTPException(status_code=501, detail="state import unavailable")
@@ -648,10 +623,11 @@ def create_compat_app(
     @app.post("/api/v2/migration/npm/import")
     async def npm_import(
         payload: dict[str, Any],
-        replace: bool = Query(default=False),
-        dry_run: bool = Query(default=True),
+        request: Request,
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
+        replace = _query_bool(request, "replace")
+        dry_run = _query_bool(request, "dry_run", default=True)
         _require_admin(principal)
         if repository is None:
             raise HTTPException(status_code=501, detail="NPM import unavailable")
@@ -764,9 +740,10 @@ def create_compat_app(
     @app.post("/api/nginx/certificates/{certificate_id}/renew")
     async def renew_certificate(
         certificate_id: int,
-        force: bool = Query(default=False),
+        request: Request,
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
+        force = _query_bool(request, "force")
         _authorize(principal, "certificates", admin_only=False, action="update")
         return _require_certificate_manager(certificates).renew(certificate_id, force=force)
 
@@ -774,14 +751,14 @@ def create_compat_app(
     async def download_certificate(
         certificate_id: int,
         principal: Principal = Depends(principal_from_bearer),
-    ) -> FastAPIResponse:
+    ) -> Response:
         _authorize(principal, "certificates", admin_only=False, action="read")
         try:
             content = _require_certificate_manager(certificates).download(certificate_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return FastAPIResponse(
-            content,
+        return Response(
+            content=content,
             media_type="application/zip",
             headers={
                 "Content-Disposition": (
@@ -808,9 +785,10 @@ def create_compat_app(
 
     @app.get("/api/audit-log")
     async def audit_log(
-        since: str | None = Query(default=None),
+        request: Request,
         principal: Principal = Depends(principal_from_bearer),
     ) -> list[Resource]:
+        since = request.query_param("since")
         _require_admin(principal)
         entries = await _service_audit(service, since)
         return [dict(entry) for entry in entries]
@@ -846,7 +824,7 @@ create_app = create_compat_app
 
 
 def _register_resource_routes(
-    app: FastAPI,
+    app: TigrblApp,
     service: CompatibilityService,
     principal_dependency: Any,
 ) -> None:
@@ -860,30 +838,30 @@ def _register_resource_routes(
         update_item = _update_handler(service, principal_dependency, collection, admin_only)
         delete_item = _delete_handler(service, principal_dependency, collection, admin_only)
 
-        app.add_api_route(path, list_items, methods=["GET"], name=f"list_{collection}")
-        app.add_api_route(
+        app.add_route(path, list_items, methods=["GET"], name=f"list_{collection}")
+        app.add_route(
             path, create_item, methods=["POST"], name=f"create_{collection}", status_code=201
         )
-        app.add_api_route(
+        app.add_route(
             f"{path}/{{resource_id}}", get_item, methods=["GET"], name=f"get_{collection}"
         )
-        app.add_api_route(
+        app.add_route(
             f"{path}/{{resource_id}}", update_item, methods=["PUT"], name=f"update_{collection}"
         )
-        app.add_api_route(
+        app.add_route(
             f"{path}/{{resource_id}}", update_item, methods=["PATCH"], name=f"patch_{collection}"
         )
-        app.add_api_route(
+        app.add_route(
             f"{path}/{{resource_id}}", delete_item, methods=["DELETE"], name=f"delete_{collection}"
         )
         if collection in TOGGLE_COLLECTIONS:
-            app.add_api_route(
+            app.add_route(
                 f"{path}/{{resource_id}}/enable",
                 _toggle_handler(service, principal_dependency, collection, admin_only, True),
                 methods=["POST"],
                 name=f"enable_{collection}",
             )
-            app.add_api_route(
+            app.add_route(
                 f"{path}/{{resource_id}}/disable",
                 _toggle_handler(service, principal_dependency, collection, admin_only, False),
                 methods=["POST"],
@@ -1101,7 +1079,7 @@ def _resource_id(value: str, *, allow_string: bool) -> int | str:
     if allow_string and value.strip():
         return value
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid resource id"
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid resource id"
     )
 
 
@@ -1116,7 +1094,7 @@ def _validate_payload(payload: Mapping[str, Any]) -> None:
     meta = payload.get("meta")
     if meta is not None and not isinstance(meta, Mapping):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="meta must be an object"
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="meta must be an object"
         )
 
 
@@ -1141,24 +1119,58 @@ def _require_certificate_manager(value: CertificateManager | None) -> Certificat
 def _set_browser_cookies(response: Response, token: str) -> None:
     secure = os.getenv("PORTWYRM_SECURE_COOKIES", "0").lower() in {"1", "true", "yes"}
     csrf = secrets.token_urlsafe(24)
-    response.set_cookie(
+    _append_cookie(
+        response,
         "portwyrm_session",
         token,
         max_age=86_400,
         httponly=True,
         secure=secure,
-        samesite="strict",
-        path="/",
     )
-    response.set_cookie(
+    _append_cookie(
+        response,
         "portwyrm_csrf",
         csrf,
         max_age=86_400,
         httponly=False,
         secure=secure,
+    )
+
+
+def _expire_browser_cookies(response: Response) -> None:
+    for name in ("portwyrm_session", "portwyrm_csrf"):
+        _append_cookie(response, name, "", max_age=0, expires="Thu, 01 Jan 1970 00:00:00 GMT")
+
+
+def _append_cookie(
+    response: Response,
+    name: str,
+    value: str,
+    *,
+    max_age: int,
+    httponly: bool = False,
+    secure: bool = False,
+    expires: str | None = None,
+) -> None:
+    cookie = Response()
+    cookie.set_cookie(
+        name,
+        value,
+        max_age=max_age,
+        expires=expires,
+        httponly=httponly,
+        secure=secure,
         samesite="strict",
         path="/",
     )
+    response.headers.append(("set-cookie", str(cookie.headers.get("set-cookie"))))
+
+
+def _query_bool(request: Request, name: str, *, default: bool = False) -> bool:
+    value = request.query_param(name)
+    if value is None:
+        return default
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def _certificate_bundle(payload: Mapping[str, Any]) -> CustomCertificateBundle:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -16,10 +17,17 @@ from portwyrm.security import (
 
 
 class MFAStore:
-    def __init__(self, repository: Repository, encryption_key: str | bytes) -> None:
+    def __init__(
+        self,
+        repository: Repository,
+        encryption_key: str | bytes,
+        *,
+        on_change: Callable[[], Any] | None = None,
+    ) -> None:
         self.repository = repository
         key = encryption_key.encode() if isinstance(encryption_key, str) else encryption_key
         self.cipher = Fernet(key)
+        self.on_change = on_change
 
     def begin(self, user_id: int | str) -> dict[str, Any]:
         secret = generate_totp_secret()
@@ -32,6 +40,7 @@ class MFAStore:
         }
         with self.repository.transaction() as tx:
             tx.upsert("_mfa", record)
+        self._changed()
         return {"secret": secret, "backup_codes": list(codes)}
 
     def enabled(self, user_id: int | str) -> bool:
@@ -64,6 +73,7 @@ class MFAStore:
             return False
         with self.repository.transaction() as tx:
             tx.delete("_mfa", str(user_id))
+        self._changed()
         return True
 
     def regenerate_backup_codes(self, user_id: int | str, code: str) -> list[str] | None:
@@ -83,6 +93,11 @@ class MFAStore:
     def _put(self, record: dict[str, Any]) -> None:
         with self.repository.transaction() as tx:
             tx.upsert("_mfa", record)
+        self._changed()
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change()
 
     def _secret(self, record: dict[str, Any]) -> str:
         try:

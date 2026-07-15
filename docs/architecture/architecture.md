@@ -9,7 +9,7 @@ The canonical source and package tree is defined in
 ```text
 NPM-compatible /api       Native /api/v2       Operator UI
           \                    |                   /
-                     ASGI control plane
+                    Tigrbl ASGI control plane
                               |
        auth/policy -> commands/queries -> audit/outbox
                               |
@@ -23,6 +23,8 @@ NPM-compatible /api       Native /api/v2       Operator UI
 
 ## Boundaries
 
+- `tables` owns the canonical normalized Tigrbl models, engine selection, builtin/custom
+  operations, lifecycle hooks, and the temporary collection-to-table projector.
 - `api/compat` owns profile DTOs, defaults, quirks, and error translation.
 - `api/native` owns jobs, scoped tokens, health, import/export, and capabilities.
 - `domain` owns entities and invariants without HTTP or storage concerns.
@@ -32,6 +34,23 @@ NPM-compatible /api       Native /api/v2       Operator UI
 - `certificates` owns custom certificates, ACME, renewal, and DNS provider adapters.
 - `runtime` owns deterministic templates, validation, activation, reload, health, rollback,
   and drift detection.
+
+## Tigrbl migration and compatibility
+
+Tigrbl is the only application framework. Portwyrm does not depend on FastAPI or Starlette.
+Compatibility and native HTTP routes are Tigrbl route operations, and canonical tables bind
+Tigrbl builtin CRUD plus narrowly scoped custom operations and lifecycle hooks.
+
+The migration is deliberately staged. The frozen NPM/npmctl collection repository remains the
+write-side compatibility boundary while every committed mutation is projected transactionally into
+24 normalized Tigrbl tables. That projection is idempotent and runs before Tigrbl opens a write
+transaction, which avoids SQLite lock inversion. It preserves legacy IDs in metadata while using
+distinct rows for principals, permissions, PAT digests, MFA recovery digests, access-list edges,
+certificate domains, routing sources, upstreams, and immutable configuration revisions.
+
+The final cutover reverses this dependency: Tigrbl tables become authoritative and the NPM shape
+becomes a read/write projection. Until that cutover is certified, table routers remain unmounted
+from public paths; the authenticated compatibility API is the supported external contract.
 
 ## Write and reconciliation model
 
@@ -49,9 +68,9 @@ and covered by golden tests. Active files are never edited in place.
 | Mode | Canonical state | Limits |
 |---|---|---|
 | Memory | copy-on-write maps and temporary blobs | process-local; tests/demos only |
-| SQLite | SQL metadata in WAL plus durable blobs | default single node; one mutation writer |
+| SQLite | Legacy projection and normalized Tigrbl tables in one WAL database | default single node; one mutation writer |
 | PostgreSQL | SQL metadata, row locks, advisory lease, transactional outbox | HA control plane |
-| Filesystem | versioned entity snapshots, checksums, append journal, atomic manifest | single writer only |
+| Filesystem | versioned snapshots plus a normalized SQLite table sidecar | single writer only |
 | Hybrid | SQLite/PostgreSQL metadata plus filesystem/object blobs | recommended production form |
 
 Every durable mode supports a backend-neutral, versioned export bundle with entities,

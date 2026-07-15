@@ -14,11 +14,12 @@ dependencies = [
   "argon2-cffi>=25.1,<26",
   "bcrypt>=4,<6",
   "cryptography>=48.0.1,<49",
-  "fastapi>=0.116,<1",
   "psycopg[binary]>=3.2,<4",
   "pyjwt[crypto]>=2.10,<3",
   "pymysql>=1.1,<2",
   "pyotp>=2.9,<3",
+  "sqlalchemy>=2.0.51,<3",
+  "tigrbl[postgres]>=0.4.4,<0.5",
   "uvicorn>=0.35,<1",
 ]
 classifiers = [

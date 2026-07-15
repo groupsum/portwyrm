@@ -5,13 +5,13 @@ from copy import deepcopy
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
 from portwyrm.application import ControlPlane
 from portwyrm.persistence import MemoryRepository
 from portwyrm.security import Principal
+from tests.support import TestClient
 
 
 class FakeService:
@@ -141,7 +141,8 @@ def test_password_verification_runs_outside_the_event_loop(service: FakeService)
     )
 
     assert response.status_code == 200
-    assert verifier_threads == ["AnyIO worker thread"]
+    assert len(verifier_threads) == 1
+    assert verifier_threads[0] != threading.current_thread().name
 
 
 def test_health_schema_login_and_refresh(client: TestClient) -> None:

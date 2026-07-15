@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any
@@ -71,11 +72,13 @@ class TokenStore:
         *,
         session_ttl_seconds: int = 86_400,
         repository: Repository | None = None,
+        on_change: Callable[[], Any] | None = None,
     ) -> None:
         if session_ttl_seconds < 1:
             raise ValueError("session_ttl_seconds must be positive")
         self.session_ttl_seconds = session_ttl_seconds
         self.repository = repository
+        self.on_change = on_change
         self._sessions: dict[str, _Session] = {}
         self._pats: dict[str, PersonalAccessToken] = {}
         self._lock = RLock()
@@ -142,6 +145,8 @@ class TokenStore:
                     "revoked_at": record.revoked_at,
                 },
             )
+        if self.on_change is not None:
+            self.on_change()
 
     def issue_session(
         self,

@@ -26,6 +26,7 @@ portwyrm/
 |   |-- operations/                 health, upgrades, logs, and operational configuration
 |   |-- persistence/                memory, SQL, filesystem, and hybrid repositories
 |   |-- runtime/                    deterministic Nginx render, validate, activate, and rollback
+|   |-- tables/                     normalized Tigrbl models, engines, hooks, ops, and migration
 |   `-- uix/
 |       |-- static/                 packaged HTML, CSS, and JavaScript; no build step
 |       `-- mount.py                ASGI mounting boundary

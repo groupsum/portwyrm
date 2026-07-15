@@ -1,9 +1,8 @@
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from portwyrm.api import create_app
 from portwyrm.persistence import SQLiteRepository
+from tests.support import TestClient
 
 
 def test_operator_cli_control_plane_is_persistent_and_reachable(tmp_path: Path) -> None:

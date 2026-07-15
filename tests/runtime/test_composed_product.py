@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 
 import bcrypt
-from fastapi.testclient import TestClient
 
 from portwyrm import __main__ as cli
 from portwyrm.api import create_app
@@ -14,6 +13,7 @@ from portwyrm.cli.commands import remote
 from portwyrm.persistence import SQLiteRepository
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 from portwyrm.security import totp_code
+from tests.support import TestClient
 
 
 def _login(client: TestClient) -> dict[str, str]:

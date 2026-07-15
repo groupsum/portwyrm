@@ -5,12 +5,19 @@ from __future__ import annotations
 import os
 
 import pytest
+from tigrbl.engine import resolver
 
+from portwyrm.api import create_app
 from portwyrm.persistence import MySQLRepository, PostgreSQLRepository
+from portwyrm.tables.models import Setting
 
 
 @pytest.mark.parametrize("backend", ["postgresql", "mysql"])
-def test_live_external_database_transaction_and_restart_contract(backend: str) -> None:
+def test_live_external_database_transaction_and_restart_contract(
+    backend: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
     if os.getenv("PORTWYRM_RUN_DATABASE_TESTS") != "1":
         pytest.skip("set PORTWYRM_RUN_DATABASE_TESTS=1 to run live database conformance")
     if backend == "postgresql":
@@ -42,3 +49,17 @@ def test_live_external_database_transaction_and_restart_contract(backend: str) -
     restarted = repository_type(config)
     with restarted.transaction() as tx:
         assert tx.get("release_probe", backend) == {"id": backend, "value": "committed"}
+        tx.upsert(
+            "settings",
+            {"id": "tigrbl-live", "name": "tigrbl-live", "value": "committed"},
+        )
+
+    monkeypatch.setenv("PORTWYRM_MFA_KEY_PATH", str(tmp_path / "mfa.key"))
+    monkeypatch.setenv("PORTWYRM_CERTIFICATE_ROOT", str(tmp_path / "certificates"))
+    app = create_app(restarted)
+    session, release = resolver.acquire(router=app, model=Setting, require_ready=True)
+    try:
+        projected = session.query(Setting).filter_by(key="tigrbl-live").one()
+        assert projected.value == "committed"
+    finally:
+        release()

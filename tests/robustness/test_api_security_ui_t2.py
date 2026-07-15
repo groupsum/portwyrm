@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
@@ -21,6 +20,7 @@ from portwyrm.security import (
     totp_code,
     verify_totp,
 )
+from tests.support import TestClient
 
 
 class WireService:
