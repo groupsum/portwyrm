@@ -385,7 +385,9 @@ def test_compiled_ui_has_static_security_and_real_api_invariants() -> None:
     assert 'aria-label={`Copy source domain ${dom}`}' in sources
     assert "sourceDomainHref(host, dom)" in sources
     assert 'target="_blank"' in sources and 'rel="noreferrer"' in sources
-    settings_source = (root / "frontend/src/components/SettingsView.tsx").read_text(encoding="utf-8")
+    settings_source = (root / "frontend/src/components/SettingsView.tsx").read_text(
+        encoding="utf-8"
+    )
     layout_source = (root / "frontend/src/components/Layout.tsx").read_text(encoding="utf-8")
     assert 'role="tablist"' in settings_source and 'role="tabpanel"' in settings_source
     assert "Runtime & persistence" in settings_source and "Portability" in settings_source

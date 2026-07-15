@@ -85,6 +85,9 @@ SECTION_BY_COLLECTION = {
     "streams": "streams",
 }
 
+TOKEN_SCOPE_ACTIONS = frozenset({"create", "read", "update", "delete"})
+TOKEN_SCOPE_SECTIONS = frozenset(SECTION_BY_COLLECTION.values())
+
 TOGGLE_COLLECTIONS = {"proxy_hosts", "redirection_hosts", "dead_hosts", "streams"}
 
 
@@ -160,7 +163,7 @@ def create_compat_app(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="bearer token required"
             )
         try:
-            principal = token_store.verify(token)
+            principal = await run_in_threadpool(token_store.verify, token)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         if "user" not in principal.scopes:
@@ -177,11 +180,20 @@ def create_compat_app(
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED, detail="user is disabled"
                 )
+            permissions = dict(current_user.get("permissions") or {})
+            is_admin = bool(current_user.get("is_admin"))
+            # ``user`` is the backward-compatible full-account PAT scope. Tokens
+            # carrying resource scopes are deliberately narrowed on every request,
+            # even when their owner is an administrator.
+            resource_scopes = principal.scopes - {"user"}
+            if resource_scopes:
+                permissions = _permissions_from_token_scopes(resource_scopes)
+                is_admin = False
             principal = Principal(
                 user_id=principal.user_id,
                 identity=str(current_user.get("email") or principal.identity),
-                is_admin=bool(current_user.get("is_admin")),
-                permissions=dict(current_user.get("permissions") or {}),
+                is_admin=is_admin,
+                permissions=permissions,
                 visibility="all" if current_user.get("visibility") == "all" else "user",
                 scopes=principal.scopes,
                 owner=principal.owner,
@@ -199,7 +211,7 @@ def create_compat_app(
         else:
             raise HTTPException(status_code=401, detail="MFA challenge token required")
         try:
-            principal = token_store.verify(token)
+            principal = await run_in_threadpool(token_store.verify, token)
         except ValueError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
         if principal.scopes != frozenset({"mfa"}):
@@ -490,9 +502,17 @@ def create_compat_app(
 
     @app.get("/api/v2/tokens")
     async def list_personal_tokens(
+        include_all: bool = Query(default=False),
         principal: Principal = Depends(principal_from_bearer),
     ) -> list[Resource]:
-        return [record.public() for record in token_store.list_pats(principal)]
+        records = token_store.list_pats(principal)
+        if not (include_all and principal.is_admin):
+            records = [
+                record
+                for record in records
+                if str(record.principal.user_id) == str(principal.user_id)
+            ]
+        return [record.public() for record in records]
 
     @app.post("/api/v2/tokens", status_code=status.HTTP_201_CREATED)
     async def create_personal_token(
@@ -506,25 +526,34 @@ def create_compat_app(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="name and scopes are required",
             )
-        requested = frozenset(str(scope) for scope in scopes)
-        if not requested or not requested.issubset(principal.scopes):
+        requested = frozenset(str(scope).strip() for scope in scopes)
+        if not requested:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="invalid token scopes"
             )
+        try:
+            token_permissions, token_is_admin = _validate_token_scopes(requested, principal)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+            ) from exc
+        stored_scopes = requested if requested == {"user"} else requested | {"user"}
         pat_principal = Principal(
             user_id=principal.user_id,
             identity=principal.identity,
-            is_admin=principal.is_admin,
-            permissions=principal.permissions,
+            is_admin=token_is_admin,
+            permissions=token_permissions,
             visibility=principal.visibility,
-            scopes=requested,
+            scopes=stored_scopes,
             owner=principal.owner,
         )
         try:
-            record, plaintext = token_store.create_pat(
-                name=name,
-                principal=pat_principal,
-                expires_at=int(expires_at) if expires_at is not None else None,
+            record, plaintext = await run_in_threadpool(
+                lambda: token_store.create_pat(
+                    name=name,
+                    principal=pat_principal,
+                    expires_at=int(expires_at) if expires_at is not None else None,
+                )
             )
         except (TypeError, ValueError) as exc:
             raise HTTPException(
@@ -540,15 +569,38 @@ def create_compat_app(
         )
         return {**record.public(), "token": plaintext}
 
+    @app.post(
+        "/api/v2/tokens/{token_id}/rotate", status_code=status.HTTP_201_CREATED
+    )
+    async def rotate_personal_token(
+        token_id: str, principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        record = _owned_token(token_store, token_id, principal)
+        if record.revoked_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
+        try:
+            replacement, plaintext = await run_in_threadpool(token_store.rotate_pat, token_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
+        await _record_event(
+            service,
+            "access-token.rotated",
+            "access-tokens",
+            replacement.id,
+            principal,
+            {"replaces": token_id, "name": replacement.name},
+        )
+        return {**replacement.public(), "token": plaintext}
+
     @app.delete("/api/v2/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def revoke_personal_token(
         token_id: str, principal: Principal = Depends(principal_from_bearer)
     ) -> None:
-        record = token_store.get_pat(token_id)
-        if record is None or (
-            not principal.is_admin and str(record.principal.user_id) != str(principal.user_id)
-        ):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="token not found")
+        record = _owned_token(token_store, token_id, principal)
+        if record.revoked_at is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
         token_store.revoke_pat(token_id)
         await _record_event(service, "access-token.revoked", "access-tokens", token_id, principal)
 
@@ -968,6 +1020,48 @@ def _as_principal(value: Principal | Mapping[str, Any], *, fallback_identity: st
         visibility="all" if value.get("visibility") == "all" else "user",
         owner=str(value["owner"]) if value.get("owner") is not None else None,
     )
+
+
+def _permissions_from_token_scopes(scopes: frozenset[str]) -> dict[str, dict[str, bool]]:
+    permissions: dict[str, dict[str, bool]] = {}
+    for scope in scopes:
+        section, separator, action = scope.partition(":")
+        if (
+            not separator
+            or section not in TOKEN_SCOPE_SECTIONS
+            or action not in TOKEN_SCOPE_ACTIONS
+        ):
+            continue
+        permissions.setdefault(section, {})[action] = True
+    return permissions
+
+
+def _validate_token_scopes(
+    scopes: frozenset[str], principal: Principal
+) -> tuple[dict[str, Any], bool]:
+    if scopes == {"user"}:
+        return dict(principal.permissions), principal.is_admin
+    if "user" in scopes:
+        scopes = scopes - {"user"}
+    if not scopes:
+        raise ValueError("select at least one access scope")
+    permissions = _permissions_from_token_scopes(scopes)
+    if sum(len(actions) for actions in permissions.values()) != len(scopes):
+        raise ValueError("invalid token scopes")
+    for section, grants in permissions.items():
+        for action in grants:
+            if not principal.may(section, action=cast(Any, action)):
+                raise ValueError(f"scope exceeds account permission: {section}:{action}")
+    return permissions, False
+
+
+def _owned_token(token_store: TokenStore, token_id: str, principal: Principal) -> Any:
+    record = token_store.get_pat(token_id)
+    if record is None or (
+        not principal.is_admin and str(record.principal.user_id) != str(principal.user_id)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="token not found")
+    return record
 
 
 def _authorize(

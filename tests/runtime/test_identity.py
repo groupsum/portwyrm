@@ -84,6 +84,26 @@ def test_personal_access_token_is_one_time_revealed_hashed_revocable_and_expirin
         store.verify(expiring, now=300)
 
 
+def test_personal_access_token_rotation_replaces_once_and_preserves_policy() -> None:
+    store = TokenStore()
+    principal = Principal(7, "service@example.com", scopes=frozenset({"user", "proxy:read"}))
+    original, plaintext = store.create_pat(
+        name="deployment", principal=principal, expires_at=500, now=100
+    )
+
+    replacement, replacement_plaintext = store.rotate_pat(original.id, now=200)
+
+    assert replacement.id != original.id
+    assert replacement.name == original.name
+    assert replacement.principal == principal
+    assert replacement.expires_at == 500
+    with pytest.raises(ValueError, match="invalid token"):
+        store.verify(plaintext, now=201)
+    assert store.verify(replacement_plaintext, now=201) == principal
+    with pytest.raises(ValueError, match="revoked"):
+        store.rotate_pat(original.id, now=202)
+
+
 def test_sessions_and_personal_tokens_survive_repository_restart(tmp_path) -> None:
     repository = SQLiteRepository(tmp_path / "identity.sqlite")
     principal = Principal(7, "service@example.com", scopes=frozenset({"user", "proxy:write"}))

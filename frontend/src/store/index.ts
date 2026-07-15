@@ -1,4 +1,4 @@
-import type { AccessList, AuditLog, Certificate, Host, HostConfigVersion, HostType, SystemHealth, User } from '../types';
+import type { AccessList, AccessToken, AuditLog, Certificate, CreatedAccessToken, Host, HostConfigVersion, HostType, SystemHealth, User } from '../types';
 import { can, hostPermissionResource, normalizePermissions } from '../utils/permissions';
 import { generateNginxConfig } from '../utils/nginxConfig';
 
@@ -61,6 +61,19 @@ function mapUser(row: Json): User {
     lastActivity: row.last_login_on || row.modified_on || row.created_on,
     created: row.created_on,
     modified: row.modified_on,
+  };
+}
+
+function mapAccessToken(row: Json): AccessToken {
+  return {
+    id: String(row.id),
+    name: String(row.name || 'Unnamed token'),
+    userId: String(row.user_id),
+    scopes: Array.isArray(row.scopes) ? row.scopes.map(String) : [],
+    createdAt: Number(row.created_at),
+    expiresAt: row.expires_at == null ? null : Number(row.expires_at),
+    lastUsedAt: row.last_used_at == null ? null : Number(row.last_used_at),
+    revokedAt: row.revoked_at == null ? null : Number(row.revoked_at),
   };
 }
 
@@ -167,6 +180,25 @@ export class PortwyrmStore {
     if (data.password) await api(`/api/users/${this.getCurrentUser().id}/auth`, {method: 'PUT', body: JSON.stringify({current: data.currentPassword, password: data.password})});
     this.currentUser = mapUser(await api('/api/v2/me'));
     await this.refresh();
+  }
+
+  async listAccessTokens(): Promise<AccessToken[]> {
+    const rows = await api('/api/v2/tokens');
+    return rows.map(mapAccessToken).filter((token: AccessToken) => token.userId === this.getCurrentUser().id);
+  }
+
+  async createAccessToken(data: {name: string; scopes: string[]; expiresAt: number | null}): Promise<CreatedAccessToken> {
+    const row = await api('/api/v2/tokens', {method: 'POST', body: JSON.stringify({name: data.name, scopes: data.scopes, expires_at: data.expiresAt})});
+    return {...mapAccessToken(row), token: String(row.token)};
+  }
+
+  async rotateAccessToken(id: string): Promise<CreatedAccessToken> {
+    const row = await api(`/api/v2/tokens/${encodeURIComponent(id)}/rotate`, {method: 'POST'});
+    return {...mapAccessToken(row), token: String(row.token)};
+  }
+
+  async revokeAccessToken(id: string): Promise<void> {
+    await api(`/api/v2/tokens/${encodeURIComponent(id)}`, {method: 'DELETE'});
   }
 
   async previewPortableImport(bundle: Json, replace: boolean): Promise<Json> {

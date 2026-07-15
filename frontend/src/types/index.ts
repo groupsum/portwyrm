@@ -112,6 +112,21 @@ export interface User {
   modified: string; // ISO String
 }
 
+export interface AccessToken {
+  id: string;
+  name: string;
+  userId: string;
+  scopes: string[];
+  createdAt: number;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+}
+
+export interface CreatedAccessToken extends AccessToken {
+  token: string;
+}
+
 export interface AuditLog {
   id: string;
   timestamp: string; // ISO String

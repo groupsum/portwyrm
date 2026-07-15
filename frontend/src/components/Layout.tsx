@@ -26,6 +26,7 @@ import {
   ,Copy
 } from 'lucide-react';
 import AccountSettingsModal from './AccountSettingsModal';
+import AccessTokensModal from './AccessTokensModal';
 import { can, HOST_PERMISSION_RESOURCES } from '../utils/permissions';
 import { useFeedback } from './Feedback';
 
@@ -45,6 +46,7 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
   const feedback = useFeedback();
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
+  const [isAccessTokensOpen, setIsAccessTokensOpen] = useState(false);
   const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('portwyrm_theme') as 'light' | 'dark') || 'light';
@@ -220,7 +222,7 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
                       <button
                         onClick={() => {
                           setIsUserDropdownOpen(false);
-                          feedback.toast('Access token management is not available in this build.', 'info');
+                          setIsAccessTokensOpen(true);
                         }}
                         className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer"
                       >
@@ -254,6 +256,15 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
         currentUser={currentUser}
         onClose={() => setIsAccountSettingsOpen(false)}
         onSave={data => portwyrmStore.updateMyAccount(data)}
+      />
+      <AccessTokensModal
+        open={isAccessTokensOpen}
+        currentUser={currentUser}
+        onClose={() => setIsAccessTokensOpen(false)}
+        onList={() => portwyrmStore.listAccessTokens()}
+        onCreate={data => portwyrmStore.createAccessToken(data)}
+        onRotate={id => portwyrmStore.rotateAccessToken(id)}
+        onRevoke={id => portwyrmStore.revokeAccessToken(id)}
       />
 
       {/* MOBILE HEADER OVERFLOW */}

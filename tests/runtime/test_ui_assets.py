@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -37,6 +38,15 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert "side-by-side-code-diff" in script.text
     assert "Updated at" in script.text
     assert "/api/v2/system/status" in script.text
+    assert "/api/v2/tokens" in script.text
+    assert "Create access token" in script.text
+    assert "Copy this token now" in script.text
+    assert "Portwyrm stores only its secure hash" in script.text
+    token_source = (
+        Path(__file__).parents[2] / "frontend" / "src" / "components" / "AccessTokensModal.tsx"
+    ).read_text(encoding="utf-8")
+    assert "setSecret(null)" in token_source
+    assert "Access token management is not available" not in script.text
     assert "Config:" in script.text
     assert "Applied Gen:" not in script.text
     assert "scrollbar-color" in stylesheet.text
@@ -45,8 +55,6 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
 
 
 def test_data_tables_do_not_reserve_an_actions_header() -> None:
-    from pathlib import Path
-
     components = Path(__file__).parents[2] / "frontend" / "src" / "components"
     for filename in ("HostsView.tsx", "UsersView.tsx", "CertificatesView.tsx"):
         source = (components / filename).read_text(encoding="utf-8")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 import time
 from dataclasses import dataclass
+from threading import RLock
 from typing import Any
 
 from argon2 import PasswordHasher
@@ -77,6 +78,7 @@ class TokenStore:
         self.repository = repository
         self._sessions: dict[str, _Session] = {}
         self._pats: dict[str, PersonalAccessToken] = {}
+        self._lock = RLock()
         self._hydrate()
 
     def _hydrate(self) -> None:
@@ -181,22 +183,23 @@ class TokenStore:
     ) -> tuple[PersonalAccessToken, str]:
         if not name.strip():
             raise ValueError("PAT name must not be empty")
-        created_at = int(time.time()) if now is None else int(now)
-        if expires_at is not None and expires_at <= created_at:
-            raise ValueError("PAT expiry must be in the future")
-        token_id = secrets.token_hex(12)
-        plaintext = f"pwyrm_{token_id}_{secrets.token_urlsafe(32)}"
-        record = PersonalAccessToken(
-            id=token_id,
-            name=name.strip(),
-            token_hash=_token_hash(plaintext),
-            principal=principal,
-            created_at=created_at,
-            expires_at=expires_at,
-        )
-        self._pats[token_id] = record
-        self._persist_pat(record)
-        return record, plaintext
+        with self._lock:
+            created_at = int(time.time()) if now is None else int(now)
+            if expires_at is not None and expires_at <= created_at:
+                raise ValueError("PAT expiry must be in the future")
+            token_id = secrets.token_hex(12)
+            plaintext = f"pwyrm_{token_id}_{secrets.token_urlsafe(32)}"
+            record = PersonalAccessToken(
+                id=token_id,
+                name=name.strip(),
+                token_hash=_token_hash(plaintext),
+                principal=principal,
+                created_at=created_at,
+                expires_at=expires_at,
+            )
+            self._pats[token_id] = record
+            self._persist_pat(record)
+            return record, plaintext
 
     def list_pats(self, principal: Principal) -> list[PersonalAccessToken]:
         return [
@@ -209,12 +212,32 @@ class TokenStore:
         return self._pats.get(token_id)
 
     def revoke_pat(self, token_id: str, *, now: int | None = None) -> bool:
-        record = self._pats.get(token_id)
-        if record is None or record.revoked_at is not None:
-            return False
-        record.revoked_at = int(time.time()) if now is None else int(now)
-        self._persist_pat(record)
-        return True
+        with self._lock:
+            record = self._pats.get(token_id)
+            if record is None or record.revoked_at is not None:
+                return False
+            record.revoked_at = int(time.time()) if now is None else int(now)
+            self._persist_pat(record)
+            return True
+
+    def rotate_pat(
+        self, token_id: str, *, now: int | None = None
+    ) -> tuple[PersonalAccessToken, str]:
+        """Atomically revoke an active PAT and issue its replacement."""
+        with self._lock:
+            record = self._pats.get(token_id)
+            if record is None:
+                raise ValueError("token not found")
+            if record.revoked_at is not None:
+                raise ValueError("token is revoked")
+            replacement, plaintext = self.create_pat(
+                name=record.name,
+                principal=record.principal,
+                expires_at=record.expires_at,
+                now=now,
+            )
+            self.revoke_pat(token_id, now=now)
+            return replacement, plaintext
 
     def verify(self, token: str, *, now: int | None = None) -> Principal:
         checked_at = int(time.time()) if now is None else int(now)

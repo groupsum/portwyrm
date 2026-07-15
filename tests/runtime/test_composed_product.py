@@ -169,6 +169,68 @@ def test_user_credentials_profile_logout_and_pat_lifecycle_survive_restart(tmp_p
     assert _login_with(restarted, "user@example.test", "replacement-password")
 
 
+def test_access_token_management_enforces_scopes_rotation_and_one_time_reveal(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(SQLiteRepository(tmp_path / "access-tokens.sqlite")))
+    client.post(
+        "/api/setup", json={"email": "admin@example.test", "password": "admin-password"}
+    )
+    admin = _login_with(client, "admin@example.test", "admin-password")
+    user = client.post(
+        "/api/users",
+        headers=admin,
+        json={
+            "email": "reader@example.test",
+            "name": "Reader",
+            "password": "reader-password",
+            "permissions": {"proxy_hosts": {"read": True}},
+        },
+    ).json()
+    reader = _login_with(client, "reader@example.test", "reader-password")
+
+    denied = client.post(
+        "/api/v2/tokens",
+        headers=reader,
+        json={"name": "too powerful", "scopes": ["proxy_hosts:create"]},
+    )
+    assert denied.status_code == 403
+
+    created = client.post(
+        "/api/v2/tokens",
+        headers=reader,
+        json={"name": "read automation", "scopes": ["proxy_hosts:read"]},
+    )
+    assert created.status_code == 201
+    first_token = created.json()["token"]
+    token_headers = {"Authorization": f"Bearer {first_token}"}
+    assert client.get("/api/nginx/proxy-hosts", headers=token_headers).status_code == 200
+    assert (
+        client.post("/api/nginx/proxy-hosts", headers=token_headers, json={}).status_code == 403
+    )
+
+    listed = client.get("/api/v2/tokens", headers=reader)
+    assert listed.status_code == 200
+    assert listed.json()[0]["user_id"] == user["id"]
+    assert "token" not in listed.text and "token_hash" not in listed.text
+    assert client.get("/api/v2/tokens", headers=admin).json() == []
+    assert len(client.get("/api/v2/tokens?include_all=true", headers=admin).json()) == 1
+
+    rotated = client.post(
+        f"/api/v2/tokens/{created.json()['id']}/rotate", headers=reader
+    )
+    assert rotated.status_code == 201
+    assert rotated.json()["id"] != created.json()["id"]
+    assert client.get("/api/nginx/proxy-hosts", headers=token_headers).status_code == 401
+    replacement_headers = {"Authorization": f"Bearer {rotated.json()['token']}"}
+    assert client.get("/api/nginx/proxy-hosts", headers=replacement_headers).status_code == 200
+
+    replacement_id = rotated.json()["id"]
+    assert client.delete(f"/api/v2/tokens/{replacement_id}", headers=reader).status_code == 204
+    assert client.delete(f"/api/v2/tokens/{replacement_id}", headers=reader).status_code == 409
+    assert client.get("/api/nginx/proxy-hosts", headers=replacement_headers).status_code == 401
+
+
 def test_admin_can_crud_action_grants_and_existing_session_updates_immediately(
     tmp_path: Path,
 ) -> None:
