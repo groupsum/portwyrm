@@ -70,6 +70,12 @@ class RuntimeCoordinator:
             return self.reconcile()
         return None
 
+    @property
+    def active_generation(self) -> str | None:
+        """Return the content-addressed identifier of the active Nginx configuration."""
+
+        return self.reconciler.store.active_id()
+
     def reconcile(self) -> ReconcileResult:
         rendered = NginxRenderer().render(
             proxy_hosts=[self._proxy(row) for row in self.service.list("proxy-hosts")],

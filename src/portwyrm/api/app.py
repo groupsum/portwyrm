@@ -7,6 +7,7 @@ import contextlib
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from cryptography.fernet import Fernet
 from fastapi import FastAPI, Request
@@ -18,7 +19,7 @@ from portwyrm.api.native import create_native_router
 from portwyrm.application import ControlPlaneError, MFAStore, PersistentControlPlane
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
 from portwyrm.identity import TokenStore
-from portwyrm.operations import HealthService, UpgradeManager, default_upgrades
+from portwyrm.operations import HealthService, NginxStatusClient, UpgradeManager, default_upgrades
 from portwyrm.persistence import Repository
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 from portwyrm.uix import mount_uix
@@ -72,21 +73,6 @@ def create_app(repository: Repository | None = None) -> FastAPI:
                 with contextlib.suppress(asyncio.CancelledError):
                     await renewal_task
 
-    app = create_compat_app(
-        control_plane,
-        tokens=TokenStore(repository=repository),
-        certificates=certificate_manager,
-        lifespan=lifespan,
-        repository=repository,
-        mfa=mfa_store,
-    )
-    app.state.repository = repository
-    app.state.runtime = runtime
-
-    @app.exception_handler(ControlPlaneError)
-    async def control_plane_error(_request: Request, exc: ControlPlaneError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
     health = HealthService(
         repository,
         {
@@ -103,6 +89,38 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             },
         },
     )
+    nginx_status_client = NginxStatusClient(
+        os.getenv("PORTWYRM_NGINX_STATUS_URL", "http://127.0.0.1:8081/nginx-status")
+    )
+
+    def system_status() -> dict[str, Any]:
+        payload = health.ready()
+        nginx = dict(payload["components"].get("nginx", {}))
+        nginx["active_generation"] = runtime.active_generation if runtime is not None else None
+        try:
+            nginx["connections"] = nginx_status_client.collect() if runtime is not None else None
+            nginx["telemetry_status"] = "ok" if runtime is not None else "unavailable"
+        except (OSError, TimeoutError, ValueError):
+            nginx["connections"] = None
+            nginx["telemetry_status"] = "unavailable"
+        payload["components"]["nginx"] = nginx
+        return payload
+
+    app = create_compat_app(
+        control_plane,
+        tokens=TokenStore(repository=repository),
+        certificates=certificate_manager,
+        lifespan=lifespan,
+        repository=repository,
+        mfa=mfa_store,
+        system_status=system_status,
+    )
+    app.state.repository = repository
+    app.state.runtime = runtime
+
+    @app.exception_handler(ControlPlaneError)
+    async def control_plane_error(_request: Request, exc: ControlPlaneError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
     app.include_router(create_native_router(control_plane, health))
     mount_uix(app)

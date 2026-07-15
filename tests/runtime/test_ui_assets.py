@@ -36,6 +36,9 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert "IP address, DNS name, or Docker service/container" in script.text
     assert "side-by-side-code-diff" in script.text
     assert "Updated at" in script.text
+    assert "/api/v2/system/status" in script.text
+    assert "Config:" in script.text
+    assert "Applied Gen:" not in script.text
     assert "scrollbar-color" in stylesheet.text
     assert "GEMINI_API_KEY" not in script.text
     assert client.get("/ui/app.js").status_code == 404

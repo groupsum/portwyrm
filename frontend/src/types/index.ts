@@ -135,13 +135,13 @@ export interface HostConfigVersion {
 
 export interface SystemHealth {
   nginxState: 'Active' | 'Reloading' | 'Degraded' | 'Stopped';
-  activeConnections: number;
-  reading: number;
-  writing: number;
-  waiting: number;
+  activeConnections: number | null;
+  reading: number | null;
+  writing: number | null;
+  waiting: number | null;
   version: string;
   databaseBackend: string;
-  currentGeneration: number;
+  currentGeneration: string | null;
   driftDetected: boolean;
   pendingApplies: number;
   schedulerState: 'Active' | 'Idling' | 'Running Job';

@@ -195,6 +195,7 @@ class NginxRenderer:
         files: dict[str, str] = {
             "nginx.conf": self.render_main(),
             "http/default.conf": self.render_default_site(),
+            "http/status.conf": self.render_status_site(),
             "include/trusted-proxies.conf": self.render_trusted_proxies(),
             "conf.d/include/proxy.conf": self.render_proxy_include(),
             "conf.d/include/block-exploits.conf": self.render_block_exploits(),
@@ -257,6 +258,22 @@ class NginxRenderer:
             "stream { log_format stream '$remote_addr [$time_local] $protocol $status'; "
             "include stream/*.conf; include custom/stream.conf; }\n"
             "include custom/root.conf;\n"
+        )
+
+    @staticmethod
+    def render_status_site() -> str:
+        return (
+            "# Loopback-only operational telemetry for the Portwyrm control plane\n"
+            "server {\n"
+            "  listen 127.0.0.1:8081;\n"
+            "  server_name _;\n"
+            "  access_log off;\n"
+            "  location = /nginx-status {\n"
+            "    stub_status;\n"
+            "    allow 127.0.0.1;\n"
+            "    deny all;\n"
+            "  }\n"
+            "}\n"
         )
 
     @staticmethod

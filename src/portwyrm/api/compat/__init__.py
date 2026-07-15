@@ -9,7 +9,7 @@ import inspect
 import os
 import secrets
 import tempfile
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
@@ -98,6 +98,7 @@ def create_compat_app(
     lifespan: Any | None = None,
     repository: Repository | None = None,
     mfa: MFAStore | None = None,
+    system_status: Callable[[], Mapping[str, Any]] | None = None,
 ) -> FastAPI:
     token_store = tokens or TokenStore()
     app = FastAPI(title="Portwyrm NPM compatibility API", version="2.10.4", lifespan=lifespan)
@@ -369,6 +370,14 @@ def create_compat_app(
             **_copy_visible(user, principal),
             "mfa_enabled": bool(mfa and mfa.enabled(principal.user_id)),
         }
+
+    @app.get("/api/v2/system/status")
+    async def authenticated_system_status(
+        _: Principal = Depends(principal_from_bearer),
+    ) -> Mapping[str, Any]:
+        if system_status is None:
+            return {"status": "unavailable", "components": {}}
+        return await run_in_threadpool(system_status)
 
     @app.post("/api/v2/mfa/enroll")
     async def enroll_mfa(principal: Principal = Depends(principal_from_bearer)) -> Resource:

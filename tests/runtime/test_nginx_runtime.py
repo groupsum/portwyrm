@@ -168,6 +168,9 @@ def test_redirect_dead_stream_and_platform_rendering() -> None:
     assert "listen [::]" not in stream
     assert "resolver " not in rendered.files["nginx.conf"]
     assert "return 301 https://status.example.com" in rendered.files["http/default.conf"]
+    assert "listen 127.0.0.1:8081" in rendered.files["http/status.conf"]
+    assert "stub_status" in rendered.files["http/status.conf"]
+    assert "deny all" in rendered.files["http/status.conf"]
     assert "set_real_ip_from 10.0.0.0/8" in rendered.files["include/trusted-proxies.conf"]
     assert rendered.files["custom/root_top.conf"].startswith("load_module")
 

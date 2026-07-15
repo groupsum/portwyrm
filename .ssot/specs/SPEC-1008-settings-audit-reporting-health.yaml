@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state."
+summary: "The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Authenticated system status MUST report live Nginx active, reading, writing, and waiting connection counters from a loopback-only status source and the full content-addressed active configuration generation; unavailable telemetry MUST not be represented as fabricated zero values. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,12 +17,16 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the normative T1/T2 implementation contract."
     at: "2026-07-13T23:17:24Z"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Added authenticated live Nginx telemetry and content-addressed applied-generation semantics."
+    at: "2026-07-15T19:01:05Z"
 references: []
 body: |-
-  The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state.
+  The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Authenticated system status MUST report live Nginx active, reading, writing, and waiting connection counters from a loopback-only status source and the full content-addressed active configuration generation; unavailable telemetry MUST not be represented as fabricated zero values. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state.
 spec_kind: "operational"
 adr_ids:
   - "adr:1001"

@@ -126,7 +126,7 @@ export class PortwyrmStore {
   users: User[] = [];
   auditLogs: AuditLog[] = [];
   hostConfigVersions: HostConfigVersion[] = [];
-  health: SystemHealth = {nginxState: 'Stopped', activeConnections: 0, reading: 0, writing: 0, waiting: 0, version: '-', databaseBackend: '-', currentGeneration: 0, driftDetected: false, pendingApplies: 0, schedulerState: 'Idling'};
+  health: SystemHealth = {nginxState: 'Stopped', activeConnections: null, reading: null, writing: null, waiting: null, version: '-', databaseBackend: '-', currentGeneration: null, driftDetected: false, pendingApplies: 0, schedulerState: 'Idling'};
   authenticated = false;
   setupRequired = false;
   loading = true;
@@ -186,7 +186,7 @@ export class PortwyrmStore {
       this.currentUser && can(this.currentUser, 'certificates', 'read') ? api('/api/nginx/certificates') : Promise.resolve([]),
       this.currentUser && can(this.currentUser, 'access_lists', 'read') ? api('/api/nginx/access-lists') : Promise.resolve([]),
       this.currentUser?.role === 'Administrator' ? api('/api/audit-log') : Promise.resolve([]),
-      api('/health/ready'), api('/version'), ...hostFamilies.map(family => {
+      api('/api/v2/system/status'), api('/version'), ...hostFamilies.map(family => {
         const type = hostTypeByFamily[family];
         return this.currentUser && can(this.currentUser, hostPermissionResource(type), 'read') ? api(`/api/nginx/${family}`) : Promise.resolve([]);
       }),
@@ -208,8 +208,36 @@ export class PortwyrmStore {
       versionCounts.set(host.id, version);
       return [{id: String(row.id), hostId: host.id, version, timestamp: row.created_on, actor: row.actor || row.user_email || 'System', generation: String(row.meta.generation || ''), config: generateNginxConfig(host)}];
     });
-    this.health = {nginxState: health.components?.nginx?.status === 'ok' ? 'Active' : 'Degraded', activeConnections: 0, reading: 0, writing: 0, waiting: 0, version: version.version || '-', databaseBackend: health.components?.database?.backend || 'unknown', currentGeneration: Number(health.components?.nginx?.generation || 0), driftDetected: false, pendingApplies: 0, schedulerState: health.components?.certificate_scheduler?.enabled ? 'Active' : 'Idling'};
+    this.applySystemStatus(health, version.version || '-');
     this.emit();
+  }
+
+  private applySystemStatus(status: Json, version = this.health.version): void {
+    const nginx = status.components?.nginx || {};
+    const connections = nginx.connections || {};
+    this.health = {
+      nginxState: nginx.status === 'ok' ? 'Active' : 'Degraded',
+      activeConnections: Number.isFinite(connections.active) ? Number(connections.active) : null,
+      reading: Number.isFinite(connections.reading) ? Number(connections.reading) : null,
+      writing: Number.isFinite(connections.writing) ? Number(connections.writing) : null,
+      waiting: Number.isFinite(connections.waiting) ? Number(connections.waiting) : null,
+      version,
+      databaseBackend: status.components?.database?.backend || 'unknown',
+      currentGeneration: typeof nginx.active_generation === 'string' && nginx.active_generation ? nginx.active_generation : null,
+      driftDetected: false,
+      pendingApplies: 0,
+      schedulerState: status.components?.certificate_scheduler?.enabled ? 'Active' : 'Idling',
+    };
+  }
+
+  async refreshHealth(): Promise<void> {
+    try {
+      this.applySystemStatus(await api('/api/v2/system/status'));
+      this.emit();
+    } catch {
+      this.health = {...this.health, nginxState: 'Degraded', activeConnections: null, reading: null, writing: null, waiting: null};
+      this.emit();
+    }
   }
 
   async addHost(data: Partial<Host>, progress: (phase: string) => void): Promise<void> { progress('Validating configuration'); try { await api(`/api/nginx/${hostFamily[data.type || 'proxy']}`, {method: 'POST', body: JSON.stringify(hostPayload(data))}); progress('Reloading Nginx'); await this.refresh(); progress('Complete'); } catch (error) { progress('Rolled back'); throw error; } }

@@ -55,6 +55,11 @@ export default function App() {
   useEffect(() => portwyrmStore.subscribe(() => setTick(value => value + 1)), []);
   useEffect(() => { void portwyrmStore.initialize(); }, []);
   useEffect(() => {
+    if (!portwyrmStore.authenticated) return;
+    const interval = window.setInterval(() => { void portwyrmStore.refreshHealth(); }, 3000);
+    return () => window.clearInterval(interval);
+  }, [portwyrmStore.authenticated]);
+  useEffect(() => {
     const parseHash = () => {
       const route = window.location.hash.replace('#', '').split('?')[0] || 'overview';
       if (['overview', 'hosts', 'certificates', 'access-lists', 'users', 'audit', 'settings'].includes(route)) setCurrentTab(route);

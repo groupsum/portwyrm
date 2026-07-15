@@ -61,6 +61,52 @@ def test_api_setup_crud_and_credentials_survive_restart(tmp_path: Path) -> None:
     assert api_response.headers["x-content-type-options"] == "nosniff"
 
 
+def test_authenticated_system_status_reports_live_connections_and_generation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "nginx"
+    monkeypatch.setenv("PORTWYRM_NGINX_RUNTIME", "1")
+    monkeypatch.setenv("PORTWYRM_NGINX_ROOT", str(root))
+    monkeypatch.setattr(
+        "portwyrm.api.app.NginxStatusClient.collect",
+        lambda _self: {
+            "active": 7,
+            "accepts": 101,
+            "handled": 101,
+            "requests": 404,
+            "reading": 1,
+            "writing": 2,
+            "waiting": 4,
+        },
+    )
+    app = create_app(SQLiteRepository(tmp_path / "status.sqlite"))
+    runtime = app.state.runtime
+    generation = "0123456789abcdefabcd"
+    runtime.reconciler.store.stage(generation, {"nginx.conf": "events {}\n"})
+    runtime.reconciler.store.activate(generation)
+    runtime.current.mkdir(parents=True)
+    (runtime.current / "nginx.conf").write_text("events {}\n", encoding="utf-8")
+    client = TestClient(app)
+    assert client.get("/api/v2/system/status").status_code == 401
+    client.post(
+        "/api/setup", json={"email": "admin@example.test", "password": "correct-password"}
+    )
+
+    response = client.get("/api/v2/system/status", headers=_login(client))
+    assert response.status_code == 200
+    nginx = response.json()["components"]["nginx"]
+    assert nginx["active_generation"] == generation
+    assert nginx["connections"] == {
+        "active": 7,
+        "accepts": 101,
+        "handled": 101,
+        "requests": 404,
+        "reading": 1,
+        "writing": 2,
+        "waiting": 4,
+    }
+
+
 def test_user_credentials_profile_logout_and_pat_lifecycle_survive_restart(tmp_path: Path) -> None:
     path = tmp_path / "identity.sqlite"
     first = TestClient(create_app(SQLiteRepository(path)))

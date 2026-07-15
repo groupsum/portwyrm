@@ -23,6 +23,7 @@ import {
   AlertCircle,
   X,
   Info
+  ,Copy
 } from 'lucide-react';
 import AccountSettingsModal from './AccountSettingsModal';
 import { can, HOST_PERMISSION_RESOURCES } from '../utils/permissions';
@@ -64,6 +65,8 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
   };
 
   const { health, currentUser } = storeState;
+  const metric = (value: number | null) => value === null ? '—' : value;
+  const shortGeneration = health.currentGeneration?.slice(0, 8) || 'Unavailable';
 
   // Determine Nginx status colors and text
   const getNginxStatusDetails = () => {
@@ -310,14 +313,14 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
           {/* Center: System statistics */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-500 dark:text-zinc-400">
             <div className="flex items-center gap-1">
-              <span className="font-bold text-slate-700 dark:text-zinc-300">{health.activeConnections}</span>
+              <span className="font-bold text-slate-700 dark:text-zinc-300">{metric(health.activeConnections)}</span>
               <span>connections</span>
             </div>
             <div className="hidden sm:inline-block">•</div>
             <div className="flex items-center gap-4">
-              <span>Reading: <strong className="text-slate-700 dark:text-zinc-300">{health.reading}</strong></span>
-              <span>Writing: <strong className="text-slate-700 dark:text-zinc-300">{health.writing}</strong></span>
-              <span>Waiting: <strong className="text-slate-700 dark:text-zinc-300">{health.waiting}</strong></span>
+              <span>Reading: <strong className="text-slate-700 dark:text-zinc-300">{metric(health.reading)}</strong></span>
+              <span>Writing: <strong className="text-slate-700 dark:text-zinc-300">{metric(health.writing)}</strong></span>
+              <span>Waiting: <strong className="text-slate-700 dark:text-zinc-300">{metric(health.waiting)}</strong></span>
             </div>
           </div>
 
@@ -328,7 +331,7 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
             </div>
             <div className="text-slate-300 dark:text-zinc-700">|</div>
             <div>
-              Applied Gen: <span className="bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-zinc-300 px-1.5 py-0.5 rounded font-bold">#{health.currentGeneration}</span>
+              Config: <span title={health.currentGeneration || 'No active generation'} className="bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-zinc-300 px-1.5 py-0.5 rounded font-bold">{shortGeneration}</span>
             </div>
             <div className="text-slate-300 dark:text-zinc-700">|</div>
             <div className="font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-1">
@@ -399,20 +402,20 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
                   <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block mb-2">Nginx Connections</span>
                   <div className="space-y-2 font-mono text-sm">
                     <div className="flex justify-between border-b border-slate-100 dark:border-zinc-800 pb-1.5">
-                      <span className="text-slate-500">Active Handshakes:</span>
-                      <strong className="text-slate-800 dark:text-zinc-200">{health.activeConnections}</strong>
+                      <span className="text-slate-500">Active connections:</span>
+                      <strong className="text-slate-800 dark:text-zinc-200">{metric(health.activeConnections)}</strong>
                     </div>
                     <div className="flex justify-between pt-0.5 text-xs">
-                      <span className="text-slate-500">Reading Stream:</span>
-                      <strong className="text-slate-800 dark:text-zinc-200">{health.reading}</strong>
+                      <span className="text-slate-500">Reading headers:</span>
+                      <strong className="text-slate-800 dark:text-zinc-200">{metric(health.reading)}</strong>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Writing Upstream:</span>
-                      <strong className="text-slate-800 dark:text-zinc-200">{health.writing}</strong>
+                      <span className="text-slate-500">Writing responses:</span>
+                      <strong className="text-slate-800 dark:text-zinc-200">{metric(health.writing)}</strong>
                     </div>
                     <div className="flex justify-between text-xs">
                       <span className="text-slate-500">Keepalive Waiting:</span>
-                      <strong className="text-slate-800 dark:text-zinc-200">{health.waiting}</strong>
+                      <strong className="text-slate-800 dark:text-zinc-200">{metric(health.waiting)}</strong>
                     </div>
                   </div>
                 </div>
@@ -429,9 +432,12 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
                       <span className="text-slate-500">Control Plane Version:</span>
                       <strong className="text-slate-800 dark:text-zinc-200">{health.version}</strong>
                     </div>
-                    <div className="flex justify-between text-xs">
+                    <div className="flex items-center justify-between gap-3 text-xs">
                       <span className="text-slate-500">Applied Generation:</span>
-                      <strong className="text-slate-800 dark:text-zinc-200">#{health.currentGeneration}</strong>
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <strong title={health.currentGeneration || 'No active generation'} className="max-w-48 truncate font-mono text-slate-800 dark:text-zinc-200">{health.currentGeneration || 'Unavailable'}</strong>
+                        {health.currentGeneration && <button type="button" onClick={(event) => {event.stopPropagation(); void navigator.clipboard.writeText(health.currentGeneration!); feedback.toast('Generation copied', 'success');}} className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-zinc-700" aria-label="Copy active generation"><Copy className="h-3.5 w-3.5" /></button>}
+                      </span>
                     </div>
                     <div className="flex justify-between text-xs">
                       <span className="text-slate-500">Scheduler Daemon:</span>
