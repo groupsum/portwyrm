@@ -6,6 +6,7 @@ services:
     environment:
       PORTWYRM_DB_BACKEND: sqlite
       PORTWYRM_SQLITE_PATH: /data/portwyrm.sqlite
+      PORTWYRM_DEMO_HOST: demo.portwyrm.localhost
     ports:
       - "80:80"
       - "81:81"

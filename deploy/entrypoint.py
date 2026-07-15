@@ -16,6 +16,44 @@ from portwyrm.persistence import create_repository
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 
 
+def seed_demo_proxy_host(control_plane: PersistentControlPlane) -> None:
+    """Create or repair the opt-in, DNS-free local Docker demonstration route."""
+    domain = os.getenv("PORTWYRM_DEMO_HOST", "").strip().lower()
+    if not domain:
+        return
+    payload = {
+        "domain_names": [domain],
+        "forward_scheme": "http",
+        "forward_host": "127.0.0.1",
+        "forward_port": 81,
+        "enabled": 1,
+        "certificate_id": 0,
+        "access_list_id": 0,
+        "allow_websocket_upgrade": 1,
+        "caching_enabled": 0,
+        "block_exploits": 0,
+        "http2_support": 0,
+        "ssl_forced": 0,
+        "hsts_enabled": 0,
+        "meta": {
+            "managed_by": "portwyrm-demo",
+            "purpose": "local reverse-proxy demonstration",
+        },
+    }
+    existing = next(
+        (
+            row
+            for row in control_plane.list("proxy-hosts")
+            if row.get("meta", {}).get("managed_by") == "portwyrm-demo"
+        ),
+        None,
+    )
+    if existing is None:
+        control_plane.create("proxy-hosts", payload)
+    else:
+        control_plane.update("proxy-hosts", existing["id"], payload)
+
+
 def main() -> int:
     for directory in (
         Path("/data"),
@@ -28,6 +66,7 @@ def main() -> int:
     repository = create_repository(repository_config_from_environment())
     UpgradeManager(repository, default_upgrades()).run()
     control_plane = PersistentControlPlane(repository)
+    seed_demo_proxy_host(control_plane)
     RuntimeCoordinator(control_plane, "/data/nginx", validate=True, reload=False).reconcile()
 
     children = [
