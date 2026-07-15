@@ -535,9 +535,9 @@ export default function AccessListsView({
                 <AlertTriangle className="h-6 w-6 text-red-500 shrink-0" />
                 <div>
                   <h4 className="font-extrabold text-base text-slate-900 dark:text-zinc-100">Deletion Safety Rejection</h4>
-                  <pre className="text-xs text-slate-600 dark:text-zinc-400 mt-2 leading-relaxed whitespace-pre-wrap font-sans">
+                  <p className="text-xs text-slate-600 dark:text-zinc-400 mt-2 leading-relaxed whitespace-pre-wrap font-sans">
                     {warningMessage}
-                  </pre>
+                  </p>
                 </div>
               </div>
 

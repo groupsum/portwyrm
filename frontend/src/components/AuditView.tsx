@@ -15,6 +15,7 @@ import {
   Download,
   Info
 } from 'lucide-react';
+import CodeBlock from './CodeBlock';
 
 interface AuditViewProps {
   auditLogs: AuditLog[];
@@ -129,13 +130,13 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
         <table className="w-full border-collapse text-left text-sm text-slate-500 dark:text-zinc-400 font-medium">
           <thead className="bg-slate-50/50 dark:bg-zinc-900/60 text-slate-700 dark:text-zinc-300 text-xs uppercase font-extrabold border-b border-slate-200/80 dark:border-zinc-800">
             <tr>
-              <th scope="col" className="px-6 py-4">Timestamp</th>
+              <th scope="col" className="px-6 py-4">Time</th>
               <th scope="col" className="px-6 py-4">Actor</th>
-              <th scope="col" className="px-6 py-4">Action Event</th>
-              <th scope="col" className="px-6 py-4">Impacted Resource</th>
+              <th scope="col" className="px-6 py-4">Action</th>
+              <th scope="col" className="px-6 py-4">Resource</th>
               <th scope="col" className="px-6 py-4">Outcome</th>
-              <th scope="col" className="px-6 py-4">Summary description</th>
-              <th scope="col" className="px-6 py-4 text-right">Payload</th>
+              <th scope="col" className="px-6 py-4">Summary</th>
+              <th scope="col" className="px-6 py-4 text-right">Details</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
@@ -257,9 +258,7 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
               {/* Code blocks payload */}
               <div className="space-y-1">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Raw Execution Details & Config Diffs</span>
-                <pre className="bg-zinc-950 text-indigo-400 font-mono text-xs p-4 rounded-xl overflow-x-auto max-h-64 leading-relaxed border border-zinc-800">
-                  {selectedLog.details}
-                </pre>
+                <CodeBlock code={selectedLog.details} language="json" className="max-h-64" wrap />
               </div>
 
             </div>

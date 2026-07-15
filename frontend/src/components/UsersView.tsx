@@ -299,38 +299,37 @@ export default function UsersView({
             <tr>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 select-none" onClick={() => handleSort('displayName')}>
                 <div className="flex items-center gap-1.5">
-                  Display Operator
+                  User
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 select-none" onClick={() => handleSort('role')}>
                 <div className="flex items-center gap-1.5">
-                  Scope Role
+                  Role
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
-              <th scope="col" className="px-6 py-4">Operator Credentials</th>
-              <th scope="col" className="px-6 py-4">Permissions Blueprint</th>
-              <th scope="col" className="px-6 py-4">MFA State</th>
+              <th scope="col" className="px-6 py-4">Credentials</th>
+              <th scope="col" className="px-6 py-4">Permissions</th>
+              <th scope="col" className="px-6 py-4">MFA</th>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 select-none" onClick={() => handleSort('status')}>
                 <div className="flex items-center gap-1.5">
-                  Account Status
+                  Status
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 select-none" onClick={() => handleSort('lastActivity')}>
                 <div className="flex items-center gap-1.5">
-                  Last Activity
+                  Activity
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
-              <th scope="col" className="px-6 py-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
             {paginatedUsers.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
+                <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
                   No operator accounts matched active search criteria.
                 </td>
               </tr>
@@ -429,21 +428,19 @@ export default function UsersView({
 
                     {/* Last Activity */}
                     <td className="px-6 py-4.5 text-xs font-medium font-mono text-slate-400">
-                      {formatDate(user.lastActivity)}
-                    </td>
-
-                    {/* COLLAPSED ACTIONS IN TRIPLE DOT */}
-                    <td className="px-6 py-4.5 text-right">
-                      {currentUser.role === 'Administrator' && (
-                        <button
-                          onClick={() => setOpenActionMenuId(user.id)}
-                          className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-500 dark:text-slate-400 cursor-pointer"
-                          title="Actions"
-                          aria-label={`Actions for ${user.displayName || user.username}`}
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between gap-3">
+                        <span>{formatDate(user.lastActivity)}</span>
+                        {currentUser.role === 'Administrator' && (
+                          <button
+                            onClick={() => setOpenActionMenuId(user.id)}
+                            className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-500 dark:text-slate-400 cursor-pointer"
+                            title="Actions"
+                            aria-label={`Actions for ${user.displayName || user.username}`}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
 
                   </tr>

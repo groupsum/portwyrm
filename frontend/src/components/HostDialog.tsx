@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import MultiSelect from './MultiSelect';
 import { useFeedback } from './Feedback';
-import { diffConfig, generateNginxConfig } from '../utils/nginxConfig';
+import CodeBlock, { CodeEditor, InlineCode, SideBySideCodeDiff } from './CodeBlock';
+import { generateNginxConfig } from '../utils/nginxConfig';
 
 interface HostDialogProps {
   isOpen: boolean;
@@ -444,15 +445,34 @@ export default function HostDialog({
               <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold animate-pulse mt-1">{applyPhase} in progress...</p>
             </div>
 
-            <div className="w-full max-w-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg p-4 font-mono text-[11px] text-slate-600 dark:text-zinc-400 max-h-48 overflow-y-auto space-y-1">
-              {applyLog.map((logLine, idx) => (
-                <div key={idx}>{logLine}</div>
-              ))}
-            </div>
+            <CodeBlock code={applyLog.join('\n')} language="shell" className="max-h-48 w-full max-w-xl" />
           </div>
         ) : (
           /* CONSOLIDATED SINGLE FORM */
           <form onSubmit={handleApplySubmit} className="flex-1 p-6 overflow-y-auto space-y-6">
+
+            {/* LIVE ROUTE AND GENERATED CONFIG PREVIEWS */}
+            <div className="space-y-3">
+              <div className="flex shrink-0 flex-col gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3.5 text-xs sm:flex-row sm:items-center sm:justify-between dark:border-indigo-950/30 dark:bg-indigo-950/10">
+                <span className="font-semibold text-indigo-900 dark:text-indigo-400">Live routing pipeline</span>
+                <div className="flex min-w-0 items-center gap-2 font-mono text-slate-600 dark:text-zinc-400">
+                  <span className="truncate font-bold text-indigo-950 underline dark:text-indigo-300">{getSourcePreview()}</span>
+                  <ArrowRight className="h-3 w-3 shrink-0 text-indigo-500" />
+                  <span className="truncate font-bold text-emerald-600 dark:text-emerald-400">{getDestinationPreview()}</span>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                <button type="button" onClick={() => setIsConfigPreviewOpen(open => !open)} className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                  <span className="flex items-center gap-2"><FileCode className="h-4 w-4 text-indigo-500" />Preview configuration to apply{editingHost ? ' and diff' : ''}</span>
+                  {isConfigPreviewOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+                {isConfigPreviewOpen && <div className="space-y-4 border-t border-slate-200 p-4 dark:border-zinc-800">
+                  <div><p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Generated Nginx configuration</p><CodeBlock code={generateNginxConfig(buildDraftHost())} language="nginx" className="max-h-72" /></div>
+                  {editingHost && <div><p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Changes from active host record</p><SideBySideCodeDiff before={generateNginxConfig(editingHost)} after={generateNginxConfig(buildDraftHost())} /></div>}
+                </div>}
+              </div>
+            </div>
 
             {/* SEGMENTED ROUTING SELECTOR */}
             <div className="space-y-2">
@@ -552,7 +572,7 @@ export default function HostDialog({
                       <span className="text-xs text-red-500 font-bold block mt-1">{validationErrors.sourceDomains}</span>
                     ) : (
                       <span className="text-[10px] text-slate-400 mt-1 block leading-normal">
-                        Comma-separate domain names. Wildcards (e.g. <code>*.example.com</code>) are supported.
+                        Comma-separate domain names. Wildcards (e.g. <InlineCode code="*.example.com" language="nginx" />) are supported.
                       </span>
                     )}
                   </div>
@@ -631,7 +651,7 @@ export default function HostDialog({
                           </label>
                         )}
                         <label className="space-y-1 min-w-0">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase">Address</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">IP address, DNS name, or Docker service/container</span>
                           <input
                             type="text"
                             placeholder="10.0.0.42, api.internal, or web"
@@ -896,16 +916,17 @@ export default function HostDialog({
                 <div className="p-4 space-y-3.5 border-t border-slate-200 dark:border-zinc-800">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Custom Nginx Directives</label>
-                    <textarea
+                    <CodeEditor
                       rows={5}
+                      ariaLabel="Custom Nginx directives"
                       placeholder={`# Enter custom directives to inject into the server block.
 # Example:
 # client_max_body_size 100M;
 # proxy_read_timeout 600s;
 # add_header X-Custom-Header "Portwyrm Gateway";`}
                       value={customNginxConfig}
-                      onChange={(e) => setCustomNginxConfig(e.target.value)}
-                      className="w-full p-3 border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 rounded-lg text-xs font-mono text-slate-800 dark:text-zinc-100 focus:outline-hidden focus:border-indigo-500"
+                      onChange={setCustomNginxConfig}
+                      language="nginx"
                     />
                     <span className="text-[10px] text-slate-400 block leading-normal mt-1">
                       Directives will be parsed and injected into Nginx configuration during reconciliation check.
@@ -913,27 +934,6 @@ export default function HostDialog({
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* ROUTE PREVIEW ACCORDION */}
-            <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-100 dark:border-indigo-950/30 rounded-xl flex items-center justify-between text-xs shrink-0">
-              <span className="font-semibold text-indigo-900 dark:text-indigo-400">Live Routing Pipeline Preview:</span>
-              <div className="flex items-center gap-2 font-mono text-slate-600 dark:text-zinc-400">
-                <span className="font-bold underline text-indigo-950 dark:text-indigo-300">{getSourcePreview()}</span>
-                <ArrowRight className="h-3 w-3 text-indigo-500" />
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">{getDestinationPreview()}</span>
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-              <button type="button" onClick={() => setIsConfigPreviewOpen(open => !open)} className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800">
-                <span className="flex items-center gap-2"><FileCode className="h-4 w-4 text-indigo-500" />Preview configuration to apply{editingHost ? ' and changes' : ''}</span>
-                {isConfigPreviewOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-              {isConfigPreviewOpen && <div className="space-y-4 border-t border-slate-200 p-4 dark:border-zinc-800">
-                <div><p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Generated Nginx configuration</p><pre className="max-h-72 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-zinc-100">{generateNginxConfig(buildDraftHost())}</pre></div>
-                {editingHost && <div><p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Changes from active host record</p><pre className="max-h-72 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-zinc-100">{diffConfig(generateNginxConfig(editingHost), generateNginxConfig(buildDraftHost())).map((entry, index) => <span key={`${entry.type}-${index}`} className={`block ${entry.type === 'add' ? 'bg-emerald-500/15 text-emerald-300' : entry.type === 'remove' ? 'bg-red-500/15 text-red-300' : 'text-zinc-400'}`}>{entry.type === 'add' ? '+' : entry.type === 'remove' ? '-' : ' '} {entry.line}</span>)}</pre></div>}
-              </div>}
             </div>
 
             {/* Error banner on reload rollback failure */}
@@ -946,14 +946,12 @@ export default function HostDialog({
                     <p className="text-[11px] text-red-800 dark:text-red-400 mt-0.5 leading-normal">{applyError}</p>
                   </div>
                 </div>
-                <details className="bg-zinc-950 text-red-400 p-2.5 rounded font-mono text-[10px] cursor-pointer">
+                <details className="rounded bg-zinc-950 p-2.5 font-mono text-[10px] text-red-400 cursor-pointer">
                   <summary className="font-bold">Show Detailed Compile Log</summary>
-                  <pre className="mt-2 whitespace-pre-wrap leading-relaxed overflow-x-auto p-1 text-red-300">
-{`nginx: [emerg] invalid number of arguments in "proxy_pass" directive in /etc/nginx/conf.d/portwyrm_reconciliation_${getSourcePreview().replace(/[^a-zA-Z0-9]/g, '_')}.conf:24
+                  <CodeBlock className="mt-2 max-h-64" language="shell" wrap code={`nginx: [emerg] invalid number of arguments in "proxy_pass" directive in /etc/nginx/conf.d/portwyrm_reconciliation_${getSourcePreview().replace(/[^a-zA-Z0-9]/g, '_')}.conf:24
 nginx: configuration file /etc/nginx/nginx.conf test failed
 
-[RECONCILIATION MANAGER] Execution failed. Atomic rollback triggered to keep prior working matrix active. 0ms downtime.`}
-                  </pre>
+[RECONCILIATION MANAGER] Execution failed. Atomic rollback triggered to keep prior working matrix active. 0ms downtime.`} />
                 </details>
               </div>
             )}

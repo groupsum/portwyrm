@@ -28,7 +28,8 @@ import CertificatesView from './CertificatesView';
 import ActionModal from './ActionModal';
 import { can, hostPermissionResource } from '../utils/permissions';
 import { useFeedback } from './Feedback';
-import { diffConfig, generateNginxConfig } from '../utils/nginxConfig';
+import { generateNginxConfig } from '../utils/nginxConfig';
+import CodeBlock, { SideBySideCodeDiff } from './CodeBlock';
 
 interface HostsViewProps {
   hosts: Host[];
@@ -571,48 +572,47 @@ ${customDirectives}
                   <tr>
                     <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('ownerName')}>
                       <div className="flex items-center gap-1.5">
-                        Controller / Owner
+                        Owner
                         <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
                     <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('source')}>
                       <div className="flex items-center gap-1.5">
-                        Source Route
+                        Source
                         <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
                     <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('destination')}>
                       <div className="flex items-center gap-1.5">
-                        Target Upstream
+                        Target
                         <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
                     <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('sslName')}>
                       <div className="flex items-center gap-1.5">
-                        SSL Certificate
+                        Cert
                         <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
-                    <th scope="col" className="px-6 py-4">Access List</th>
+                    <th scope="col" className="px-6 py-4">Access</th>
                     <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('status')}>
                       <div className="flex items-center gap-1.5">
-                        Applied Status
+                        Status
                         <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
                     <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('modified')}>
                       <div className="flex items-center gap-1.5">
-                        Last Modified
+                        Updated at
                         <ArrowUpDown className="h-3 w-3 text-slate-400" />
                       </div>
                     </th>
-                    <th scope="col" className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
                   {paginatedHosts.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
+                      <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
                         No reverse proxy routing hosts matched search filters.
                       </td>
                     </tr>
@@ -732,12 +732,9 @@ ${customDirectives}
                           </td>
 
                           {/* Mod date */}
-                          <td className="px-6 py-4 text-xs font-semibold font-mono text-slate-400">
-                            {formatDate(host.modified)}
-                          </td>
-
-                          {/* TRIPLE DOT ACTIONS MENU */}
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-between gap-3 text-xs font-semibold font-mono text-slate-400">
+                              <span>{formatDate(host.modified)}</span>
                             {(can(currentUser, hostPermissionResource(host.type), 'update') || can(currentUser, hostPermissionResource(host.type), 'delete')) && (
                               <button
                                 onClick={() => setOpenActionMenuId(host.id)}
@@ -748,6 +745,7 @@ ${customDirectives}
                                 <MoreVertical className="h-4 w-4" />
                               </button>
                             )}
+                            </div>
                           </td>
 
                         </tr>
@@ -839,11 +837,7 @@ ${customDirectives}
                     This is the dynamically compiled nginx server block file managed and hotloaded onto the active container proxy layer:
                   </p>
 
-                  <div className="relative">
-                    <pre className="p-4 bg-slate-900 text-zinc-100 rounded-xl text-xs font-mono overflow-x-auto border border-zinc-800 leading-relaxed select-all">
-                      {versionsForHost(inspectedConfigHost).at(-1)?.config || generateNginxConfig(inspectedConfigHost)}
-                    </pre>
-                  </div>
+                  <CodeBlock code={versionsForHost(inspectedConfigHost).at(-1)?.config || generateNginxConfig(inspectedConfigHost)} language="nginx" className="max-h-[60vh] select-all" />
                 </div>
 
                 <div className="px-6 py-4 bg-slate-50 dark:bg-zinc-900 border-t border-slate-100 dark:border-zinc-800 flex justify-end">
@@ -880,11 +874,11 @@ ${customDirectives}
                       <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">View version<select value={viewVersionId} onChange={event => setViewVersionId(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">{versionsForHost(inspectedAuditHost).map(version => <option key={version.id} value={version.id}>v{version.version} · {formatDate(version.timestamp)} · {version.actor}</option>)}</select></label>
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[10px] text-slate-500 dark:border-zinc-800 dark:bg-zinc-950">Generation <strong className="block truncate font-mono text-slate-800 dark:text-zinc-200">{versionsForHost(inspectedAuditHost).find(version => version.id === viewVersionId)?.generation}</strong></div>
                     </div>
-                    <pre className="max-h-72 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-zinc-100">{versionsForHost(inspectedAuditHost).find(version => version.id === viewVersionId)?.config}</pre>
+                    <CodeBlock code={versionsForHost(inspectedAuditHost).find(version => version.id === viewVersionId)?.config || ''} language="nginx" className="max-h-72" />
                     <div className="border-t border-slate-200 pt-5 dark:border-zinc-800">
                       <h4 className="text-xs font-extrabold text-slate-800 dark:text-zinc-100">Compare any two applied versions</h4>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2"><select aria-label="Compare from version" value={compareFromId} onChange={event => setCompareFromId(event.target.value)} className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">{versionsForHost(inspectedAuditHost).map(version => <option key={version.id} value={version.id}>From v{version.version}</option>)}</select><select aria-label="Compare to version" value={compareToId} onChange={event => setCompareToId(event.target.value)} className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">{versionsForHost(inspectedAuditHost).map(version => <option key={version.id} value={version.id}>To v{version.version}</option>)}</select></div>
-                      <pre className="mt-3 max-h-80 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed">{diffConfig(versionsForHost(inspectedAuditHost).find(version => version.id === compareFromId)?.config || '', versionsForHost(inspectedAuditHost).find(version => version.id === compareToId)?.config || '').map((entry, index) => <span key={`${entry.type}-${index}`} className={`block ${entry.type === 'add' ? 'bg-emerald-500/15 text-emerald-300' : entry.type === 'remove' ? 'bg-red-500/15 text-red-300' : 'text-zinc-400'}`}>{entry.type === 'add' ? '+' : entry.type === 'remove' ? '-' : ' '} {entry.line}</span>)}</pre>
+                      <div className="mt-3"><SideBySideCodeDiff before={versionsForHost(inspectedAuditHost).find(version => version.id === compareFromId)?.config || ''} after={versionsForHost(inspectedAuditHost).find(version => version.id === compareToId)?.config || ''} beforeLabel="From version" afterLabel="To version" /></div>
                     </div>
                   </>}
                 </div>

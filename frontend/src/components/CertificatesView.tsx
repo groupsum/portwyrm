@@ -350,37 +350,36 @@ export default function CertificatesView({
             <tr>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('name')}>
                 <div className="flex items-center gap-1.5">
-                  Friendly Profile Name
+                  Name
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
-              <th scope="col" className="px-6 py-4">Domains Protected</th>
+              <th scope="col" className="px-6 py-4">Domains</th>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('provider')}>
                 <div className="flex items-center gap-1.5">
-                  Certificate Authority
+                  Authority
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('status')}>
                 <div className="flex items-center gap-1.5">
-                  Applied State
+                  Status
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
               <th scope="col" className="px-6 py-4 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-zinc-800/50 select-none" onClick={() => handleSort('expiration')}>
                 <div className="flex items-center gap-1.5">
-                  Expiration / Auto-Renew
+                  Expires
                   <ArrowUpDown className="h-3 w-3 text-slate-400" />
                 </div>
               </th>
-              <th scope="col" className="px-6 py-4">Assignment Usage</th>
-              <th scope="col" className="px-6 py-4 text-right">Actions</th>
+              <th scope="col" className="px-6 py-4">Usage</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
             {paginatedCerts.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
+                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
                   No TLS Certificate profiles matched active search filters.
                 </td>
               </tr>
@@ -450,29 +449,28 @@ export default function CertificatesView({
 
                     {/* Dynamic Host Assignment information */}
                     <td className="px-6 py-4 text-xs font-medium text-slate-700 dark:text-zinc-300">
-                      {isAssigned ? (
-                        <div className="flex flex-col space-y-0.5">
-                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">{assignedHosts.length} protect route(s)</span>
-                          <span className="text-[10px] text-slate-400 truncate max-w-[150px]" title={assignedHosts.map(h => h.source).join(', ')}>
-                            {assignedHosts.map(h => h.source.split(',')[0]).join(', ')}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 italic">Unassigned (Orphaned)</span>
-                      )}
-                    </td>
-
-                    <td className="px-6 py-4 text-right">
-                      {(can(currentUser, 'certificates', 'update') || can(currentUser, 'certificates', 'delete')) && (
-                        <button
-                          onClick={() => setOpenActionMenuId(cert.id)}
-                          className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-500 dark:text-zinc-400 cursor-pointer"
-                          title="Actions"
-                          aria-label={`Actions for ${cert.name}`}
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between gap-3">
+                        {isAssigned ? (
+                          <div className="flex flex-col space-y-0.5">
+                            <span className="text-indigo-600 dark:text-indigo-400 font-bold">{assignedHosts.length} protect route(s)</span>
+                            <span className="text-[10px] text-slate-400 truncate max-w-[150px]" title={assignedHosts.map(h => h.source).join(', ')}>
+                              {assignedHosts.map(h => h.source.split(',')[0]).join(', ')}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">Unassigned (Orphaned)</span>
+                        )}
+                        {(can(currentUser, 'certificates', 'update') || can(currentUser, 'certificates', 'delete')) && (
+                          <button
+                            onClick={() => setOpenActionMenuId(cert.id)}
+                            className="p-1.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-500 dark:text-zinc-400 cursor-pointer"
+                            title="Actions"
+                            aria-label={`Actions for ${cert.name}`}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
