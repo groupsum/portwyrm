@@ -451,3 +451,27 @@ def test_admin_can_impersonate_active_user_but_cannot_delete_self(
     assert client.delete("/api/users/1", headers=admin).status_code == 409
     actions = {entry["action"] for entry in client.get("/api/audit-log", headers=admin).json()}
     assert {"authenticated", "user.impersonated"} <= actions
+
+
+def test_administrator_self_password_change_requires_current_password() -> None:
+    client = TestClient(create_app(MemoryRepository()))
+    assert client.post(
+        "/api/setup",
+        json={"email": "admin@example.com", "password": "original-password"},
+    ).status_code == 201
+    authenticated = client.post(
+        "/api/tokens",
+        json={"identity": "admin@example.com", "secret": "original-password"},
+    )
+    admin = {"Authorization": f"Bearer {authenticated.json()['result']['token']}"}
+
+    rejected = client.put(
+        "/api/users/1/auth", headers=admin, json={"password": "replacement-password"}
+    )
+    assert rejected.status_code == 403
+    changed = client.put(
+        "/api/users/1/auth",
+        headers=admin,
+        json={"current": "original-password", "password": "replacement-password"},
+    )
+    assert changed.status_code == 204

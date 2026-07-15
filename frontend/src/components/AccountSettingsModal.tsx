@@ -16,6 +16,7 @@ export default function AccountSettingsModal({open, currentUser, onClose, onSave
   const [email, setEmail] = useState(currentUser.email);
   const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
@@ -27,6 +28,7 @@ export default function AccountSettingsModal({open, currentUser, onClose, onSave
     setEmail(currentUser.email);
     setCurrentPassword('');
     setPassword('');
+    setConfirmPassword('');
     setError('');
     setSaved(false);
   }, [open, currentUser]);
@@ -42,10 +44,18 @@ export default function AccountSettingsModal({open, currentUser, onClose, onSave
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (password !== confirmPassword) {
+      setError('New passwords do not match.');
+      return;
+    }
+    if (password && !currentPassword) {
+      setError('Enter your current password to set a new password.');
+      return;
+    }
     setBusy(true); setError(''); setSaved(false);
     try {
       await onSave({displayName, username, email, currentPassword, password});
-      setCurrentPassword(''); setPassword(''); setSaved(true);
+      setCurrentPassword(''); setPassword(''); setConfirmPassword(''); setSaved(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to update account');
     } finally { setBusy(false); }
@@ -68,10 +78,11 @@ export default function AccountSettingsModal({open, currentUser, onClose, onSave
           <label className="block text-xs font-bold">Email<input type="email" value={email} onChange={event => setEmail(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950" required /></label>
           <fieldset className="space-y-4 rounded-xl border border-slate-200 p-4 dark:border-zinc-800">
             <legend className="px-2 text-xs font-extrabold"><span className="flex items-center gap-2"><KeyRound className="h-4 w-4 text-indigo-500" />Change password</span></legend>
-            <p className="text-xs text-slate-500">Leave both fields blank to keep your current password.</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="text-xs font-bold">Current password<input type="password" autoComplete="current-password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} required={Boolean(password) && currentUser.role !== 'Administrator'} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950" /></label>
+            <p className="text-xs text-slate-500">Leave all three fields blank to keep your current password.</p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <label className="text-xs font-bold">Current password<input type="password" autoComplete="current-password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} required={Boolean(password)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950" /></label>
               <label className="text-xs font-bold">New password<input type="password" autoComplete="new-password" minLength={8} value={password} onChange={event => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950" /></label>
+              <label className="text-xs font-bold">Confirm new password<input type="password" autoComplete="new-password" minLength={8} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} required={Boolean(password)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950" /></label>
             </div>
           </fieldset>
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-zinc-800"><button type="button" onClick={onClose} disabled={busy} className="rounded-xl bg-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700">Cancel</button><button disabled={busy} className="flex min-w-32 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-60">{busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? 'Saving…' : 'Save account'}</button></div>

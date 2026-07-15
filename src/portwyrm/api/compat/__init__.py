@@ -444,7 +444,7 @@ def create_compat_app(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="password is required"
             )
-        if principal.is_admin:
+        if principal.is_admin and str(principal.user_id) != str(user_id):
             setter = getattr(service, "set_password", None)
             if setter is None:
                 raise HTTPException(status_code=501, detail="password management unavailable")

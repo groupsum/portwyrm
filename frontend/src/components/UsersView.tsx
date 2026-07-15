@@ -12,8 +12,6 @@ import {
   Plus,
   X,
   Key,
-  Eye,
-  EyeOff,
   AlertTriangle,
   Lock,
   Unlock,
@@ -65,6 +63,8 @@ export default function UsersView({
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<UserRole>('Operator');
   const [visibility, setVisibility] = useState<'all' | 'owned'>('owned');
   const [status, setStatus] = useState<'Active' | 'Disabled'>('Active');
@@ -74,9 +74,6 @@ export default function UsersView({
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Password visibility triggers
-  const [revealPasswords, setRevealPasswords] = useState<Record<string, boolean>>({});
-
   // Triple-dot action dialog
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const actionUser = users.find(user => user.id === openActionMenuId) ?? null;
@@ -85,13 +82,6 @@ export default function UsersView({
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
-
-  const togglePasswordReveal = (userId: string) => {
-    setRevealPasswords(prev => ({
-      ...prev,
-      [userId]: !prev[userId]
-    }));
-  };
 
   const handleSort = (field: typeof sortField) => {
     if (sortField === field) {
@@ -127,6 +117,8 @@ export default function UsersView({
     setUsername('');
     setEmail('');
     setPassword('');
+    setCurrentPassword('');
+    setConfirmPassword('');
     setRole('Operator');
     setVisibility('owned');
     setStatus('Active');
@@ -141,7 +133,9 @@ export default function UsersView({
     setDisplayName(u.displayName);
     setUsername(u.username);
     setEmail(u.email || '');
-    setPassword(u.password || '');
+    setPassword('');
+    setCurrentPassword('');
+    setConfirmPassword('');
     setRole(u.role);
     setVisibility(u.visibility);
     setStatus(u.status);
@@ -172,6 +166,16 @@ export default function UsersView({
       return;
     }
 
+    if (password !== confirmPassword) {
+      setErrorMessage('New passwords do not match.');
+      return;
+    }
+
+    if (editingId === currentUser.id && password && !currentPassword) {
+      setErrorMessage('Enter your current password to set a new password.');
+      return;
+    }
+
     if (!username.startsWith('@')) {
       setErrorMessage('Username handle must begin with @ symbol (e.g. @developer).');
       return;
@@ -182,6 +186,7 @@ export default function UsersView({
       username,
       email,
       password,
+      currentPassword,
       role,
       visibility,
       status,
@@ -331,7 +336,6 @@ export default function UsersView({
               paginatedUsers.map((user) => {
                 const isSelf = user.id === currentUser.id;
                 const associatedAcls = accessLists.filter(acl => acl.identityIds.includes(user.id));
-                const isRevealed = !!revealPasswords[user.id];
 
                 return (
                   <tr key={user.id} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20 transition-colors">
@@ -380,16 +384,8 @@ export default function UsersView({
                         <span className="font-semibold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
                           <Mail className="h-3 w-3 text-slate-400" /> {user.email || 'N/A'}
                         </span>
-                        <div className="flex items-center gap-2 text-slate-400">
-                          <span className="font-mono text-[11px]">
-                            {isRevealed ? user.password : '••••••••'}
-                          </span>
-                          <button
-                            onClick={() => togglePasswordReveal(user.id)}
-                            className="p-0.5 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded text-slate-500 cursor-pointer"
-                          >
-                            {isRevealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                          </button>
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+                          <Lock className="h-3 w-3" /> Password: write-only
                         </div>
                         {associatedAcls.length > 0 && (
                           <div className="flex items-center gap-1 mt-0.5 text-[9px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
@@ -559,8 +555,8 @@ export default function UsersView({
                 </div>
               </div>
 
-              {/* Credentials inputs: email, password */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-100 dark:border-zinc-800 pt-4">
+              {/* Credentials inputs */}
+              <div className="grid grid-cols-1 gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2 dark:border-zinc-800">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Email Address</label>
                   <input
@@ -573,17 +569,25 @@ export default function UsersView({
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">{editingId ? 'New Password (Optional)' : 'Initial Password'}</label>
+                {editingId === currentUser.id && <div className="space-y-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">Current password</label>
                   <input
                     type="password"
-                    autoComplete="new-password"
-                    placeholder={editingId ? 'Leave blank to keep current password' : 'Set user password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    placeholder="Required when changing your password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
                     className="w-full p-2.5 border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg text-sm font-mono text-slate-800 dark:text-zinc-100 focus:outline-hidden"
-                    required={!editingId}
+                    required={Boolean(password)}
                   />
+                </div>}
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">{editingId && editingId !== currentUser.id ? 'Reset password (Optional)' : editingId ? 'New password (Optional)' : 'Initial password'}</label>
+                  <input type="password" autoComplete="new-password" minLength={8} placeholder={editingId ? 'Leave blank to keep current password' : 'Set user password'} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white p-2.5 font-mono text-sm text-slate-800 focus:outline-hidden dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100" required={!editingId} />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">Confirm new password</label>
+                  <input type="password" autoComplete="new-password" minLength={8} placeholder="Enter the new password again" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white p-2.5 font-mono text-sm text-slate-800 focus:outline-hidden dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100" required={Boolean(password) || !editingId} />
                 </div>
               </div>
 
