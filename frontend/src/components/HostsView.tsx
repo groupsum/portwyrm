@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Host, HostType, HostStatus, Certificate, AccessList, User } from '../types';
+import { Host, HostType, HostStatus, Certificate, AccessList, HostConfigVersion, User } from '../types';
 import { formatDate } from '../utils/formatting';
 import {
   Search,
@@ -28,12 +28,14 @@ import CertificatesView from './CertificatesView';
 import ActionModal from './ActionModal';
 import { can, hostPermissionResource } from '../utils/permissions';
 import { useFeedback } from './Feedback';
+import { diffConfig, generateNginxConfig } from '../utils/nginxConfig';
 
 interface HostsViewProps {
   hosts: Host[];
   certificates: Certificate[];
   accessLists: AccessList[];
   currentUser: User;
+  configVersions: HostConfigVersion[];
   onAddHost: () => void;
   onEditHost: (host: Host) => void;
   onDeleteHost: (id: string) => void;
@@ -53,6 +55,7 @@ export default function HostsView({
   certificates,
   accessLists,
   currentUser,
+  configVersions,
   onAddHost,
   onEditHost,
   onDeleteHost,
@@ -96,6 +99,9 @@ export default function HostsView({
   const [copiedDomainKey, setCopiedDomainKey] = useState<string | null>(null);
   const [inspectedConfigHost, setInspectedConfigHost] = useState<Host | null>(null);
   const [inspectedAuditHost, setInspectedAuditHost] = useState<Host | null>(null);
+  const [viewVersionId, setViewVersionId] = useState('');
+  const [compareFromId, setCompareFromId] = useState('');
+  const [compareToId, setCompareToId] = useState('');
 
   // Triple-dot action dialog selection
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
@@ -127,6 +133,15 @@ export default function HostsView({
     const navigableDomain = value.replace(/^\*\./, '');
     const scheme = host.sslId || host.forceHttps ? 'https' : 'http';
     return `${scheme}://${navigableDomain}`;
+  };
+
+  const versionsForHost = (host: Host) => configVersions.filter(version => version.hostId === host.id);
+  const openHostHistory = (host: Host) => {
+    const versions = versionsForHost(host);
+    setInspectedAuditHost(host);
+    setViewVersionId(versions.at(-1)?.id || '');
+    setCompareFromId(versions.at(-2)?.id || versions.at(-1)?.id || '');
+    setCompareToId(versions.at(-1)?.id || '');
   };
 
   // Header Sort Toggle helper
@@ -797,7 +812,7 @@ ${customDirectives}
               {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onEditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Edit3 className="h-4 w-4" />Configure & Edit</button>}
               {can(currentUser, hostPermissionResource(actionHost.type), 'create') && <button onClick={() => { setOpenActionMenuId(null); if (onDuplicateHost) onDuplicateHost(actionHost); else feedback.toast(`Unable to duplicate ${actionHost.source}.`, 'error'); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Copy className="h-4 w-4" />Duplicate Host</button>}
               <button onClick={() => { setOpenActionMenuId(null); setInspectedConfigHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><FileCode className="h-4 w-4" />View Applied Config</button>
-              <button onClick={() => { setOpenActionMenuId(null); setInspectedAuditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><History className="h-4 w-4" />View Audit History</button>
+              <button onClick={() => { setOpenActionMenuId(null); openHostHistory(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><History className="h-4 w-4" />View Config History</button>
               {actionHost.sslId && can(currentUser, 'certificates', 'update') && <button onClick={() => { setOpenActionMenuId(null); onRenewCert(actionHost.sslId!, (message, done, error) => { if (done) feedback.toast(error || message, error ? 'error' : 'success'); }); }} className="text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/20"><RefreshCw className="h-4 w-4" />Renew SSL Cert</button>}
               {can(currentUser, hostPermissionResource(actionHost.type), 'delete') && <button onClick={() => { setOpenActionMenuId(null); onDeleteHost(actionHost.id); }} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Delete Host</button>}
             </>}
@@ -826,7 +841,7 @@ ${customDirectives}
 
                   <div className="relative">
                     <pre className="p-4 bg-slate-900 text-zinc-100 rounded-xl text-xs font-mono overflow-x-auto border border-zinc-800 leading-relaxed select-all">
-                      {generateSimulatedNginxConfig(inspectedConfigHost)}
+                      {versionsForHost(inspectedConfigHost).at(-1)?.config || generateNginxConfig(inspectedConfigHost)}
                     </pre>
                   </div>
                 </div>
@@ -859,40 +874,19 @@ ${customDirectives}
                   </button>
                 </div>
 
-                <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3.5">
-                  <div className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed mb-1">
-                    Showing latest infrastructure state transition logs and operator activities associated with this specific traffic route:
-                  </div>
-
-                  <div className="border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden divide-y divide-slate-200 dark:divide-zinc-800 text-xs">
-
-                    <div className="p-3 bg-emerald-50/25 dark:bg-emerald-950/10 flex justify-between items-start">
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-slate-800 dark:text-zinc-200">Host operational status verified</div>
-                        <p className="text-[10px] text-slate-400">Core container pinged upstream target route successfully.</p>
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">10 minutes ago</span>
+                <div className="max-h-[72vh] space-y-5 overflow-y-auto p-6">
+                  {versionsForHost(inspectedAuditHost).length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500 dark:border-zinc-700">No applied configuration versions have been recorded for this host yet.</div> : <>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">View version<select value={viewVersionId} onChange={event => setViewVersionId(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">{versionsForHost(inspectedAuditHost).map(version => <option key={version.id} value={version.id}>v{version.version} · {formatDate(version.timestamp)} · {version.actor}</option>)}</select></label>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[10px] text-slate-500 dark:border-zinc-800 dark:bg-zinc-950">Generation <strong className="block truncate font-mono text-slate-800 dark:text-zinc-200">{versionsForHost(inspectedAuditHost).find(version => version.id === viewVersionId)?.generation}</strong></div>
                     </div>
-
-                    <div className="p-3 bg-slate-50/50 dark:bg-zinc-900/30 flex justify-between items-start">
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-slate-800 dark:text-zinc-200">Applied profile configuration modified</div>
-                        <p className="text-[10px] text-slate-400">Operator updated targets and TLS protection settings.</p>
-                        <span className="text-[10px] text-indigo-600 font-bold block">User: {inspectedAuditHost.ownerName}</span>
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">{formatDate(inspectedAuditHost.modified)}</span>
+                    <pre className="max-h-72 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-zinc-100">{versionsForHost(inspectedAuditHost).find(version => version.id === viewVersionId)?.config}</pre>
+                    <div className="border-t border-slate-200 pt-5 dark:border-zinc-800">
+                      <h4 className="text-xs font-extrabold text-slate-800 dark:text-zinc-100">Compare any two applied versions</h4>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2"><select aria-label="Compare from version" value={compareFromId} onChange={event => setCompareFromId(event.target.value)} className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">{versionsForHost(inspectedAuditHost).map(version => <option key={version.id} value={version.id}>From v{version.version}</option>)}</select><select aria-label="Compare to version" value={compareToId} onChange={event => setCompareToId(event.target.value)} className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">{versionsForHost(inspectedAuditHost).map(version => <option key={version.id} value={version.id}>To v{version.version}</option>)}</select></div>
+                      <pre className="mt-3 max-h-80 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed">{diffConfig(versionsForHost(inspectedAuditHost).find(version => version.id === compareFromId)?.config || '', versionsForHost(inspectedAuditHost).find(version => version.id === compareToId)?.config || '').map((entry, index) => <span key={`${entry.type}-${index}`} className={`block ${entry.type === 'add' ? 'bg-emerald-500/15 text-emerald-300' : entry.type === 'remove' ? 'bg-red-500/15 text-red-300' : 'text-zinc-400'}`}>{entry.type === 'add' ? '+' : entry.type === 'remove' ? '-' : ' '} {entry.line}</span>)}</pre>
                     </div>
-
-                    <div className="p-3 bg-slate-50/50 dark:bg-zinc-900/30 flex justify-between items-start">
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-slate-800 dark:text-zinc-200">Host registered initially</div>
-                        <p className="text-[10px] text-slate-400">Created reverse proxy map link to {inspectedAuditHost.destination}.</p>
-                        <span className="text-[10px] text-indigo-600 font-bold block">User: {inspectedAuditHost.ownerName}</span>
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">{formatDate(inspectedAuditHost.created)}</span>
-                    </div>
-
-                  </div>
+                  </>}
                 </div>
 
                 <div className="px-6 py-4 bg-slate-50 dark:bg-zinc-900 border-t border-slate-100 dark:border-zinc-800 flex justify-end">

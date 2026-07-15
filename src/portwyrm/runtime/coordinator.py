@@ -65,9 +65,10 @@ class RuntimeCoordinator:
             GenerationStore(self.root), validator=validator, reloader=reloader
         )
 
-    def changed(self, collection: str) -> None:
+    def changed(self, collection: str) -> ReconcileResult | None:
         if collection in ROUTING_COLLECTIONS:
-            self.reconcile()
+            return self.reconcile()
+        return None
 
     def reconcile(self) -> ReconcileResult:
         rendered = NginxRenderer().render(

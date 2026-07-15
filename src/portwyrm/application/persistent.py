@@ -9,7 +9,7 @@ from portwyrm.persistence import Repository
 
 from .control_plane import COLLECTIONS, Actor, ControlPlane
 
-ChangeHook = Callable[[str], None]
+ChangeHook = Callable[[str], Any]
 
 
 class PersistentControlPlane(ControlPlane):
@@ -52,13 +52,27 @@ class PersistentControlPlane(ControlPlane):
         if self.on_change is not None:
             self.on_change("settings")
 
-    def _persist_resource(self, collection: str, resource_id: int | str) -> None:
+    def _persist_resource(
+        self, collection: str, resource_id: int | str, actor: Actor | None = None
+    ) -> None:
         with self.repository.transaction() as tx:
             tx.upsert(self._storage_collection(collection), self.resources[collection][resource_id])
             if self.audit_events:
                 tx.upsert("_audit", self.audit_events[-1])
         if self.on_change is not None:
-            self.on_change(collection)
+            result = self.on_change(collection)
+            generation = getattr(result, "generation", None)
+            if generation is not None:
+                self.record_event(
+                    "configuration.applied",
+                    collection,
+                    resource_id,
+                    details={
+                        "snapshot": self.resources[collection][resource_id],
+                        "generation": str(generation),
+                    },
+                    actor=actor,
+                )
 
     def _persist_credentials(self) -> None:
         with self.repository.transaction() as tx:
@@ -79,7 +93,7 @@ class PersistentControlPlane(ControlPlane):
         if collection == "settings" and isinstance(payload.get("id"), str):
             preserve_id = True
         row = super().create(collection, payload, actor=actor, preserve_id=preserve_id)
-        self._persist_resource(collection, row["id"])
+        self._persist_resource(collection, row["id"], actor)
         if collection == "users":
             self._persist_credentials()
         return row
@@ -94,7 +108,7 @@ class PersistentControlPlane(ControlPlane):
         adopt: bool = False,
     ) -> dict[str, Any]:
         row = super().update(collection, resource_id, payload, actor=actor, adopt=adopt)
-        self._persist_resource(collection, resource_id)
+        self._persist_resource(collection, resource_id, actor)
         if collection == "users":
             self._persist_credentials()
         return row
@@ -108,7 +122,7 @@ class PersistentControlPlane(ControlPlane):
         prune: bool = False,
     ) -> bool:
         result = super().delete(collection, resource_id, actor=actor, prune=prune)
-        self._persist_resource(collection, resource_id)
+        self._persist_resource(collection, resource_id, actor)
         if collection == "users":
             identity = str(self.resources[collection][resource_id].get("email", "")).casefold()
             self._passwords.pop(identity, None)

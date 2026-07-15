@@ -123,6 +123,16 @@ export interface AuditLog {
   details: string; // detailed changes, Nginx config files, or raw logs
 }
 
+export interface HostConfigVersion {
+  id: string;
+  hostId: string;
+  version: number;
+  timestamp: string;
+  actor: string;
+  generation: string;
+  config: string;
+}
+
 export interface SystemHealth {
   nginxState: 'Active' | 'Reloading' | 'Degraded' | 'Stopped';
   activeConnections: number;

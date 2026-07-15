@@ -18,9 +18,11 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2
+  ,FileCode
 } from 'lucide-react';
 import MultiSelect from './MultiSelect';
 import { useFeedback } from './Feedback';
+import { diffConfig, generateNginxConfig } from '../utils/nginxConfig';
 
 interface HostDialogProps {
   isOpen: boolean;
@@ -75,6 +77,7 @@ export default function HostDialog({
   // Advanced config
   const [customNginxConfig, setCustomNginxConfig] = useState('');
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [isConfigPreviewOpen, setIsConfigPreviewOpen] = useState(false);
 
   // Validation & Touched state
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -353,12 +356,31 @@ export default function HostDialog({
     setApplyLog([]);
     setApplyError(null);
 
-    const sslRecord = certificates.find(c => c.id === sslId);
-    const selectedAccessLists = accessListIds
-      .map(id => accessLists.find(accessList => accessList.id === id))
-      .filter((accessList): accessList is AccessList => Boolean(accessList));
+    const hostPayload = buildDraftHost();
 
-    const hostPayload = {
+    onSubmit(hostPayload, (phase) => {
+      setApplyPhase(phase);
+      setApplyLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${phase}...`]);
+
+      if (phase === 'Rolled back') {
+        setIsApplying(false);
+        setApplyError('Nginx syntax verification check failed. Applied configuration rolled back to last known good matrix. Prior routing is still active and operational.');
+      }
+
+      if (phase === 'Complete') {
+        setTimeout(() => {
+          setIsApplying(false);
+          onClose();
+        }, 1000);
+      }
+    });
+  };
+
+  const buildDraftHost = (): Host => {
+    const sslRecord = certificates.find(c => c.id === sslId);
+    const selectedAccessLists = accessListIds.map(id => accessLists.find(accessList => accessList.id === id)).filter((accessList): accessList is AccessList => Boolean(accessList));
+    return {
+      ...(editingHost || {id: 'draft', ownerId: '', ownerName: '', provenance: 'human', status: 'pending', created: '', modified: '', lastError: null, activeGeneration: 0}),
       type: hostType,
       source: hostType === 'stream' ? `${streamProtocol.toUpperCase()} :${sourcePort}` : sourceDomains,
       destination: hostType === '404'
@@ -383,23 +405,6 @@ export default function HostDialog({
       hstsSubdomains: sslId !== 'none' ? hstsSubdomains : false,
       customNginxConfig,
     };
-
-    onSubmit(hostPayload, (phase) => {
-      setApplyPhase(phase);
-      setApplyLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${phase}...`]);
-
-      if (phase === 'Rolled back') {
-        setIsApplying(false);
-        setApplyError('Nginx syntax verification check failed. Applied configuration rolled back to last known good matrix. Prior routing is still active and operational.');
-      }
-
-      if (phase === 'Complete') {
-        setTimeout(() => {
-          setIsApplying(false);
-          onClose();
-        }, 1000);
-      }
-    });
   };
 
   return (
@@ -918,6 +923,17 @@ export default function HostDialog({
                 <ArrowRight className="h-3 w-3 text-indigo-500" />
                 <span className="font-bold text-emerald-600 dark:text-emerald-400">{getDestinationPreview()}</span>
               </div>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+              <button type="button" onClick={() => setIsConfigPreviewOpen(open => !open)} className="flex w-full items-center justify-between px-4 py-3 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800">
+                <span className="flex items-center gap-2"><FileCode className="h-4 w-4 text-indigo-500" />Preview configuration to apply{editingHost ? ' and changes' : ''}</span>
+                {isConfigPreviewOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+              {isConfigPreviewOpen && <div className="space-y-4 border-t border-slate-200 p-4 dark:border-zinc-800">
+                <div><p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Generated Nginx configuration</p><pre className="max-h-72 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-zinc-100">{generateNginxConfig(buildDraftHost())}</pre></div>
+                {editingHost && <div><p className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Changes from active host record</p><pre className="max-h-72 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-zinc-100">{diffConfig(generateNginxConfig(editingHost), generateNginxConfig(buildDraftHost())).map((entry, index) => <span key={`${entry.type}-${index}`} className={`block ${entry.type === 'add' ? 'bg-emerald-500/15 text-emerald-300' : entry.type === 'remove' ? 'bg-red-500/15 text-red-300' : 'text-zinc-400'}`}>{entry.type === 'add' ? '+' : entry.type === 'remove' ? '-' : ' '} {entry.line}</span>)}</pre></div>}
+              </div>}
             </div>
 
             {/* Error banner on reload rollback failure */}

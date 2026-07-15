@@ -312,6 +312,40 @@ def test_identity_membership_renders_write_only_access_credentials(tmp_path: Pat
     assert "operator-password" not in credentials
 
 
+def test_successful_runtime_applies_persist_versioned_host_snapshots(tmp_path: Path) -> None:
+    path = tmp_path / "applied-history.sqlite"
+    service = PersistentControlPlane(SQLiteRepository(path))
+    coordinator = RuntimeCoordinator(service, tmp_path / "nginx", validate=False, reload=False)
+    service.on_change = coordinator.changed
+    created = service.create(
+        "proxy-hosts",
+        {
+            "domain_names": ["history.example.test"],
+            "forward_scheme": "http",
+            "forward_host": "first-upstream",
+            "forward_port": 8080,
+        },
+    )
+    service.update(
+        "proxy-hosts",
+        created["id"],
+        {**created, "forward_host": "second-upstream", "forward_port": 9090},
+    )
+
+    restarted = PersistentControlPlane(SQLiteRepository(path))
+    versions = [
+        event
+        for event in restarted.audit_since()
+        if event["action"] == "configuration.applied"
+        and event["object_type"] == "proxy-hosts"
+        and event["meta"]["id"] == created["id"]
+    ]
+    assert len(versions) == 2
+    assert versions[0]["meta"]["snapshot"]["forward_host"] == "first-upstream"
+    assert versions[1]["meta"]["snapshot"]["forward_host"] == "second-upstream"
+    assert versions[0]["meta"]["generation"] != versions[1]["meta"]["generation"]
+
+
 def test_cli_resource_commands_use_compatible_api_paths(monkeypatch) -> None:
     calls: list[tuple[str, str, object]] = []
 

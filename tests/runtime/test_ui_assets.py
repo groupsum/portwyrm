@@ -31,6 +31,8 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert "/api/nginx/" in script.text and "proxy-hosts" in script.text
     assert "Discard unsaved changes?" in script.text
     assert "Password: write-only" in script.text
+    assert "Preview configuration to apply" in script.text
+    assert "Compare any two applied versions" in script.text
     assert "scrollbar-color" in stylesheet.text
     assert "GEMINI_API_KEY" not in script.text
     assert client.get("/ui/app.js").status_code == 404

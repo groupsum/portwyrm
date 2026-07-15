@@ -1,5 +1,6 @@
-import type { AccessList, AuditLog, Certificate, Host, HostType, SystemHealth, User } from '../types';
+import type { AccessList, AuditLog, Certificate, Host, HostConfigVersion, HostType, SystemHealth, User } from '../types';
 import { can, hostPermissionResource, normalizePermissions } from '../utils/permissions';
+import { generateNginxConfig } from '../utils/nginxConfig';
 
 type Listener = () => void;
 type Json = Record<string, any>;
@@ -124,6 +125,7 @@ export class PortwyrmStore {
   accessLists: AccessList[] = [];
   users: User[] = [];
   auditLogs: AuditLog[] = [];
+  hostConfigVersions: HostConfigVersion[] = [];
   health: SystemHealth = {nginxState: 'Stopped', activeConnections: 0, reading: 0, writing: 0, waiting: 0, version: '-', databaseBackend: '-', currentGeneration: 0, driftDetected: false, pendingApplies: 0, schedulerState: 'Idling'};
   authenticated = false;
   setupRequired = false;
@@ -198,6 +200,14 @@ export class PortwyrmStore {
     });
     this.hosts = hostFamilies.flatMap((family, index) => hostRows[index].map((row: Json) => mapHost(row, family, this.users, this.certificates, this.accessLists)));
     this.auditLogs = auditRows.map((row: Json) => ({id: String(row.id), timestamp: row.created_on, actor: row.actor || row.user_email || 'System', action: row.action || row.event || 'Changed', resource: row.object_type || row.resource_type || 'Resource', outcome: row.outcome === 'failure' ? 'Failure' : row.outcome === 'rolled_back' ? 'Rolled Back' : 'Success', summary: row.summary || row.action || '', details: JSON.stringify(row, null, 2)}));
+    const versionCounts = new Map<string, number>();
+    this.hostConfigVersions = auditRows.flatMap((row: Json) => {
+      if (row.action !== 'configuration.applied' || !hostTypeByFamily[row.object_type] || !row.meta?.snapshot) return [];
+      const host = mapHost(row.meta.snapshot, row.object_type, this.users, this.certificates, this.accessLists);
+      const version = (versionCounts.get(host.id) || 0) + 1;
+      versionCounts.set(host.id, version);
+      return [{id: String(row.id), hostId: host.id, version, timestamp: row.created_on, actor: row.actor || row.user_email || 'System', generation: String(row.meta.generation || ''), config: generateNginxConfig(host)}];
+    });
     this.health = {nginxState: health.components?.nginx?.status === 'ok' ? 'Active' : 'Degraded', activeConnections: 0, reading: 0, writing: 0, waiting: 0, version: version.version || '-', databaseBackend: health.components?.database?.backend || 'unknown', currentGeneration: Number(health.components?.nginx?.generation || 0), driftDetected: false, pendingApplies: 0, schedulerState: health.components?.certificate_scheduler?.enabled ? 'Active' : 'Idling'};
     this.emit();
   }
