@@ -1,6 +1,13 @@
 """Persistence adapters and portable state bundles."""
 
-from .base import BlobStore, ConfigurationError, ConflictError, PersistenceError, Repository
+from .base import (
+    BlobStore,
+    ConfigurationError,
+    ConflictError,
+    PersistenceError,
+    Repository,
+    RepositoryProxy,
+)
 from .bundle import BUNDLE_VERSION, export_bundle, import_bundle, preview_import, validate_bundle
 from .dbapi import MySQLRepository, PostgreSQLRepository
 from .factory import create_repository
@@ -22,6 +29,7 @@ __all__ = [
     "PersistenceError",
     "PostgreSQLRepository",
     "Repository",
+    "RepositoryProxy",
     "SQLiteRepository",
     "create_repository",
     "export_bundle",

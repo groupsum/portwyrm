@@ -120,6 +120,16 @@ class PersonalAccessToken(PortwyrmTable):
     replaced_by_id = Column(Integer, ForeignKey("personal_access_tokens.id"), nullable=True)
 
 
+class BrowserSession(PortwyrmTable):
+    __tablename__ = "browser_sessions"
+    __table_args__ = (UniqueConstraint("token_id", name="uq_browser_session_token_id"),)
+
+    token_id = Column(String(64), nullable=False, index=True)
+    token_digest = Column(String(255), nullable=False)
+    principal_snapshot = Column(JSON, nullable=False)
+    expires_at = Column(Integer, nullable=False, index=True)
+
+
 class MFAEnrollment(PortwyrmTable):
     __tablename__ = "mfa_enrollments"
     __table_args__ = (UniqueConstraint("principal_id", name="uq_mfa_principal"),)
@@ -312,6 +322,7 @@ PORTWYRM_TABLES: tuple[type[TableBase], ...] = (
     RolePermission,
     PrincipalPermission,
     PersonalAccessToken,
+    BrowserSession,
     MFAEnrollment,
     MFARecoveryCode,
     AccessList,

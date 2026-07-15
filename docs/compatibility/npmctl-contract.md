@@ -68,3 +68,23 @@ ownership is conflict-safe. Adoption and pruning remain explicit and owner-scope
 - `groupsum/npmctl/packages/npmctl/src/npmctl/schema.py`
 - `groupsum/npmctl/packages/npmctl/tests/conftest.py`
 - `groupsum/npmctl/docs/specs/npmctl-openapi-subset.md`
+
+## Authoritative-Tigrbl certification
+
+Verified 2026-07-15 against the current sibling `groupsum/npmctl` CLI and the locally built
+`portwyrm:tigrbl-authoritative` OCI image:
+
+| npmctl command | Result |
+|---|---|
+| `doctor` | API reachable, configuration complete, all required capabilities detected |
+| `schema check` | `ok=true`, compatibility profile `2.10.4` |
+| `plan` | One expected proxy-host create, no conflicts |
+| `apply` | One successful mutation |
+| `adopt` | Already-converged no-op, no conflicts |
+| `drift` | `ok=true`, `drift_count=0` |
+| `audit-log` | Authentication, create, and applied-generation events returned |
+
+The same image also passed container restart persistence using only its `/data` volume: the
+Tigrbl-owned administrator credential and proxy host survived without bootstrap environment
+variables, and `/ui/` remained available. PostgreSQL 17 and MySQL 8.4 live transaction,
+rollback, import, and restart conformance passed against disposable local containers.

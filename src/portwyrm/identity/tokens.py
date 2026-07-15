@@ -84,6 +84,14 @@ class TokenStore:
         self._lock = RLock()
         self._hydrate()
 
+    def rebind_repository(self, repository: Repository) -> None:
+        """Switch durable authority and reload only hash-at-rest records."""
+        with self._lock:
+            self.repository = repository
+            self._sessions.clear()
+            self._pats.clear()
+            self._hydrate()
+
     def _hydrate(self) -> None:
         if self.repository is None:
             return

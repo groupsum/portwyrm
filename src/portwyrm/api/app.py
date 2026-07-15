@@ -19,11 +19,12 @@ from portwyrm.application import MFAStore, PersistentControlPlane
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
 from portwyrm.identity import TokenStore
 from portwyrm.operations import HealthService, NginxStatusClient, UpgradeManager, default_upgrades
-from portwyrm.persistence import Repository
+from portwyrm.persistence import Repository, RepositoryProxy
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 from portwyrm.tables import PORTWYRM_TABLES
 from portwyrm.tables.engine import engine_for_repository
 from portwyrm.tables.legacy import LegacyProjector
+from portwyrm.tables.repository import TigrblRepository
 from portwyrm.uix import mount_uix
 
 
@@ -34,7 +35,8 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
     password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv("INITIAL_ADMIN_PASSWORD")
     repository = repository or create_default_repository()
     UpgradeManager(repository, default_upgrades()).run()
-    control_plane = PersistentControlPlane(repository)
+    live_repository = RepositoryProxy(repository)
+    control_plane = PersistentControlPlane(live_repository)
     certificate_root = Path(
         os.getenv("PORTWYRM_CERTIFICATE_ROOT", str(Path.cwd() / ".portwyrm" / "certificates"))
     )
@@ -47,8 +49,8 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
             staging=os.getenv("PORTWYRM_ACME_STAGING", "0").lower() in {"1", "true", "yes"},
         ),
     )
-    mfa_store = MFAStore(repository, _load_mfa_key())
-    token_store = TokenStore(repository=repository)
+    mfa_store = MFAStore(live_repository, _load_mfa_key())
+    token_store = TokenStore(repository=live_repository)
     runtime: RuntimeCoordinator | None = None
     if os.getenv("PORTWYRM_NGINX_RUNTIME", "0").lower() in {"1", "true", "yes"}:
         root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
@@ -77,7 +79,7 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
                     await renewal_task
 
     health = HealthService(
-        repository,
+        live_repository,
         {
             "nginx": lambda: {
                 "status": "ok"
@@ -114,12 +116,12 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
         tokens=token_store,
         certificates=certificate_manager,
         lifespan=lifespan,
-        repository=repository,
+        repository=live_repository,
         mfa=mfa_store,
         system_status=system_status,
         engine=engine_for_repository(repository),
     )
-    app.state.repository = repository
+    app.state.import_repository = repository
     app.state.runtime = runtime
     app.state.tigrbl_tables = PORTWYRM_TABLES
 
@@ -132,17 +134,24 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
     # every compatibility, native, and UI route before this boundary so the
     # Uvicorn application exposes the complete packaged surface.
     app.initialize(tables=PORTWYRM_TABLES)
-    projector = LegacyProjector(app, repository)
-    projector.rebuild()
-    app.state.legacy_projector = projector
+    authoritative_repository = TigrblRepository(app, backend_name=repository.backend_name)
+    if not authoritative_repository.has_state():
+        LegacyProjector(app, repository).rebuild()
 
-    def after_legacy_change(collection: str) -> Any:
-        projector.rebuild()
-        return runtime.changed(collection) if runtime is not None else None
+    # Authority reversal: after the one-time import, every compatibility read
+    # and write is projected from normalized Tigrbl rows. The original adapter
+    # remains available only as import provenance and is no longer on the live
+    # mutation path.
+    control_plane.on_change = None
+    live_repository.target = authoritative_repository
+    control_plane.reload()
+    token_store.rebind_repository(live_repository)
+    app.state.repository = authoritative_repository
+    app.state.legacy_projector = None
 
-    control_plane.on_change = after_legacy_change
-    token_store.on_change = projector.rebuild
-    mfa_store.on_change = projector.rebuild
+    control_plane.on_change = runtime.changed if runtime is not None else None
+    token_store.on_change = None
+    mfa_store.on_change = None
 
     return app
 

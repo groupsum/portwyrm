@@ -20,14 +20,19 @@ from portwyrm.persistence import (
 from portwyrm.tables import PORTWYRM_TABLES
 from portwyrm.tables.engine import engine_for_repository
 from portwyrm.tables.models import (
-    Certificate,
+    BrowserSession,
     PersonalAccessToken,
+    PortwyrmTable,
     Principal,
     RoutingHost,
     RoutingSource,
     RoutingUpstream,
 )
 from tests.support import TestClient
+
+
+class HookProbe(PortwyrmTable):
+    __tablename__ = "hook_probe_test"
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +61,7 @@ def _setup(client: TestClient) -> dict[str, str]:
 def test_canonical_tables_bind_builtin_custom_ops_and_post_commit_hooks() -> None:
     app = create_app(MemoryRepository())
 
-    assert len(PORTWYRM_TABLES) == 24
+    assert len(PORTWYRM_TABLES) == 25
     principal_ops = {spec.alias for spec in app.bind(Principal)}
     routing_ops = {spec.alias for spec in app.bind(RoutingHost)}
     assert {"create", "read", "update", "replace", "delete", "list"} <= principal_ops
@@ -66,17 +71,15 @@ def test_canonical_tables_bind_builtin_custom_ops_and_post_commit_hooks() -> Non
 
 def test_native_tigrbl_create_executes_post_commit_hook() -> None:
     app = TigrblApp(engine=mem(async_=False), mount_system=False)
-    app.include_table(Principal, mount_router=False)
-    app.include_table(Certificate, mount_router=False)
-    app.include_table(RoutingHost)
+    app.include_table(HookProbe)
     app.initialize()
     changes: list[str] = []
     app.state.tigrbl_after_commit = changes.append
 
-    created = TestClient(app).post("/routinghost", json={"kind": "proxy"})
+    created = TestClient(app).post("/hookprobe", json={})
 
     assert created.status_code == 201
-    assert changes == ["routing_hosts"]
+    assert changes == ["hook_probe_test"]
 
 
 def test_compatibility_writes_project_multiple_sources_and_typed_upstream() -> None:
@@ -138,6 +141,77 @@ def test_pat_projection_contains_only_prefix_and_argon_digest() -> None:
         assert stored.token_prefix in plaintext
         assert stored.token_digest.startswith("$argon2id$")
         assert plaintext not in stored.token_digest
+    finally:
+        release()
+
+
+def test_tigrbl_tables_are_authoritative_after_one_time_sqlite_import(tmp_path) -> None:
+    path = tmp_path / "authority.sqlite"
+    legacy = SQLiteRepository(path)
+    app = create_app(legacy)
+    client = TestClient(app)
+    headers = _setup(client)
+    created = client.post(
+        "/api/nginx/proxy-hosts",
+        headers=headers,
+        json={
+            "domain_names": ["authoritative.example.com"],
+            "forward_scheme": "http",
+            "forward_host": "backend",
+            "forward_port": 8080,
+        },
+    )
+    assert created.status_code == 201
+
+    with legacy.transaction() as transaction:
+        assert transaction.list("users") == []
+        transaction.upsert(
+            "proxy_hosts",
+            {
+                "id": 999,
+                "domain_names": ["stale-legacy.example.com"],
+                "forward_host": "stale",
+                "forward_port": 80,
+            },
+        )
+
+    restarted = TestClient(create_app(SQLiteRepository(path)))
+    restarted_headers = {
+        "Authorization": (
+            "Bearer "
+            + restarted.post(
+                "/api/tokens",
+                json={
+                    "identity": "owner@example.com",
+                    "secret": "correct horse battery staple",
+                    "scope": "user",
+                },
+            ).json()["result"]["token"]
+        )
+    }
+    rows = restarted.get("/api/nginx/proxy-hosts", headers=restarted_headers).json()
+    assert [row["domain_names"] for row in rows] == [["authoritative.example.com"]]
+
+
+def test_browser_sessions_are_hash_only_tigrbl_rows() -> None:
+    app = create_app(MemoryRepository())
+    client = TestClient(app)
+    created = client.post(
+        "/api/setup",
+        json={"email": "owner@example.com", "password": "correct horse battery staple"},
+    )
+    assert created.status_code == 201
+    login = client.post(
+        "/api/v2/browser/login",
+        json={"identity": "owner@example.com", "secret": "correct horse battery staple"},
+    )
+    assert login.status_code == 200
+
+    session, release = resolver.acquire(router=app, model=BrowserSession, require_ready=True)
+    try:
+        stored = session.query(BrowserSession).one()
+        assert stored.token_digest.startswith("$argon2id$")
+        assert "portwyrm_session" not in stored.token_digest
     finally:
         release()
 

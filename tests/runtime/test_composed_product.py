@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import bcrypt
+from tigrbl.engine import resolver
 
 from portwyrm import __main__ as cli
 from portwyrm.api import create_app
@@ -13,6 +14,7 @@ from portwyrm.cli.commands import remote
 from portwyrm.persistence import SQLiteRepository
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 from portwyrm.security import totp_code
+from portwyrm.tables.models import MFAEnrollment
 from tests.support import TestClient
 
 
@@ -306,7 +308,8 @@ def test_admin_can_crud_action_grants_and_existing_session_updates_immediately(
 
 def test_mfa_enrollment_totp_and_one_use_backup_code_survive_restart(tmp_path: Path) -> None:
     path = tmp_path / "mfa.sqlite"
-    first = TestClient(create_app(SQLiteRepository(path)))
+    first_app = create_app(SQLiteRepository(path))
+    first = TestClient(first_app)
     first.post("/api/setup", json={"email": "admin@example.test", "password": "admin-password"})
     headers = _login_with(first, "admin@example.test", "admin-password")
     enrollment = first.post("/api/v2/mfa/enroll", headers=headers)
@@ -329,10 +332,16 @@ def test_mfa_enrollment_totp_and_one_use_backup_code_survive_restart(tmp_path: P
     )
     assert completed.status_code == 200
     assert completed.json()["result"]["scope"] == "user"
-    with SQLiteRepository(path).transaction() as tx:
-        stored = tx.get("_mfa", "1")
-    assert "secret" not in stored
-    assert enrollment.json()["secret"] not in stored["secret_ciphertext"]
+    session, release = resolver.acquire(
+        router=first_app,
+        model=MFAEnrollment,
+        require_ready=True,
+    )
+    try:
+        stored = session.query(MFAEnrollment).one()
+        assert enrollment.json()["secret"] not in stored.encrypted_secret
+    finally:
+        release()
 
     backup = enrollment.json()["backup_codes"][0]
     restarted = TestClient(create_app(SQLiteRepository(path)))

@@ -19,6 +19,7 @@ from .models import (
     AccessListPrincipal,
     AccessListRule,
     AuditEvent,
+    BrowserSession,
     Certificate,
     CertificateDomain,
     ConfigRevision,
@@ -52,6 +53,11 @@ def _integer(value: Any) -> int | None:
         return None
 
 
+def _positive_integer(value: Any) -> int | None:
+    normalized = _integer(value)
+    return normalized if normalized is not None and normalized > 0 else None
+
+
 def _target_kind(target: str, explicit: Any = None) -> str:
     if explicit in {"ip", "dns", "docker"}:
         return str(explicit)
@@ -83,6 +89,7 @@ class LegacyProjector:
             "users",
             "_credentials",
             "_personal_access_tokens",
+            "_sessions",
             "_mfa",
             "access_lists",
             "certificates",
@@ -93,7 +100,7 @@ class LegacyProjector:
             "settings",
             "_audit",
         )
-        self._source = {
+        source = {
             collection: _rows(self.repository, collection) for collection in collections
         }
         session, release = resolver.acquire(
@@ -102,15 +109,24 @@ class LegacyProjector:
             require_ready=True,
         )
         try:
-            for table in reversed(PORTWYRM_TABLES):
-                session.query(table).delete(synchronize_session=False)
-            self._project(session)
+            self.replace_in_session(session, source)
             session.commit()
         except BaseException:
             session.rollback()
             raise
         finally:
             release()
+
+    def replace_in_session(
+        self,
+        session: Any,
+        source: Mapping[str, list[dict[str, Any]]],
+    ) -> None:
+        """Replace normalized state inside the caller's open transaction."""
+        self._source = {collection: list(rows) for collection, rows in source.items()}
+        for table in reversed(PORTWYRM_TABLES):
+            session.query(table).delete(synchronize_session=False)
+        self._project(session)
 
     def _rows(self, collection: str) -> list[dict[str, Any]]:
         return self._source.get(collection, [])
@@ -141,7 +157,7 @@ class LegacyProjector:
                     is_disabled=bool(row.get("is_disabled")),
                     is_deleted=bool(row.get("is_deleted")),
                     visibility=str(row.get("visibility", "user")),
-                    metadata_json=dict(row.get("meta") or {}),
+                    metadata_json={"compat": dict(row)},
                 )
             session.add(principal)
             session.flush()
@@ -159,6 +175,7 @@ class LegacyProjector:
             self._project_permissions(session, row, user_id, permission_ids)
 
         self._project_tokens(session)
+        self._project_sessions(session)
         self._project_mfa(session)
         self._project_access_lists(session)
         self._project_certificates(session)
@@ -226,6 +243,29 @@ class LegacyProjector:
                     expires_at=_integer(row.get("expires_at")),
                     last_used_at=_integer(row.get("last_used_at")),
                     revoked_at=_integer(row.get("revoked_at")),
+                    metadata_json={"compat": dict(row)},
+                )
+            )
+
+    def _project_sessions(self, session: Any) -> None:
+        for row in self._rows("_sessions"):
+            token_id = str(row.get("id", ""))
+            token_digest = str(row.get("token_hash", ""))
+            principal = row.get("principal")
+            expires = _integer(row.get("expires"))
+            if (
+                not token_id
+                or not token_digest
+                or not isinstance(principal, Mapping)
+                or expires is None
+            ):
+                continue
+            session.add(
+                BrowserSession(
+                    token_id=token_id,
+                    token_digest=token_digest,
+                    principal_snapshot=dict(principal),
+                    expires_at=expires,
                 )
             )
 
@@ -238,6 +278,7 @@ class LegacyProjector:
                 principal_id=principal_id,
                 encrypted_secret=str(row.get("secret_ciphertext", "")),
                 confirmed=bool(row.get("active")),
+                metadata_json={"compat_id": str(row.get("id", principal_id))},
             )
             session.add(enrollment)
             session.flush()
@@ -257,7 +298,9 @@ class LegacyProjector:
                     name=str(row.get("name", f"Access list {access_list_id}")),
                     satisfy_any=bool(row.get("satisfy_any")),
                     pass_auth=bool(row.get("pass_auth")),
-                    metadata_json=dict(row.get("meta") or {}),
+                    metadata_json={
+                        "compat": {key: value for key, value in row.items() if key != "items"}
+                    },
                 )
             )
             session.flush()
@@ -308,7 +351,7 @@ class LegacyProjector:
                     material_ref=(str(row["material_ref"]) if row.get("material_ref") else None),
                     expires_at=_integer(row.get("expires_at")),
                     status=str(row.get("status", "active")),
-                    metadata_json=dict(row.get("meta") or {}),
+                    metadata_json={"compat": dict(row)},
                 )
             )
             session.flush()
@@ -336,9 +379,9 @@ class LegacyProjector:
                     RoutingHost(
                         id=routing_id,
                         kind=kind,
-                        owner_principal_id=_integer(row.get("owner_user_id")),
+                        owner_principal_id=_positive_integer(row.get("owner_user_id")),
                         enabled=bool(row.get("enabled", True)),
-                        certificate_id=_integer(row.get("certificate_id")),
+                        certificate_id=_positive_integer(row.get("certificate_id")),
                         force_ssl=bool(row.get("ssl_forced", row.get("force_ssl", False))),
                         hsts_enabled=bool(row.get("hsts_enabled")),
                         hsts_subdomains=bool(row.get("hsts_subdomains")),
@@ -346,7 +389,7 @@ class LegacyProjector:
                         cache_enabled=bool(row.get("caching_enabled")),
                         block_exploits=bool(row.get("block_exploits", True)),
                         advanced_config=str(row.get("advanced_config", "")),
-                        metadata_json={"legacy_id": host_id, **dict(row.get("meta") or {})},
+                        metadata_json={"legacy_id": host_id, "compat": dict(row)},
                     )
                 )
                 session.flush()
@@ -375,14 +418,14 @@ class LegacyProjector:
             session.add(
                 StreamRoute(
                     id=stream_id,
-                    owner_principal_id=_integer(row.get("owner_user_id")),
+                    owner_principal_id=_positive_integer(row.get("owner_user_id")),
                     protocol=str(row.get("protocol", "tcp")),
                     incoming_port=int(row.get("incoming_port", 0)),
                     target_kind=_target_kind(target, row.get("target_kind")),
                     target=target,
                     target_port=int(row.get("forwarding_port", row.get("forward_port", 0))),
                     enabled=bool(row.get("enabled", True)),
-                    metadata_json=dict(row.get("meta") or {}),
+                    metadata_json={"compat": dict(row)},
                 )
             )
 
@@ -415,7 +458,7 @@ class LegacyProjector:
                 Setting(
                     key=key,
                     value=row.get("value"),
-                    metadata_json=dict(row.get("meta") or {}),
+                    metadata_json={"compat": dict(row)},
                 )
             )
 

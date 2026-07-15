@@ -69,6 +69,20 @@ class Repository(Protocol):
     def transaction(self) -> AbstractContextManager[Transaction]: ...
 
 
+class RepositoryProxy:
+    """Mutable composition-root indirection used during authority cutover."""
+
+    def __init__(self, target: Repository) -> None:
+        self.target = target
+
+    @property
+    def backend_name(self) -> str:
+        return self.target.backend_name
+
+    def transaction(self) -> AbstractContextManager[Transaction]:
+        return self.target.transaction()
+
+
 @runtime_checkable
 class BlobStore(Protocol):
     def put(self, name: str, data: bytes) -> str: ...
