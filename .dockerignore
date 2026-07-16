@@ -2,9 +2,11 @@
 .github
 .ssot
 .venv
-.uv-cache
+.uv-cache*
+.ruff-cache*
 .tmp
-.pytest-tmp-*
+.pytest-*
+.a11y-runtime
 __pycache__
 *.py[cod]
 tests
