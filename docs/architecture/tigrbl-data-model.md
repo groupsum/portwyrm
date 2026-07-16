@@ -27,6 +27,8 @@ Custom operations are reserved for named workflows and operational state transit
 - A router-global `PRE_HANDLER` hook assigns owners and blocks foreign-owned mutation.
 - `enable` and `disable` are aliases of canonical `update`; table hooks supply the boolean payload.
 - Aggregate root hooks validate and stage child rows around canonical collection CRUD.
+- Credential hooks clear the durable first-login requirement after `change_password` and restore
+  it after administrator `set_password` resets.
 - A router-global `PRE_COMMIT` hook stages redacted audit events in the same transaction.
 - A router-global `POST_COMMIT` hook reconciles Nginx only for configuration-affecting tables.
 - Compatibility routes bind transport inputs to table operations and never select, flush, or commit.

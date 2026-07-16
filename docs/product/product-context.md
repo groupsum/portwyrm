@@ -6,9 +6,10 @@ Review date: 2026-07-13
 
 ## Outcome
 
-Portwyrm replaces Nginx Proxy Manager with a self-hosted Python control plane, operator UI,
-Nginx data plane, and published OCI image. It must support a zero-touch npmctl cutover while
-providing a cleaner native API and extensible persistence architecture.
+Portwyrm replaces Nginx Proxy Manager with a self-hosted Python control plane whose built-in UI
+is the operator interface, a separate Nginx data plane, and a published OCI image. It must
+support a zero-touch npmctl cutover while providing a cleaner native API and extensible
+persistence architecture.
 
 The first MVP is the generally available `1.0.0`. Its boundary is p100 of the frozen NPM
 compatibility profiles and the additional capabilities explicitly requested by Groupsum.

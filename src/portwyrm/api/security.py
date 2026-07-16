@@ -33,6 +33,7 @@ def _snapshot(principal: SecurityPrincipal) -> dict[str, Any]:
         "email": principal.identity,
         "display_name": principal.display_name,
         "is_admin": principal.is_admin,
+        "must_change_password": principal.must_change_password,
         "permissions": dict(principal.permissions),
         "scopes": sorted(principal.scopes),
         "visibility": principal.visibility,
@@ -177,10 +178,17 @@ class TableIdentity:
 class PrincipalSecurityDependency(HTTPBearer):
     """HTTP bearer/cookie security dependency that returns a table schema."""
 
-    def __init__(self, identity: Any, *, mfa_only: bool = False) -> None:
+    def __init__(
+        self,
+        identity: Any,
+        *,
+        mfa_only: bool = False,
+        allow_password_change: bool = False,
+    ) -> None:
         super().__init__(auto_error=False, scheme_name="PortwyrmBearer")
         self.identity = identity
         self.mfa_only = mfa_only
+        self.allow_password_change = allow_password_change
 
     async def __call__(self, request: Request) -> SecurityPrincipal:
         credentials = super().__call__(request)
@@ -209,6 +217,11 @@ class PrincipalSecurityDependency(HTTPBearer):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="MFA challenge pending"
             )
+        if principal.must_change_password and not self.allow_password_change:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="password change required",
+            )
         return principal
 
 
@@ -218,6 +231,10 @@ class TableSecurityDependencies:
     def __init__(self, identity: Any) -> None:
         self.principal = PrincipalSecurityDependency(identity)
         self.mfa_principal = PrincipalSecurityDependency(identity, mfa_only=True)
+        self.password_change_principal = PrincipalSecurityDependency(
+            identity,
+            allow_password_change=True,
+        )
 
 
 __all__ = [

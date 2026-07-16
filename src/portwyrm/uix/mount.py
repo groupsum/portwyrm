@@ -1,4 +1,4 @@
-"""No-build operator UI mounting helpers."""
+"""No-build control-plane UI mounting helpers."""
 
 from importlib.resources import files
 

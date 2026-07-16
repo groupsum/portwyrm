@@ -11,8 +11,8 @@ The complete table inventory and operation ownership are defined in
 [Tigrbl data model](tigrbl-data-model.md).
 
 ```text
-NPM/npmctl API             Native API             Operator UIX
-       \                       |                       /
+NPM/npmctl API        Native API + built-in control-plane UIX
+       \                            /
                  terse Tigrbl app/router composition
                                 |
        table schemas + builtin CRUD + narrow custom operations
@@ -110,6 +110,8 @@ recovery remains the encrypted database-plus-filesystem bundle described in the 
 ## Container topology
 
 One immutable OCI image contains the Python application, UIX assets, Nginx, ACME tools, and a
-minimal signal-forwarding supervisor. It exposes `80`, `443`, and compatibility admin port `81`;
-database state and certificate material use separate durable mounts. Releases target amd64/arm64
-and include Compose profiles, SBOM, provenance, vulnerability results, and signatures.
+minimal signal-forwarding supervisor. Port `81` is the control-plane surface and serves both the
+administration APIs and the sole built-in UI at `/ui/`. Ports `80` and `443` are exclusively the
+Nginx data plane for configured proxy traffic. Database state and certificate material use
+separate durable mounts. Releases target amd64/arm64 and include Compose profiles, SBOM,
+provenance, vulnerability results, and signatures.

@@ -55,12 +55,19 @@ class TableResources:
             user_id=payload["principal_id"],
             identity=payload["email"],
             is_admin=bool(payload["is_admin"]),
+            must_change_password=bool(payload.get("must_change_password")),
             permissions=dict(payload.get("permissions") or {}),
             visibility="all" if payload["is_admin"] else "user",
             scopes=frozenset(payload.get("scopes") or {"user"}),
         )
 
-    async def bootstrap_admin(self, email: str, password: str) -> Resource:
+    async def bootstrap_admin(
+        self,
+        email: str,
+        password: str,
+        *,
+        must_change_password: bool = False,
+    ) -> Resource:
         return await self.create_resource(
             "users",
             {
@@ -69,6 +76,7 @@ class TableResources:
                 "name": "Administrator",
                 "nickname": "admin",
                 "is_admin": True,
+                "must_change_password": must_change_password,
                 "roles": ["admin"],
                 "permissions": {},
                 "visibility": "all",
@@ -134,6 +142,7 @@ class TableResources:
                     "display_name": candidate.get("name", candidate.get("display_name", "")),
                     "nickname": candidate.get("nickname", ""),
                     "is_admin": bool(candidate.get("is_admin")),
+                    "must_change_password": bool(candidate.get("must_change_password")),
                     "roles": candidate.get("roles") or [],
                     "permissions": candidate.get("permissions") or {},
                     "metadata_json": {"compat": candidate},
@@ -361,6 +370,7 @@ class TableResources:
                     "name": row.get("display_name", ""),
                     "nickname": row.get("nickname", ""),
                     "is_admin": bool(row.get("is_admin")),
+                    "must_change_password": bool(row.get("must_change_password")),
                     "is_disabled": bool(row.get("is_disabled")),
                     "is_deleted": bool(row.get("is_deleted")),
                     "visibility": row.get("visibility", "user"),

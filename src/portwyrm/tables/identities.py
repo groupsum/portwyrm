@@ -86,6 +86,7 @@ class PrincipalStore(ManagedPortwyrmTable):
     display_name = acol(String(255), nullable=False, default="")
     nickname = acol(String(255), nullable=False, default="")
     is_admin = acol(Boolean, nullable=False, default=False)
+    must_change_password = acol(Boolean, nullable=False, default=False)
     is_disabled = acol(Boolean, nullable=False, default=False)
     is_deleted = acol(Boolean, nullable=False, default=False)
     visibility = acol(String(32), nullable=False, default="user")
@@ -97,6 +98,7 @@ class PrincipalStore(ManagedPortwyrmTable):
         display_name: str = ""
         nickname: str = ""
         is_admin: bool = False
+        must_change_password: bool = False
         roles: list[str] = Field(default_factory=list)
         permissions: dict[str, Any] = Field(default_factory=dict)
         metadata_json: dict[str, Any] = Field(default_factory=dict)
@@ -115,6 +117,7 @@ class PrincipalStore(ManagedPortwyrmTable):
         identity: str
         display_name: str = ""
         is_admin: bool = False
+        must_change_password: bool = False
         permissions: dict[str, PermissionGrant] = Field(default_factory=dict)
         visibility: Literal["all", "user"] = "user"
         scopes: frozenset[str] = Field(default_factory=lambda: frozenset({"user"}))
@@ -170,6 +173,7 @@ class PrincipalStore(ManagedPortwyrmTable):
             display_name=str(payload.get("display_name") or ""),
             nickname=str(payload.get("nickname") or ""),
             is_admin=bool(payload.get("is_admin")),
+            must_change_password=bool(payload.get("must_change_password")),
             is_disabled=False,
             is_deleted=False,
             visibility="all" if payload.get("is_admin") else "user",
@@ -214,6 +218,7 @@ class PrincipalStore(ManagedPortwyrmTable):
             "display_name": principal.display_name,
             "nickname": principal.nickname,
             "is_admin": bool(principal.is_admin),
+            "must_change_password": bool(principal.must_change_password),
             "is_disabled": bool(principal.is_disabled),
             "is_deleted": bool(principal.is_deleted),
             "visibility": principal.visibility,
@@ -293,6 +298,7 @@ class PrincipalStore(ManagedPortwyrmTable):
             "identity": principal.email,
             "display_name": principal.display_name,
             "is_admin": bool(principal.is_admin),
+            "must_change_password": bool(principal.must_change_password),
             "permissions": authorization["permissions"],
             "visibility": "all" if principal.visibility == "all" else "user",
             "scopes": list(payload.get("scopes") or ["user"]),
@@ -307,6 +313,7 @@ class PrincipalStore(ManagedPortwyrmTable):
             "email": principal.email,
             "display_name": principal.display_name,
             "is_admin": bool(principal.is_admin),
+            "must_change_password": bool(principal.must_change_password),
             "permissions": authorization["permissions"],
             "roles": authorization["roles"],
             "scopes": ["user"],

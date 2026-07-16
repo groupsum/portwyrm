@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from portwyrm.domain.ownership import Ownership
@@ -387,6 +389,21 @@ async def reconcile_committed_change(ctx: dict[str, Any]) -> None:
             logger.exception("post-commit reconciliation failed for %s", collection)
 
 
+async def remove_consumed_bootstrap_credentials(ctx: dict[str, Any]) -> None:
+    """Discard the one-time bootstrap secret after its password change commits."""
+
+    if _table_name(ctx) != "credentials" or _alias(ctx) != "change_password":
+        return
+    configured = os.getenv("PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE")
+    if not configured:
+        return
+    path = Path(configured)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("failed to remove consumed bootstrap credential file")
+
+
 def configure_lifecycle_runtime(provider: Callable[[], Any]) -> None:
     """Bind the active runtime controller used by the global post-commit hook."""
 
@@ -407,7 +424,7 @@ def global_hooks() -> dict[str, dict[str, list[Callable[..., Any]]]]:
             ],
             "POST_HANDLER": [enforce_visibility],
             "PRE_COMMIT": [audit_mutation],
-            "POST_COMMIT": [reconcile_committed_change],
+            "POST_COMMIT": [reconcile_committed_change, remove_consumed_bootstrap_credentials],
         }
     }
 

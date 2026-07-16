@@ -16,6 +16,15 @@ test('login and authenticated operator surfaces pass automated WCAG checks', asy
   await page.getByLabel('Email').fill('accessibility@example.test');
   await page.getByLabel('Password').fill('Accessibility-Test-Password-123!');
   await page.getByRole('button', { name: /create administrator|sign in/i }).click();
+  await expect(page.getByRole('heading', { name: 'Change the temporary password' })).toBeVisible();
+  await assertNoAxeViolations(page, 'forced password change');
+  await page.getByLabel('Current password').fill('Accessibility-Test-Password-123!');
+  await page.getByLabel('New password', { exact: true }).fill('Accessibility-Private-Password-456!');
+  await page.getByLabel('Confirm new password').fill('Accessibility-Private-Password-456!');
+  await page.getByRole('button', { name: 'Change password' }).click();
+  await expect(page.getByText('Password changed. Sign in with your new password.')).toBeVisible();
+  await page.getByLabel('Password').fill('Accessibility-Private-Password-456!');
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Proxy Workspace Overview' })).toBeVisible();
 
   for (const route of ['overview', 'hosts', 'certificates', 'access-lists', 'users', 'audit', 'settings']) {

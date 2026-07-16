@@ -6,7 +6,7 @@ import asyncio
 import inspect
 from typing import Any
 
-from tigrbl import op_ctx, schema_ctx
+from tigrbl import hook_ctx, op_ctx, schema_ctx
 from tigrbl.types import BaseModel, Field, ForeignKey, Integer, Text, UniqueConstraint
 
 from portwyrm.identity.passwords import hash_secret, verify_secret
@@ -40,6 +40,7 @@ class CredentialStore(PortwyrmTable):
         email: str
         display_name: str
         is_admin: bool
+        must_change_password: bool = False
         permissions: dict[str, Any] = Field(default_factory=dict)
         roles: list[str] = Field(default_factory=list)
         scopes: list[str] = Field(default_factory=lambda: ["user"])
@@ -88,11 +89,14 @@ class CredentialStore(PortwyrmTable):
         payload = dict(ctx.get("payload") or {})
         credential = await cls._for_principal(ctx["db"], int(payload["principal_id"]))
         old_password = str(payload.get("old_password") or "")
+        new_password = str(payload.get("new_password") or "")
         if credential is None or not await asyncio.to_thread(
             verify_secret, credential.password_hash, old_password
         ):
             raise ValueError("current password is invalid")
-        await cls._replace_password(credential, str(payload.get("new_password") or ""))
+        if new_password == old_password:
+            raise ValueError("new password must differ from the current password")
+        await cls._replace_password(credential, new_password)
         return {"changed": True, "principal_id": credential.principal_id}
 
     @op_ctx(alias="set_password", target="custom", arity="collection")
@@ -103,6 +107,28 @@ class CredentialStore(PortwyrmTable):
             raise ValueError("principal credential does not exist")
         await cls._replace_password(credential, str(payload.get("new_password") or ""))
         return {"changed": True, "principal_id": credential.principal_id}
+
+    @hook_ctx(ops="change_password", phase="POST_HANDLER")
+    async def clear_password_change_requirement(cls, ctx: dict[str, Any]) -> None:
+        """Complete the forced-change lifecycle in the operation transaction."""
+
+        from .identities import PrincipalStore
+
+        principal_id = int((ctx.get("payload") or {})["principal_id"])
+        principal = await _await(ctx["db"].get(PrincipalStore, principal_id))
+        if principal is not None:
+            principal.must_change_password = False
+
+    @hook_ctx(ops="set_password", phase="POST_HANDLER")
+    async def require_password_change_after_reset(cls, ctx: dict[str, Any]) -> None:
+        """Require recipients of an administrator reset to choose their own secret."""
+
+        from .identities import PrincipalStore
+
+        principal_id = int((ctx.get("payload") or {})["principal_id"])
+        principal = await _await(ctx["db"].get(PrincipalStore, principal_id))
+        if principal is not None:
+            principal.must_change_password = True
 
     @classmethod
     async def _for_principal(cls, db: Any, principal_id: int) -> Any:

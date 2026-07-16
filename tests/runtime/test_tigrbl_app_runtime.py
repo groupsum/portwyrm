@@ -7,6 +7,7 @@ from pathlib import Path
 from tigrbl.factories.engine import sqlitef
 
 from portwyrm.api import create_app
+from portwyrm.api.app import _load_or_create_bootstrap_credentials
 from portwyrm.config import PortwyrmSettings
 from portwyrm.runtime.bootstrap import seed_demo_proxy_host
 from tests.support import TestClient
@@ -119,6 +120,74 @@ def test_setup_login_and_proxy_host_crud_use_composed_tigrbl_app() -> None:
     status = client.get("/api/v2/system/status", headers=headers).json()
     assert status["components"]["nginx"]["status"] == "disabled"
     assert "active_generation" in status["components"]["nginx"]
+
+
+def test_generated_bootstrap_credentials_are_unique_to_the_deployment(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    credential_file = tmp_path / "bootstrap-admin.json"
+    monkeypatch.setenv("PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE", str(credential_file))
+    settings = PortwyrmSettings(backend="memory", data_root=tmp_path)
+    first = _load_or_create_bootstrap_credentials(settings)
+    second = _load_or_create_bootstrap_credentials(settings)
+    assert first == second
+    assert first[0] == "admin@example.com"
+    assert len(first[1]) >= 24
+    assert first[1] != "changeme"
+
+
+def test_bootstrap_admin_must_change_password_before_control_plane_access(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    credential_file = tmp_path / "bootstrap-admin.json"
+    credential_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE", str(credential_file))
+    app = create_app(settings=PortwyrmSettings(backend="memory"))
+    asyncio.run(
+        app.state.control_plane.bootstrap_admin(
+            "admin@example.com",
+            "one-time-password",
+            must_change_password=True,
+        )
+    )
+    client = TestClient(app)
+
+    login = client.post(
+        "/api/v2/browser/login",
+        json={"identity": "admin@example.com", "secret": "one-time-password"},
+    )
+    assert login.status_code == 200
+    assert login.json()["result"]["must_change_password"] is True
+    blocked = client.get("/api/v2/system/status")
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "password change required"
+
+    csrf = client.cookies.get("portwyrm_csrf")
+    assert csrf is not None
+    changed = client.post(
+        "/api/v2/browser/password",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "current_password": "one-time-password",
+            "new_password": "private-administrator-password",
+        },
+    )
+    assert changed.status_code == 204, changed.text
+    assert not credential_file.exists()
+    assert (
+        client.post(
+            "/api/v2/browser/login",
+            json={"identity": "admin@example.com", "secret": "one-time-password"},
+        ).status_code
+        == 401
+    )
+    relogin = client.post(
+        "/api/v2/browser/login",
+        json={"identity": "admin@example.com", "secret": "private-administrator-password"},
+    )
+    assert relogin.status_code == 200
+    assert relogin.json()["result"]["must_change_password"] is False
+    assert client.get("/api/v2/system/status").status_code == 200
 
 
 def test_export_and_preview_are_table_backed_and_checksummed() -> None:

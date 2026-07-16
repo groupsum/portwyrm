@@ -22,6 +22,8 @@ ENV PYTHONUNBUFFERED=1 \
     PORTWYRM_NGINX_ROOT=/data/nginx \
     PORTWYRM_CERTIFICATE_ROOT=/etc/letsencrypt/live \
     PORTWYRM_ACME_WEBROOT=/data/acme-challenge \
+    PORTWYRM_AUTO_BOOTSTRAP_ADMIN=1 \
+    PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE=/data/bootstrap-admin.json \
     PORTWYRM_SECURE_COOKIES=1
 
 VOLUME ["/data", "/etc/letsencrypt"]

@@ -6,6 +6,9 @@ def test_container_distribution_declares_runtime_and_health_contract() -> None:
     assert "HEALTHCHECK" in dockerfile
     assert "EXPOSE 80 81 443" in dockerfile
     assert '"pip==26.1.2"' in dockerfile
+    assert "PORTWYRM_AUTO_BOOTSTRAP_ADMIN=1" in dockerfile
+    assert "PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE=/data/bootstrap-admin.json" in dockerfile
+    assert "PORTWYRM_INITIAL_ADMIN_PASSWORD=" not in dockerfile
     assert 'ENTRYPOINT ["python", "/app/deploy/entrypoint.py"]' in dockerfile
 
 

@@ -275,6 +275,8 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             "INITIAL_ADMIN_EMAIL=admin@example.test",
             "-e",
             "INITIAL_ADMIN_PASSWORD=correct-password",
+            "-e",
+            "PORTWYRM_INITIAL_ADMIN_REQUIRE_PASSWORD_CHANGE=0",
             image,
         )
         stack.callback(lambda: _docker("rm", "-f", container, check=False))
@@ -285,6 +287,16 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
         udp_port = 19092 if linux_host_network else _published_port(container, "19092/udp")
         upstream_host = "127.0.0.1" if linux_host_network else "host.docker.internal"
         _wait_ready(api_port, container)
+        control_ui = _http(api_port, "127.0.0.1", "/ui/")
+        assert control_ui[0] == 200
+        assert b"Portwyrm Control Plane" in control_ui[2]
+        data_plane_ui = _wait_http(
+            http_port,
+            "127.0.0.1",
+            "/ui/",
+            lambda result: result[0] in {200, 301, 302, 307, 308, 404},
+        )
+        assert b"Portwyrm Control Plane" not in data_plane_ui[2]
         login = _json_request(
             f"http://127.0.0.1:{api_port}/api/tokens",
             method="POST",

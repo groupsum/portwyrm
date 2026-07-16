@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import logging
 import os
+import secrets
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -28,6 +31,8 @@ from portwyrm.tables import (
 from portwyrm.tables.lifecycle import configure_lifecycle_runtime
 from portwyrm.uix import mount_uix
 
+logger = logging.getLogger(__name__)
+
 
 def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None = None) -> TigrblApp:
     """Compose tables, frozen compatibility routes, native routes, and UIX."""
@@ -47,17 +52,28 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
                     {"diagnostic": f"{type(exc).__name__}: {exc}"}
                 )
                 raise
-        email = os.getenv("PORTWYRM_INITIAL_ADMIN_EMAIL") or os.getenv("INITIAL_ADMIN_EMAIL")
-        password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv(
-            "INITIAL_ADMIN_PASSWORD"
-        )
-        if (
-            email
-            and password
-            and resources is not None
-            and not await resources.list_resources("users")
-        ):
-            await resources.bootstrap_admin(email, password)
+        if resources is not None and not await resources.list_resources("users"):
+            email = os.getenv("PORTWYRM_INITIAL_ADMIN_EMAIL") or os.getenv("INITIAL_ADMIN_EMAIL")
+            password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv(
+                "INITIAL_ADMIN_PASSWORD"
+            )
+            auto_bootstrap = os.getenv("PORTWYRM_AUTO_BOOTSTRAP_ADMIN", "0").casefold() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            if auto_bootstrap and not (email and password):
+                email, password = _load_or_create_bootstrap_credentials(settings, email=email)
+            if email and password:
+                require_change = os.getenv(
+                    "PORTWYRM_INITIAL_ADMIN_REQUIRE_PASSWORD_CHANGE", "1"
+                ).casefold() in {"1", "true", "yes", "on"}
+                await resources.bootstrap_admin(
+                    email,
+                    password,
+                    must_change_password=require_change,
+                )
         if runtime is not None:
             await runtime.reconcile()
         yield
@@ -108,6 +124,40 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
     mount_uix(app)
     app.initialize(tables=PORTWYRM_TABLES)
     return app
+
+
+def _load_or_create_bootstrap_credentials(
+    settings: PortwyrmSettings,
+    *,
+    email: str | None = None,
+) -> tuple[str, str]:
+    """Create deployment-specific first-login credentials and reveal them once."""
+
+    path = Path(
+        os.getenv(
+            "PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE",
+            str(settings.data_root / "bootstrap-admin.json"),
+        )
+    )
+    if path.exists():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return str(payload["email"]), str(payload["password"])
+    resolved_email = str(email or "admin@example.com").strip().casefold()
+    password = secrets.token_urlsafe(24)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"email": resolved_email, "password": password}) + "\n",
+        encoding="utf-8",
+    )
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
+    logger.warning(
+        "Portwyrm one-time administrator credentials: email=%s password=%s; "
+        "a password change is required at first login",
+        resolved_email,
+        password,
+    )
+    return resolved_email, password
 
 
 def status_payload(backend: str, runtime: TableRuntimeController | None = None) -> dict[str, Any]:

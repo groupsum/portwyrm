@@ -38,6 +38,7 @@ states so failure is visible and recoverable.
 | Error | specific cause, retry, correlation ID, and retained input |
 | Read-only | show fields; explain unavailable actions |
 | Hidden | deny navigation and direct routes without count/metadata leakage |
+| Password change required | show only current/new/confirmation fields; deny every other authenticated control-plane operation until the change commits |
 | Saving | prevent duplicates and announce progress |
 | Saved/pending | show desired generation and reconciliation job |
 | Success | show resource ID, applied generation, and next action |

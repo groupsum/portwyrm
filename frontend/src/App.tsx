@@ -16,30 +16,50 @@ function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [needsMfa, setNeedsMfa] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (busy) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setNotice('');
     try {
-      if (needsMfa) await portwyrmStore.completeMfa(mfaCode);
-      else setNeedsMfa((await portwyrmStore.login(email, password)) === 'mfa');
+      if (portwyrmStore.passwordChangeRequired) {
+        if (newPassword !== confirmPassword) throw new Error('New passwords do not match.');
+        await portwyrmStore.changeBootstrapPassword(password, newPassword);
+        setPassword(''); setNewPassword(''); setConfirmPassword('');
+        setNotice('Password changed. Sign in with your new password.');
+      } else if (needsMfa) {
+        const outcome = await portwyrmStore.completeMfa(mfaCode);
+        if (outcome === 'password') setNeedsMfa(false);
+      } else {
+        const outcome = await portwyrmStore.login(email, password);
+        setNeedsMfa(outcome === 'mfa');
+      }
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Authentication failed'); }
     finally { setBusy(false); }
   };
+
+  const forcePasswordChange = portwyrmStore.passwordChangeRequired;
+  const heading = forcePasswordChange ? 'Change the temporary password' : portwyrmStore.setupRequired ? 'Create administrator' : needsMfa ? 'Verify sign in' : 'Welcome back';
+  const description = forcePasswordChange ? 'Choose a private password before using the control plane.' : portwyrmStore.setupRequired ? 'Create the first Portwyrm administrator.' : needsMfa ? 'Enter your authenticator or recovery code.' : 'Sign in to manage this self-hosted Portwyrm.';
+  const buttonLabel = forcePasswordChange ? 'Change password' : portwyrmStore.setupRequired ? 'Create administrator' : needsMfa ? 'Verify' : 'Sign in';
 
   return (
     <main className="min-h-screen bg-slate-50 dark:bg-zinc-950 grid place-items-center p-4 text-slate-900 dark:text-zinc-100">
       <form onSubmit={submit} aria-busy={busy} className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-xl p-7 space-y-5">
         <div className="flex items-center gap-3"><div className="p-2.5 rounded-xl bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900"><Globe className="h-6 w-6" /></div><div><h1 className="font-extrabold text-xl">Portwyrm</h1><p className="text-xs text-slate-500 dark:text-zinc-400">Reverse Proxy Plane</p></div></div>
-        <div><h2 className="font-extrabold text-2xl">{portwyrmStore.setupRequired ? 'Create administrator' : needsMfa ? 'Verify sign in' : 'Welcome back'}</h2><p className="text-sm text-slate-500 mt-1">{portwyrmStore.setupRequired ? 'Create the first Portwyrm administrator.' : needsMfa ? 'Enter your authenticator or recovery code.' : 'Sign in to manage this self-hosted Portwyrm.'}</p></div>
-        {!needsMfa && <><label className="block text-xs font-bold">Email<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label><label className="block text-xs font-bold">Password<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" type="password" minLength={8} autoComplete={portwyrmStore.setupRequired ? 'new-password' : 'current-password'} required value={password} onChange={event => setPassword(event.target.value)} /></label></>}
+        <div><h2 className="font-extrabold text-2xl">{heading}</h2><p className="text-sm text-slate-500 mt-1">{description}</p></div>
+        {!needsMfa && !forcePasswordChange && <><label className="block text-xs font-bold">Email<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label><label className="block text-xs font-bold">Password<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" type="password" minLength={8} autoComplete={portwyrmStore.setupRequired ? 'new-password' : 'current-password'} required value={password} onChange={event => setPassword(event.target.value)} /></label></>}
+        {forcePasswordChange && <><label className="block text-xs font-bold">Current password<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label><label className="block text-xs font-bold">New password<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" type="password" minLength={8} autoComplete="new-password" required value={newPassword} onChange={event => setNewPassword(event.target.value)} /></label><label className="block text-xs font-bold">Confirm new password<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" type="password" minLength={8} autoComplete="new-password" required value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label></>}
         {needsMfa && <label className="block text-xs font-bold">Authentication code<input className="mt-1.5 w-full p-3 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950" inputMode="numeric" autoComplete="one-time-code" required value={mfaCode} onChange={event => setMfaCode(event.target.value)} /></label>}
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        <button disabled={busy} className="w-full py-3 rounded-xl bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold flex justify-center gap-2">{busy && <LoaderCircle className="h-5 w-5 animate-spin" />}{busy ? 'Working…' : portwyrmStore.setupRequired ? 'Create administrator' : needsMfa ? 'Verify' : 'Sign in'}</button>
+        {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}
+        <button disabled={busy} className="w-full py-3 rounded-xl bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-bold flex justify-center gap-2">{busy && <LoaderCircle className="h-5 w-5 animate-spin" />}{busy ? 'Working…' : buttonLabel}</button>
       </form>
     </main>
   );

@@ -8,8 +8,11 @@ services:
       PORTWYRM_SQLITE_PATH: /data/portwyrm.sqlite
       PORTWYRM_DEMO_HOST: demo.portwyrm.localhost
     ports:
+      # Nginx proxy data plane.
       - "80:80"
+      # Control-plane APIs and the sole built-in UI at /ui/.
       - "81:81"
+      # Nginx TLS proxy data plane.
       - "443:443"
     volumes:
       - portwyrm-data:/data

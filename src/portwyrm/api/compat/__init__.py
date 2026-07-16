@@ -88,6 +88,7 @@ def create_compat_app(
     security_dependencies = TableSecurityDependencies(token_store)
     principal_from_bearer = security_dependencies.principal
     principal_from_mfa_bearer = security_dependencies.mfa_principal
+    principal_for_password_change = security_dependencies.password_change_principal
     mfa = mfa or TableMFA(app)
     app.state.control_plane = service
     app.state.token_store = token_store
@@ -216,6 +217,7 @@ def create_compat_app(
             "result": {
                 "token": browser_token,
                 "expires": expires,
+                "must_change_password": browser_principal.must_change_password,
                 **({"scope": "mfa"} if browser_principal.scopes == frozenset({"mfa"}) else {}),
             }
         }
@@ -233,7 +235,39 @@ def create_compat_app(
         await _identity_call(token_store.revoke_session, api_token)
         browser_token, expires = await _identity_call(token_store.issue_session, browser_principal)
         _set_browser_cookies(response, browser_token)
-        return {"result": {"token": browser_token, "expires": expires, "scope": "user"}}
+        return {
+            "result": {
+                "token": browser_token,
+                "expires": expires,
+                "scope": "user",
+                "must_change_password": browser_principal.must_change_password,
+            }
+        }
+
+    @app.post("/api/v2/browser/password", status_code=status.HTTP_204_NO_CONTENT)
+    async def change_bootstrap_password(
+        payload: dict[str, Any],
+        response: Response,
+        request: Request,
+        principal: Principal = Depends(principal_for_password_change),
+    ) -> None:
+        if not principal.must_change_password:
+            raise HTTPException(status_code=409, detail="password change is not required")
+        current = payload.get("current_password")
+        password = payload.get("new_password")
+        if not isinstance(current, str) or not isinstance(password, str):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="current and new passwords are required",
+            )
+        changer = getattr(service, "change_password", None)
+        if changer is None:
+            raise HTTPException(status_code=501, detail="password management unavailable")
+        await _maybe_await(changer(principal.user_id, current, password))
+        session_cookie = request.cookies.get("portwyrm_session")
+        if session_cookie:
+            await _identity_call(token_store.revoke_session, session_cookie)
+        _expire_browser_cookies(response)
 
     @app.delete("/api/v2/browser/session", status_code=status.HTTP_204_NO_CONTENT)
     async def browser_logout(
@@ -868,6 +902,7 @@ def _as_principal(value: Principal | Mapping[str, Any], *, fallback_identity: st
         user_id=cast(int | str, value.get("id", value.get("user_id", fallback_identity))),
         identity=str(value.get("identity", value.get("email", fallback_identity))).lower(),
         is_admin=bool(value.get("is_admin", value.get("admin", False))),
+        must_change_password=bool(value.get("must_change_password", False)),
         permissions=cast(dict[str, Any], normalized_permissions),
         visibility="all" if value.get("visibility") == "all" else "user",
         owner=str(value["owner"]) if value.get("owner") is not None else None,

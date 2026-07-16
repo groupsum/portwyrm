@@ -142,6 +142,7 @@ export class PortwyrmStore {
   health: SystemHealth = {nginxState: 'Stopped', activeConnections: null, reading: null, writing: null, waiting: null, version: '-', databaseBackend: '-', currentGeneration: null, driftDetected: false, pendingApplies: 0, schedulerState: 'Idling'};
   authenticated = false;
   setupRequired = false;
+  passwordChangeRequired = false;
   loading = true;
   error = '';
   private currentUser: User | null = null;
@@ -166,13 +167,26 @@ export class PortwyrmStore {
     finally { this.loading = false; this.emit(); }
   }
 
-  async login(email: string, password: string): Promise<'ok' | 'mfa'> {
+  async login(email: string, password: string): Promise<'ok' | 'mfa' | 'password'> {
     if (this.setupRequired) await api('/api/setup', {method: 'POST', body: JSON.stringify({email, password})});
     const result = await api('/api/v2/browser/login', {method: 'POST', body: JSON.stringify({identity: email, secret: password, scope: 'user'})});
     if (result.result?.scope === 'mfa') return 'mfa';
+    if (result.result?.must_change_password) {
+      this.setupRequired = false; this.passwordChangeRequired = true; this.emit(); return 'password';
+    }
     this.setupRequired = false; this.authenticated = true; await this.initialize(); return 'ok';
   }
-  async completeMfa(code: string): Promise<void> { await api('/api/v2/browser/2fa', {method: 'POST', body: JSON.stringify({code})}); this.authenticated = true; await this.initialize(); }
+  async completeMfa(code: string): Promise<'ok' | 'password'> {
+    const result = await api('/api/v2/browser/2fa', {method: 'POST', body: JSON.stringify({code})});
+    if (result.result?.must_change_password) {
+      this.passwordChangeRequired = true; this.emit(); return 'password';
+    }
+    this.authenticated = true; await this.initialize(); return 'ok';
+  }
+  async changeBootstrapPassword(currentPassword: string, newPassword: string): Promise<void> {
+    await api('/api/v2/browser/password', {method: 'POST', body: JSON.stringify({current_password: currentPassword, new_password: newPassword})});
+    this.passwordChangeRequired = false; this.authenticated = false; this.currentUser = null; this.emit();
+  }
   async signOut(): Promise<void> { await api('/api/v2/browser/session', {method: 'DELETE'}); this.authenticated = false; this.currentUser = null; this.emit(); }
 
   async updateMyAccount(data: Json): Promise<void> {
