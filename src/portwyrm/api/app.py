@@ -25,6 +25,7 @@ from portwyrm.tables import (
     GenerationStore,
     MFAEnrollmentStore,
 )
+from portwyrm.tables.lifecycle import configure_lifecycle_runtime
 from portwyrm.uix import mount_uix
 
 
@@ -100,9 +101,9 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
             validate=settings.nginx_validate,
             reload=settings.nginx_reload,
         )
-        resources.after_change = runtime.changed
     GenerationStore.configure_runtime(runtime)
     app.state.runtime = runtime
+    configure_lifecycle_runtime(lambda: app.state.runtime)
     app.include_router(create_native_router(resources, settings.backend))
     mount_uix(app)
     app.initialize(tables=PORTWYRM_TABLES)

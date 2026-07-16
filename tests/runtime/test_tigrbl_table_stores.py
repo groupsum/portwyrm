@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import tempfile
+import os
 from pathlib import Path
 
 import pytest
@@ -24,9 +24,12 @@ from portwyrm.tables import (
     RuntimeAccessList,
     StreamRouteStore,
 )
+from portwyrm.tables.lifecycle import global_hooks
 
 _SHARED_APP: TigrblApp | None = None
-_TEST_ROOT = Path(tempfile.mkdtemp(prefix="portwyrm-tables-", dir=".tmp"))
+_TEST_ROOT = Path(f".pytest-tmp-table-stores-{os.getpid()}").resolve()
+_TEST_ROOT.mkdir(exist_ok=True)
+_TEST_DATABASE = _TEST_ROOT / "tables.sqlite"
 
 
 async def _app() -> TigrblApp:
@@ -34,7 +37,9 @@ async def _app() -> TigrblApp:
     if _SHARED_APP is not None:
         return _SHARED_APP
     app = TigrblApp(
-        engine=sqlitef(str(_TEST_ROOT / "tables.sqlite"), async_=False), mount_system=False
+        engine=sqlitef(str(_TEST_DATABASE), async_=False),
+        mount_system=False,
+        router_hooks=global_hooks(),
     )
     app.include_tables(PORTWYRM_TABLES)
     initialized = app.initialize(tables=PORTWYRM_TABLES)
@@ -74,12 +79,9 @@ def test_custom_schema_exports_are_owned_by_tables() -> None:
 
 
 def test_routing_tables_expose_runtime_and_validation_operations() -> None:
-    assert {"runtime_list", "runtime_read", "validate"} <= set(
-        RoutingHostStore.ops.by_alias
-    )
-    assert {"runtime_list", "runtime_read", "validate"} <= set(
-        StreamRouteStore.ops.by_alias
-    )
+    expected = {"runtime_list", "runtime_read", "validate"}
+    assert expected <= {spec.alias for spec in RoutingHostStore.__tigrbl_ops__}
+    assert expected <= {spec.alias for spec in StreamRouteStore.__tigrbl_ops__}
 
 
 async def _routing_validation_contracts() -> None:
@@ -399,7 +401,16 @@ async def _compatibility_projection_lifecycle() -> None:
     upstreams = await app.core.RoutingUpstreamStore.list({})
     assert any(row["routing_host_id"] == host["id"] and row["port"] == 9090 for row in upstreams)
     assert await resources.delete_resource("proxy_hosts", host["id"])
-    assert len(await resources.list_audit()) == audit_count + 6
+    new_events = (await resources.list_audit())[audit_count:]
+    root_events = {(event["object_type"], event["action"]) for event in new_events}
+    assert {
+        ("principals", "register"),
+        ("access_lists", "created"),
+        ("certificates", "created"),
+        ("proxy_hosts", "created"),
+        ("proxy_hosts", "updated"),
+        ("proxy_hosts", "deleted"),
+    } <= root_events
 
 
 def test_npm_projection_is_an_api_adapter_over_table_owned_operations() -> None:

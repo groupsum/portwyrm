@@ -128,8 +128,6 @@ class TableRuntimeController:
     async def _persist(
         self, generation: str, files: dict[str, str], result: ReconcileResult
     ) -> None:
-        rows = await self.resources.app.core.GenerationStore.list({})
-        existing = next((row for row in rows if row["generation"] == generation), None)
         values = {
             "generation": generation,
             "previous_generation": result.previous_generation,
@@ -138,12 +136,7 @@ class TableRuntimeController:
             "is_active": False,
             "diagnostic": result.diagnostic,
         }
-        if existing is None:
-            generation_row = await self.resources.app.core.GenerationStore.create(values)
-        else:
-            generation_row = await self.resources.app.core.GenerationStore.update(
-                {"id": existing["id"], **values}
-            )
+        generation_row = await self.resources.app.core.GenerationStore.record(values)
         if result.applied:
             await self.resources.app.core.GenerationStore.activate({"generation": generation})
         await self.resources.app.core.ReconcileStore.create(

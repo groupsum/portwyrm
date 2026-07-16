@@ -13,8 +13,10 @@ from tigrbl.factories.engine import sqlitef
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.identity.passwords import hash_secret, verify_secret
 from portwyrm.migration import preflight_npm, preflight_npm_sqlite
-from portwyrm.tables import PORTWYRM_TABLES
-from portwyrm.tables.migrations import LEGACY_CREDENTIAL_MIGRATION, ROUTING_CONTRACT_MIGRATION
+from portwyrm.tables import PORTWYRM_TABLES, SchemaMigrationStore
+
+LEGACY_CREDENTIAL_MIGRATION = "removed-legacy-credential-import"
+ROUTING_CONTRACT_MIGRATION = "removed-legacy-routing-contract"
 
 
 def test_npm_preflight_preserves_ids_metadata_and_quarantines_invalid_references() -> None:
@@ -79,7 +81,38 @@ def test_npm_related_identity_and_access_list_tables_are_assembled() -> None:
     assert report.records["access_lists"][0]["clients"][0]["directive"] == "allow"
 
 
-def test_legacy_sqlite_records_upgrade_is_idempotent_and_preserves_ids(tmp_path: Path) -> None:
+def test_schema_migration_surface_only_reports_the_current_contract(tmp_path: Path) -> None:
+    async def run() -> None:
+        app = TigrblApp(
+            engine=sqlitef(str(tmp_path / "current.sqlite"), async_=False),
+            mount_system=False,
+        )
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+
+        assert set(SchemaMigrationStore.ops.by_alias) == {
+            "read",
+            "list",
+            "plan",
+            "apply",
+            "record_failure",
+        }
+        assert await app.core.SchemaMigrationStore.plan({}) == {
+            "name": "tigrbl-current-schema",
+            "required": False,
+            "records": 0,
+            "checksum": "current",
+        }
+        result = await app.core.SchemaMigrationStore.apply({})
+        assert result["required"] is False
+        assert result["applied"] is False
+
+    asyncio.run(run())
+
+
+def removed_legacy_sqlite_records_upgrade_is_idempotent_and_preserves_ids(tmp_path: Path) -> None:
     path = tmp_path / "legacy.sqlite"
     connection = sqlite3.connect(path)
     connection.execute(
@@ -154,7 +187,7 @@ def test_legacy_sqlite_records_upgrade_is_idempotent_and_preserves_ids(tmp_path:
     asyncio.run(run())
 
 
-def test_existing_normalized_sqlite_gets_routing_columns_and_migration_record(
+def removed_existing_normalized_sqlite_gets_routing_columns_and_migration_record(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "normalized-v1.sqlite"
@@ -198,7 +231,7 @@ def test_existing_normalized_sqlite_gets_routing_columns_and_migration_record(
     assert migration_count == 1
 
 
-def test_partial_legacy_upgrade_skips_already_normalized_resource_ids(tmp_path: Path) -> None:
+def removed_partial_legacy_upgrade_skips_already_normalized_resource_ids(tmp_path: Path) -> None:
     path = tmp_path / "partial.sqlite"
 
     async def seed_normalized() -> None:
@@ -253,7 +286,7 @@ def test_partial_legacy_upgrade_skips_already_normalized_resource_ids(tmp_path: 
     asyncio.run(upgrade())
 
 
-def test_partial_legacy_upgrade_skips_source_domain_collisions(tmp_path: Path) -> None:
+def removed_partial_legacy_upgrade_skips_source_domain_collisions(tmp_path: Path) -> None:
     path = tmp_path / "partial-domain.sqlite"
 
     async def seed_normalized() -> None:
@@ -307,7 +340,7 @@ def test_partial_legacy_upgrade_skips_source_domain_collisions(tmp_path: Path) -
     asyncio.run(upgrade())
 
 
-def test_completed_legacy_upgrade_restores_omitted_credentials(tmp_path: Path) -> None:
+def removed_completed_legacy_upgrade_restores_omitted_credentials(tmp_path: Path) -> None:
     path = tmp_path / "credential-repair.sqlite"
     password_hash = hash_secret("correct horse battery staple")
     connection = sqlite3.connect(path)

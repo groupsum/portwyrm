@@ -27,26 +27,4 @@ def extensions(row: Any) -> dict[str, Any]:
     return dict(metadata.get("extensions") or {})
 
 
-async def add_audit(
-    db: Any,
-    *,
-    action: str,
-    object_type: str,
-    object_id: int | str,
-    details: dict[str, Any] | None = None,
-    actor_principal_id: int | None = None,
-) -> None:
-    from .audit import AuditEventStore
-
-    db.add(
-        AuditEventStore(
-            actor_principal_id=actor_principal_id,
-            action=action,
-            object_type=object_type,
-            object_id=str(object_id),
-            details=details or {},
-        )
-    )
-
-
-__all__ = ["add_audit", "extension_metadata", "extensions", "iso"]
+__all__ = ["extension_metadata", "extensions", "iso"]

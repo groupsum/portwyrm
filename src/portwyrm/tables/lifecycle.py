@@ -1,0 +1,380 @@
+"""Application-wide table lifecycle policy."""
+
+from __future__ import annotations
+
+import inspect
+from collections.abc import Callable, Mapping
+from typing import Any
+
+from portwyrm.domain.ownership import Ownership
+from portwyrm.errors import AuthorizationError, OwnershipError
+from portwyrm.identity.permissions import permission_allows
+
+from .audit import AuditEventStore
+
+
+def _no_runtime() -> None:
+    return None
+
+
+_runtime_provider: Callable[[], Any] = _no_runtime
+
+_MUTATIONS = {
+    "create",
+    "update",
+    "replace",
+    "delete",
+    "enable",
+    "disable",
+    "register",
+    "update_identity",
+    "set_authorization",
+    "authenticate",
+    "change_password",
+    "set_password",
+    "issue",
+    "refresh",
+    "revoke",
+    "rotate",
+    "verify",
+    "begin",
+    "enroll",
+    "confirm",
+    "remove",
+    "recover",
+    "regenerate_backup_codes",
+    "record_failure",
+    "record",
+    "apply",
+    "stage",
+    "upload",
+    "request",
+    "renew",
+    "activate",
+    "clear_active",
+    "reconcile",
+    "reload",
+    "acquire",
+    "release",
+}
+_ACTION = {
+    "create": "created",
+    "update": "updated",
+    "replace": "replaced",
+    "delete": "deleted",
+    "enable": "enabled",
+    "disable": "disabled",
+}
+_RECONCILE_TABLES = {
+    "access_lists",
+    "access_rules",
+    "access_list_rules",
+    "access_credentials",
+    "access_list_credentials",
+    "access_principals",
+    "access_list_principals",
+    "certificates",
+    "certificate_domains",
+    "certificate_challenges",
+    "routing_hosts",
+    "routing_sources",
+    "routing_upstreams",
+    "routing_locations",
+    "routing_host_access_lists",
+    "stream_routes",
+    "settings",
+}
+_RECONCILE_COLLECTION = {
+    "access_lists": "access_lists",
+    "access_rules": "access_lists",
+    "access_list_rules": "access_lists",
+    "access_credentials": "access_lists",
+    "access_list_credentials": "access_lists",
+    "access_principals": "access_lists",
+    "access_list_principals": "access_lists",
+    "certificates": "certificates",
+    "certificate_domains": "certificates",
+    "certificate_challenges": "certificates",
+    "stream_routes": "streams",
+    "settings": "settings",
+}
+_SECTION_BY_TABLE = {
+    "access_lists": "access_lists",
+    "certificates": "certificates",
+    "routing_hosts": "proxy_hosts",
+    "stream_routes": "streams",
+}
+_ACTION_BY_ALIAS = {
+    "create": "create",
+    "read": "read",
+    "list": "read",
+    "update": "update",
+    "replace": "update",
+    "enable": "update",
+    "disable": "update",
+    "delete": "delete",
+}
+
+
+async def _await(value: Any) -> Any:
+    return await value if inspect.isawaitable(value) else value
+
+
+async def protect_model_descriptors(ctx: dict[str, Any]) -> None:
+    """Keep Tigrbl's storage preparation from assigning payloads to model classes.
+
+    Canonical handlers receive the validated payload directly and remain responsible
+    for persistence.  The 0.4 runtime otherwise treats the table class passed to its
+    storage atom as a hydrated row and overwrites mapped ``acol`` descriptors before
+    the CRUD handler runs.
+    """
+
+    ctx["persist"] = False
+
+def _alias(ctx: Mapping[str, Any]) -> str:
+    value = ctx.get("op") or ctx.get("alias") or ctx.get("target") or ""
+    return str(getattr(value, "alias", value)).casefold()
+
+
+def _table_name(ctx: Mapping[str, Any]) -> str:
+    model = ctx.get("model") or ctx.get("table")
+    return str(getattr(model, "__tablename__", ""))
+
+
+def _principal_id(ctx: Mapping[str, Any]) -> int | None:
+    principal = ctx.get("principal") or ctx.get("actor")
+    if isinstance(principal, Mapping):
+        value = principal.get("user_id", principal.get("id"))
+    else:
+        value = getattr(principal, "user_id", getattr(principal, "id", None))
+    if value is None and isinstance(ctx.get("payload"), Mapping):
+        payload = ctx["payload"]
+        value = payload.get("principal_id")
+        if value is None and isinstance(payload.get("principal"), Mapping):
+            value = payload["principal"].get("principal_id", payload["principal"].get("id"))
+    if value is None and isinstance(ctx.get("result"), Mapping):
+        value = ctx["result"].get("principal_id")
+    return int(value) if value is not None else None
+
+
+def _principal_value(ctx: Mapping[str, Any], name: str) -> Any:
+    principal = ctx.get("principal") or ctx.get("actor")
+    if isinstance(principal, Mapping):
+        return principal.get(name)
+    return getattr(principal, name, None)
+
+
+def _ownership_from_row(row: Any) -> Ownership | None:
+    metadata = dict(getattr(row, "metadata_json", None) or {})
+    extensions = dict(metadata.get("extensions") or {})
+    meta = extensions.get("meta")
+    return Ownership.from_meta(meta) if isinstance(meta, Mapping) else None
+
+
+async def enforce_ownership(ctx: dict[str, Any]) -> None:
+    """Assign row ownership and reject foreign mutation at the table boundary."""
+
+    alias = _alias(ctx)
+    if alias not in _MUTATIONS:
+        return
+    model = ctx.get("model")
+    payload = ctx.get("payload")
+    if not isinstance(model, type) or not isinstance(payload, dict):
+        return
+    principal_id = _principal_id(ctx)
+    if alias == "create" and principal_id is not None and hasattr(model, "owner_principal_id"):
+        if payload.get("owner_principal_id") is None:
+            payload["owner_principal_id"] = principal_id
+        return
+    resource_id = payload.get("id")
+    if resource_id is None:
+        return
+    row = await _await(ctx["db"].get(model, int(resource_id)))
+    if row is None:
+        return
+    if _table_name(ctx) == "routing_hosts":
+        ctx.setdefault("temp", {})["object_type"] = {
+            "proxy": "proxy_hosts",
+            "redirect": "redirection_hosts",
+            "dead": "dead_hosts",
+        }.get(str(getattr(row, "kind", None)), "routing_hosts")
+    if _principal_value(ctx, "is_admin"):
+        return
+    row_owner = getattr(row, "owner_principal_id", None)
+    if row_owner is not None and principal_id is not None and int(row_owner) != principal_id:
+        raise OwnershipError("foreign-owned resources cannot be mutated")
+    ownership = _ownership_from_row(row)
+    actor_owner = _principal_value(ctx, "owner")
+    if ownership is not None and actor_owner is not None and ownership.owner != actor_owner:
+        raise OwnershipError("foreign npmctl resources require explicit adoption")
+
+
+async def enforce_authorization(ctx: dict[str, Any]) -> None:
+    """Enforce collection permissions for every carrier that supplies a principal."""
+
+    principal = ctx.get("principal") or ctx.get("actor")
+    if principal is None or _principal_value(ctx, "is_admin"):
+        return
+    alias = _alias(ctx)
+    action = _ACTION_BY_ALIAS.get(alias)
+    table_name = _table_name(ctx)
+    if action is None:
+        return
+    if table_name in {"principals", "settings"}:
+        raise AuthorizationError("administrator permission is required")
+    section = _SECTION_BY_TABLE.get(table_name)
+    if section is None:
+        return
+    if table_name == "routing_hosts":
+        payload = ctx.get("payload")
+        kind = payload.get("kind") if isinstance(payload, Mapping) else None
+        if kind is None and isinstance(payload, Mapping) and payload.get("id") is not None:
+            row = await _await(ctx["db"].get(ctx["model"], int(payload["id"])))
+            kind = getattr(row, "kind", None)
+        section = {
+            "redirect": "redirection_hosts",
+            "dead": "dead_hosts",
+        }.get(str(kind), "proxy_hosts")
+    permissions = _principal_value(ctx, "permissions")
+    grant = permissions.get(section, "hidden") if isinstance(permissions, Mapping) else "hidden"
+    if not permission_allows(grant, action):
+        raise AuthorizationError("permission denied")
+
+
+def _visible_to(result: Any, ctx: Mapping[str, Any]) -> bool:
+    if _principal_value(ctx, "is_admin") or _principal_value(ctx, "visibility") == "all":
+        return True
+    principal_id = _principal_id(ctx)
+    if isinstance(result, Mapping):
+        owner = result.get("owner_principal_id", result.get("owner_user_id"))
+    else:
+        owner = getattr(result, "owner_principal_id", None)
+    return owner is None or principal_id is None or int(owner) == principal_id
+
+
+async def enforce_visibility(ctx: dict[str, Any]) -> None:
+    """Apply the same owner visibility policy to every carrier."""
+
+    if _alias(ctx) not in {"read", "list"} or ctx.get("principal") is None:
+        return
+    result = ctx.get("result")
+    if isinstance(result, list):
+        ctx["result"] = [item for item in result if _visible_to(item, ctx)]
+    elif result is not None and not _visible_to(result, ctx):
+        raise LookupError("resource not found")
+
+
+def _object_id(ctx: Mapping[str, Any]) -> str:
+    obj = ctx.get("obj")
+    value = getattr(obj, "id", None)
+    result = ctx.get("result")
+    if value is None:
+        value = result.get("id") if isinstance(result, Mapping) else getattr(result, "id", None)
+    if value is None and isinstance(ctx.get("payload"), Mapping):
+        value = ctx["payload"].get("id", "collection")
+    return str(value if value is not None else "collection")
+
+
+def _details(ctx: Mapping[str, Any]) -> dict[str, Any]:
+    payload = dict(ctx.get("payload") or {})
+    for secret in {
+        "password",
+        "old_password",
+        "new_password",
+        "secret",
+        "token",
+        "private_key",
+        "certificate",
+        "certificate_key",
+    }:
+        if secret in payload:
+            payload[secret] = "[redacted]"
+    return payload
+
+
+def _object_type(ctx: Mapping[str, Any]) -> str:
+    table_name = _table_name(ctx)
+    if table_name != "routing_hosts":
+        return table_name
+    temp = ctx.get("temp")
+    if isinstance(temp, Mapping) and temp.get("object_type"):
+        return str(temp["object_type"])
+    result = ctx.get("result")
+    payload = ctx.get("payload")
+    kind = (
+        result.get("kind") if isinstance(result, Mapping) else getattr(result, "kind", None)
+    )
+    if kind is None and isinstance(payload, Mapping):
+        kind = payload.get("kind")
+    return {
+        "proxy": "proxy_hosts",
+        "redirect": "redirection_hosts",
+        "dead": "dead_hosts",
+    }.get(str(kind), table_name)
+
+
+async def audit_mutation(ctx: dict[str, Any]) -> None:
+    """Stage one audit row in the mutation's kernel-owned transaction."""
+
+    alias = _alias(ctx)
+    table_name = _table_name(ctx)
+    if alias not in _MUTATIONS or table_name == AuditEventStore.__tablename__:
+        return
+    temp = ctx.setdefault("temp", {})
+    if temp.get("portwyrm_audit_staged"):
+        return
+    temp["portwyrm_audit_staged"] = True
+    ctx["db"].add(
+        AuditEventStore(
+            actor_principal_id=_principal_id(ctx),
+            action=_ACTION.get(alias, alias),
+            object_type=_object_type(ctx),
+            object_id=_object_id(ctx),
+            details=_details(ctx),
+        )
+    )
+
+
+async def reconcile_committed_change(ctx: dict[str, Any]) -> None:
+    """Reconcile only after a relevant database mutation has committed."""
+
+    table_name = _table_name(ctx)
+    if _alias(ctx) not in _MUTATIONS or table_name not in _RECONCILE_TABLES:
+        return
+    temp = ctx.setdefault("temp", {})
+    if temp.get("portwyrm_reconciled"):
+        return
+    temp["portwyrm_reconciled"] = True
+    runtime = getattr(getattr(ctx.get("app"), "state", None), "runtime", None)
+    if runtime is None:
+        runtime = _runtime_provider()
+    if runtime is not None:
+        collection = _RECONCILE_COLLECTION.get(table_name, _object_type(ctx))
+        await runtime.changed(collection)
+
+
+def configure_lifecycle_runtime(provider: Callable[[], Any]) -> None:
+    """Bind the active runtime controller used by the global post-commit hook."""
+
+    global _runtime_provider
+    _runtime_provider = provider
+
+
+def global_hooks() -> dict[str, dict[str, list[Callable[..., Any]]]]:
+    """Return hooks selected onto every table operation by the app router."""
+
+    return {
+        "*": {
+            "PRE_HANDLER": [
+                protect_model_descriptors,
+                enforce_authorization,
+                enforce_ownership,
+            ],
+            "POST_HANDLER": [enforce_visibility],
+            "PRE_COMMIT": [audit_mutation],
+            "POST_COMMIT": [reconcile_committed_change],
+        }
+    }
+
+
+__all__ = ["configure_lifecycle_runtime", "global_hooks"]

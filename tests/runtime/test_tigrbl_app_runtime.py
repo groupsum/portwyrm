@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import tempfile
+import os
 from pathlib import Path
 
 from tigrbl.factories.engine import sqlitef
@@ -12,7 +12,9 @@ from portwyrm.config import PortwyrmSettings
 from tests.support import TestClient
 
 _SHARED_CLIENT: TestClient | None = None
-_TEST_ROOT = Path(tempfile.mkdtemp(prefix="portwyrm-app-", dir=".tmp"))
+_TEST_ROOT = Path(f".pytest-tmp-app-runtime-{os.getpid()}").resolve()
+_TEST_ROOT.mkdir(exist_ok=True)
+_TEST_DATABASE = _TEST_ROOT / "app.sqlite"
 
 
 def _client() -> TestClient:
@@ -20,8 +22,12 @@ def _client() -> TestClient:
     if _SHARED_CLIENT is None:
         _SHARED_CLIENT = TestClient(
             create_app(
-                settings=PortwyrmSettings(backend="sqlite", sqlite_path=_TEST_ROOT / "app.sqlite"),
-                engine=sqlitef(str(_TEST_ROOT / "app.sqlite"), async_=False),
+                settings=PortwyrmSettings(
+                    backend="sqlite",
+                    data_root=_TEST_ROOT,
+                    sqlite_path=_TEST_DATABASE,
+                ),
+                engine=sqlitef(str(_TEST_DATABASE), async_=False),
             )
         )
     return _SHARED_CLIENT
@@ -61,6 +67,60 @@ def test_setup_login_and_proxy_host_crud_use_composed_tigrbl_app() -> None:
 
     listed = client.get("/api/nginx/proxy-hosts", headers=headers)
     assert listed.status_code == 200 and listed.json()[0]["id"] == host["id"]
+
+    disabled = client.post(
+        f"/api/nginx/proxy-hosts/{host['id']}/disable", headers=headers
+    )
+    assert disabled.status_code == 200
+    assert bool(disabled.json()["enabled"]) is False
+    persisted_disabled = client.get(
+        f"/api/nginx/proxy-hosts/{host['id']}", headers=headers
+    )
+    assert bool(persisted_disabled.json()["enabled"]) is False
+
+    enabled = client.post(
+        f"/api/nginx/proxy-hosts/{host['id']}/enable", headers=headers
+    )
+    assert enabled.status_code == 200
+    assert bool(enabled.json()["enabled"]) is True
+
+    updated = client.patch(
+        f"/api/nginx/proxy-hosts/{host['id']}",
+        headers=headers,
+        json={"forward_port": 9090},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["forward_port"] == 9090
+    replaced = client.put(
+        f"/api/nginx/proxy-hosts/{host['id']}",
+        headers=headers,
+        json={
+            "domain_names": ["one.example.test", "two.example.test"],
+            "forward_scheme": "http",
+            "forward_host": "replacement-upstream",
+            "forward_port": 9191,
+            "target_kind": "docker",
+            "enabled": 1,
+        },
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["forward_host"] == "replacement-upstream"
+    assert replaced.json()["forward_port"] == 9191
+    audit = client.get("/api/audit-log", headers=headers)
+    assert audit.status_code == 200
+    host_events = [
+        event
+        for event in audit.json()
+        if event["object_type"] == "proxy_hosts" and event["object_id"] == str(host["id"])
+    ]
+    assert {event["action"] for event in host_events} >= {
+        "created",
+        "disabled",
+        "enabled",
+        "updated",
+        "replaced",
+    }
+    assert {event["user_id"] for event in host_events} == {1}
     assert client.get("/health/ready").json()["components"]["database"]["backend"] == "sqlite"
     status = client.get("/api/v2/system/status", headers=headers).json()
     assert status["components"]["nginx"]["status"] == "disabled"
@@ -85,7 +145,7 @@ def test_export_and_preview_are_table_backed_and_checksummed() -> None:
     assert payload["schema_version"] == "portwyrm.export.v2"
     assert len(payload["checksum"]) == 64
     preview = client.post("/api/v2/import/preview", headers=headers, json=payload)
-    assert preview.status_code == 200
+    assert preview.status_code == 200, preview.text
     assert preview.json()["unchanged"] == len(payload["records"])
 
 

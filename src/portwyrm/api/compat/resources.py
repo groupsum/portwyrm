@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,7 +39,6 @@ class TableResources:
 
     def __init__(self, app: Any) -> None:
         self.app = app
-        self.after_change: Callable[[str], Awaitable[Any]] | None = None
 
     async def authenticate(self, identity: str, secret: str) -> Principal | None:
         try:
@@ -79,11 +77,11 @@ class TableResources:
 
     async def list_resources(self, collection: str) -> list[Resource]:
         if collection in _HOST_KIND:
-            return await self.app.core.RoutingHostStore.compat_list(
+            return await self.app.core.RoutingHostStore.list(
                 {"kind": _HOST_KIND[collection]}
             )
         if collection in {"access_lists", "certificates"}:
-            return await getattr(self.app.core, self._table_name(collection)).compat_list({})
+            return await getattr(self.app.core, self._table_name(collection)).list({})
         else:
             rows = await getattr(self.app.core, self._table_name(collection)).list({})
         projected = [self._project(collection, row) for row in rows]
@@ -95,12 +93,12 @@ class TableResources:
     async def get_resource(self, collection: str, resource_id: int | str) -> Resource | None:
         try:
             if collection in _HOST_KIND:
-                row = await self.app.core.RoutingHostStore.compat_read({"id": int(resource_id)})
+                row = await self.app.core.RoutingHostStore.read({"id": int(resource_id)})
                 if row.get("kind") != _HOST_KIND[collection]:
                     return None
                 return self._clean_aggregate(collection, row)
             elif collection in {"access_lists", "certificates"}:
-                row = await getattr(self.app.core, self._table_name(collection)).compat_read(
+                row = await getattr(self.app.core, self._table_name(collection)).read(
                     {"id": int(resource_id)}
                 )
                 return self._clean_aggregate(collection, row)
@@ -115,14 +113,17 @@ class TableResources:
             await self._attach_authorization(projected)
         return projected
 
-    async def create_resource(self, collection: str, payload: Resource) -> Resource:
+    async def create_resource(
+        self, collection: str, payload: Resource, *, actor: Any | None = None
+    ) -> Resource:
         candidate = dict(payload)
+        context = {"principal": actor}
         if collection in _HOST_KIND:
             candidate["kind"] = _HOST_KIND[collection]
-            row = await self.app.core.RoutingHostStore.create_compat(candidate)
+            row = await self.app.core.RoutingHostStore.create(candidate, ctx=context)
         elif collection in {"access_lists", "certificates"}:
             table = getattr(self.app.core, self._table_name(collection))
-            row = await table.create_compat(candidate)
+            row = await table.create(candidate, ctx=context)
         elif collection == "users":
             row = await self.app.core.PrincipalStore.register(
                 {
@@ -134,41 +135,44 @@ class TableResources:
                     "roles": candidate.get("roles") or [],
                     "permissions": candidate.get("permissions") or {},
                     "metadata_json": {"compat": candidate},
-                }
+                },
+                ctx=context,
             )
             row = {**row, "metadata_json": {"compat": candidate}}
         elif collection == "streams":
             values = self._values(collection, candidate)
             await self.app.core.StreamRouteStore.validate(values)
-            row = await self.app.core.StreamRouteStore.create(values)
+            row = await self.app.core.StreamRouteStore.create(values, ctx=context)
         else:
             row = await getattr(self.app.core, self._table_name(collection)).create(
-                self._values(collection, candidate)
+                self._values(collection, candidate), ctx=context
             )
         result = self._project(collection, row)
         if collection in {*_HOST_KIND, "access_lists", "certificates"}:
             result = await self.get_resource(collection, row["id"]) or result
         elif collection == "users":
             await self._attach_authorization(result)
-        if collection not in {*_HOST_KIND, "access_lists", "certificates", "users"}:
-            await self.record_event("created", collection, result["id"], details=result)
-        if self.after_change is not None:
-            await self.after_change(collection)
         return result
 
     async def update_resource(
-        self, collection: str, resource_id: int | str, payload: Resource
+        self,
+        collection: str,
+        resource_id: int | str,
+        payload: Resource,
+        *,
+        actor: Any | None = None,
     ) -> Resource | None:
         current = await self.get_resource(collection, resource_id)
         if current is None:
             return None
         candidate = {**current, **payload}
+        context = {"principal": actor}
         if collection in _HOST_KIND:
             candidate.update({"id": int(resource_id), "kind": _HOST_KIND[collection]})
-            row = await self.app.core.RoutingHostStore.update_compat(candidate)
+            row = await self.app.core.RoutingHostStore.update(candidate, ctx=context)
         elif collection in {"access_lists", "certificates"}:
             table = getattr(self.app.core, self._table_name(collection))
-            row = await table.update_compat({"id": int(resource_id), **candidate})
+            row = await table.update({"id": int(resource_id), **candidate}, ctx=context)
         elif collection == "users":
             values = self._values(collection, candidate)
             row = await self.app.core.PrincipalStore.update_identity(
@@ -177,28 +181,87 @@ class TableResources:
                     **values,
                     "roles": candidate.get("roles") or [],
                     "permissions": candidate.get("permissions") or {},
-                }
+                },
+                ctx=context,
             )
         elif collection == "streams":
             values = self._values(collection, candidate)
             await self.app.core.StreamRouteStore.validate({"id": int(resource_id), **values})
             row = await self.app.core.StreamRouteStore.update(
-                {"id": int(resource_id), **values}
+                {"id": int(resource_id), **values}, ctx=context
             )
         else:
             row = await getattr(self.app.core, self._table_name(collection)).update(
-                {"id": int(resource_id), **self._values(collection, candidate)}
+                {"id": int(resource_id), **self._values(collection, candidate)}, ctx=context
             )
         result = self._project(collection, row)
         if collection in {*_HOST_KIND, "access_lists", "certificates"}:
             result = await self.get_resource(collection, resource_id) or result
         elif collection == "users":
             await self._attach_authorization(result)
-        if collection not in {*_HOST_KIND, "access_lists", "certificates", "users"}:
-            await self.record_event("updated", collection, result["id"], details=result)
-        if self.after_change is not None:
-            await self.after_change(collection)
         return result
+
+    async def replace_resource(
+        self,
+        collection: str,
+        resource_id: int | str,
+        payload: Resource,
+        *,
+        actor: Any | None = None,
+    ) -> Resource | None:
+        if await self.get_resource(collection, resource_id) is None:
+            return None
+        candidate = {**payload, "id": int(resource_id)}
+        context = {"principal": actor}
+        if collection in _HOST_KIND:
+            candidate["kind"] = _HOST_KIND[collection]
+            row = await self.app.core.RoutingHostStore.replace(candidate, ctx=context)
+        elif collection in {"access_lists", "certificates"}:
+            row = await getattr(self.app.core, self._table_name(collection)).replace(
+                candidate, ctx=context
+            )
+        elif collection == "users":
+            values = self._values(collection, candidate)
+            row = await self.app.core.PrincipalStore.replace(
+                {"id": int(resource_id), **values}, ctx=context
+            )
+        else:
+            values = self._values(collection, candidate)
+            row = await getattr(self.app.core, self._table_name(collection)).replace(
+                {"id": int(resource_id), **values}, ctx=context
+            )
+        result = self._project(collection, row)
+        if collection in {*_HOST_KIND, "access_lists", "certificates"}:
+            result = await self.get_resource(collection, resource_id) or result
+        elif collection == "users":
+            await self._attach_authorization(result)
+        return result
+
+    async def set_enabled(
+        self,
+        collection: str,
+        resource_id: int | str,
+        *,
+        enabled: bool,
+        actor: Any | None = None,
+    ) -> Resource | None:
+        if collection in _HOST_KIND:
+            table = self.app.core.RoutingHostStore
+        elif collection == "streams":
+            table = self.app.core.StreamRouteStore
+        else:
+            raise ValueError(f"collection {collection!r} does not support enable/disable")
+        operation = table.enable if enabled else table.disable
+        try:
+            row = await operation(
+                {"id": int(resource_id)},
+                ctx={"principal": actor},
+            )
+        except (LookupError, ValueError):
+            return None
+        if collection in _HOST_KIND:
+            return await self.get_resource(collection, resource_id)
+        return self._project(collection, row)
 
     async def change_password(
         self, principal_id: int | str, old_password: str, new_password: str
@@ -223,23 +286,22 @@ class TableResources:
         resource["roles"] = authorization["roles"]
         resource["permissions"] = authorization["permissions"]
 
-    async def delete_resource(self, collection: str, resource_id: int | str) -> bool:
+    async def delete_resource(
+        self, collection: str, resource_id: int | str, *, actor: Any | None = None
+    ) -> bool:
         current = await self.get_resource(collection, resource_id)
         if current is None:
             return False
+        context = {"principal": actor}
         if collection in _HOST_KIND:
-            await self.app.core.RoutingHostStore.delete_compat({"id": int(resource_id)})
+            await self.app.core.RoutingHostStore.delete({"id": int(resource_id)}, ctx=context)
         elif collection in {"access_lists", "certificates"}:
             table = getattr(self.app.core, self._table_name(collection))
-            await table.delete_compat({"id": int(resource_id)})
+            await table.delete({"id": int(resource_id)}, ctx=context)
         else:
             await getattr(self.app.core, self._table_name(collection)).delete(
-                {"id": int(resource_id)}
+                {"id": int(resource_id)}, ctx=context
             )
-        if collection not in {*_HOST_KIND, "access_lists", "certificates"}:
-            await self.record_event("deleted", collection, resource_id)
-        if self.after_change is not None:
-            await self.after_change(collection)
         return True
 
     async def list_audit(self, since: str | None = None) -> list[Resource]:
@@ -257,25 +319,6 @@ class TableResources:
             for row in rows
         ]
         return [item for item in projected if since is None or item["created_on"] >= since]
-
-    async def record_event(
-        self,
-        action: str,
-        object_type: str,
-        object_id: int | str,
-        *,
-        details: Resource | None = None,
-        actor: Any | None = None,
-    ) -> None:
-        await self.app.core.AuditEventStore.record(
-            {
-                "actor_principal_id": getattr(actor, "user_id", getattr(actor, "id", None)),
-                "action": action,
-                "object_type": object_type,
-                "object_id": str(object_id),
-                "details": details or {},
-            }
-        )
 
     @staticmethod
     def _table_name(collection: str) -> str:

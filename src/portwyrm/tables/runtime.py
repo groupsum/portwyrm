@@ -6,13 +6,11 @@ import inspect
 import time
 from typing import Any, ClassVar
 
-from sqlalchemy import delete, select, update
 from tigrbl import op_ctx, schema_ctx
 from tigrbl.types import (
     JSON,
     BaseModel,
     Boolean,
-    Column,
     ForeignKey,
     Integer,
     String,
@@ -20,25 +18,28 @@ from tigrbl.types import (
     UniqueConstraint,
 )
 
-from .base import ManagedPortwyrmTable
+from portwyrm.kernel_support import delete, select, update
+
+from .base import APPEND_ONLY_PROFILE, PortwyrmTable, acol
 
 
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
-class GenerationStore(ManagedPortwyrmTable):
+class GenerationStore(PortwyrmTable):
     __tablename__ = "config_generations"
+    TABLE_PROFILE = APPEND_ONLY_PROFILE
     __table_args__ = (UniqueConstraint("generation", name="uq_config_generation"),)
 
-    generation = Column(String(64), nullable=False, index=True)
-    previous_generation = Column(String(64), nullable=True)
-    files = Column(JSON, nullable=False, default=dict)
-    state = Column(String(32), nullable=False, default="staged", index=True)
-    is_active = Column(Boolean, nullable=False, default=False, index=True)
-    diagnostic = Column(Text, nullable=True)
-    validated_at = Column(Integer, nullable=True)
-    activated_at = Column(Integer, nullable=True)
+    generation = acol(String(64), nullable=False, index=True)
+    previous_generation = acol(String(64), nullable=True)
+    files = acol(JSON, nullable=False, default=dict)
+    state = acol(String(32), nullable=False, default="staged", index=True)
+    is_active = acol(Boolean, nullable=False, default=False, index=True)
+    diagnostic = acol(Text, nullable=True)
+    validated_at = acol(Integer, nullable=True)
+    activated_at = acol(Integer, nullable=True)
     _runtime_controller: ClassVar[Any | None] = None
 
     @classmethod
@@ -156,6 +157,32 @@ class GenerationStore(ManagedPortwyrmTable):
             "created": bool(staged["created"]),
             "state": "active" if row.is_active else "staged",
         }
+
+    @op_ctx(alias="record", target="custom", arity="collection")
+    async def record(cls, ctx: Any) -> Any:
+        """Record the governed state of one immutable rendered generation."""
+
+        payload = dict(ctx.get("payload") or {})
+        generation = str(payload["generation"])
+        row = (
+            await _await(
+                ctx["db"].execute(select(cls).where(cls.generation == generation))
+            )
+        ).scalar_one_or_none()
+        values = {
+            "previous_generation": payload.get("previous_generation"),
+            "files": dict(payload.get("files") or {}),
+            "state": str(payload.get("state") or "staged"),
+            "is_active": bool(payload.get("is_active", False)),
+            "diagnostic": payload.get("diagnostic"),
+        }
+        if row is None:
+            row = cls(generation=generation, **values)
+            ctx["db"].add(row)
+        else:
+            for name, value in values.items():
+                setattr(row, name, value)
+        return row
 
     @op_ctx(alias="diff", target="custom", arity="collection")
     async def diff(cls, ctx: Any) -> dict[str, Any]:
@@ -298,14 +325,15 @@ class GenerationStore(ManagedPortwyrmTable):
         }
 
 
-class ReconcileStore(ManagedPortwyrmTable):
+class ReconcileStore(PortwyrmTable):
     __tablename__ = "reconcile_attempts"
-    generation_id = Column(Integer, ForeignKey("config_generations.id"), nullable=True, index=True)
-    previous_generation = Column(String(64), nullable=True)
-    changed = Column(Boolean, nullable=False, default=False)
-    applied = Column(Boolean, nullable=False, default=False)
-    status = Column(String(32), nullable=False, index=True)
-    diagnostic = Column(Text, nullable=True)
+    TABLE_PROFILE = APPEND_ONLY_PROFILE
+    generation_id = acol(Integer, ForeignKey("config_generations.id"), nullable=True, index=True)
+    previous_generation = acol(String(64), nullable=True)
+    changed = acol(Boolean, nullable=False, default=False)
+    applied = acol(Boolean, nullable=False, default=False)
+    status = acol(String(32), nullable=False, index=True)
+    diagnostic = acol(Text, nullable=True)
 
     @schema_ctx(alias="create", kind="out")
     class ReconcileResult(BaseModel):
@@ -317,12 +345,12 @@ class ReconcileStore(ManagedPortwyrmTable):
         diagnostic: str | None = None
 
 
-class LeaseStore(ManagedPortwyrmTable):
+class LeaseStore(PortwyrmTable):
     __tablename__ = "runtime_leases"
     __table_args__ = (UniqueConstraint("name", name="uq_runtime_lease_name"),)
-    name = Column(String(255), nullable=False, index=True)
-    holder = Column(String(255), nullable=False)
-    expires_at = Column(Integer, nullable=False, index=True)
+    name = acol(String(255), nullable=False, index=True)
+    holder = acol(String(255), nullable=False)
+    expires_at = acol(Integer, nullable=False, index=True)
 
     @schema_ctx(alias="acquire", kind="in")
     class AcquireRequest(BaseModel):

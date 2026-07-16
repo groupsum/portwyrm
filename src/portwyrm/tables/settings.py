@@ -1,15 +1,15 @@
 """Global Portwyrm setting records."""
 
-from tigrbl.types import JSON, Column, String, UniqueConstraint
+from tigrbl.types import JSON, String, UniqueConstraint
 
-from .base import ManagedPortwyrmTable
+from .base import ManagedPortwyrmTable, acol
 
 
 class SettingStore(ManagedPortwyrmTable):
     __tablename__ = "settings"
     __table_args__ = (UniqueConstraint("key", name="uq_settings_key"),)
-    key = Column(String(255), nullable=False)
-    value = Column(JSON, nullable=False)
+    key = acol(String(255), nullable=False)
+    value = acol(JSON, nullable=False)
 
 
 Setting = SettingStore

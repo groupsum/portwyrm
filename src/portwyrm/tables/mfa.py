@@ -7,14 +7,11 @@ import time
 from typing import Any, ClassVar
 
 from cryptography.fernet import Fernet, InvalidToken
-from pydantic import Field
-from sqlalchemy import delete, select
 from tigrbl import op_ctx, schema_ctx
-from tigrbl.factories.table import defineTableSpec
 from tigrbl.types import (
     BaseModel,
     Boolean,
-    Column,
+    Field,
     ForeignKey,
     Integer,
     String,
@@ -28,21 +25,22 @@ from portwyrm.identity.mfa import (
     generate_totp_secret,
     verify_totp,
 )
+from portwyrm.kernel_support import delete, select
 
-from .base import PortwyrmTable
+from .base import PortwyrmTable, acol
 
 
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
-class MFAEnrollmentStore(PortwyrmTable, defineTableSpec(ops=("read", "list"))):
+class MFAEnrollmentStore(PortwyrmTable):
     __tablename__ = "mfa_enrollments"
     __table_args__ = (UniqueConstraint("principal_id", name="uq_mfa_principal"),)
-    principal_id = Column(Integer, ForeignKey("principals.id"), nullable=False, index=True)
-    method = Column(String(32), nullable=False, default="totp")
-    encrypted_secret = Column(Text, nullable=False)
-    confirmed = Column(Boolean, nullable=False, default=False)
+    principal_id = acol(Integer, ForeignKey("principals.id"), nullable=False, index=True)
+    method = acol(String(32), nullable=False, default="totp")
+    encrypted_secret = acol(Text, nullable=False)
+    confirmed = acol(Boolean, nullable=False, default=False)
     _configured_cipher: ClassVar[Fernet | None] = None
 
     @classmethod
@@ -67,9 +65,10 @@ class MFAEnrollmentStore(PortwyrmTable, defineTableSpec(ops=("read", "list"))):
             confirmed=False,
         )
         ctx["db"].add(row)
-        await _await(ctx["db"].flush())
         for digest in hashes:
-            ctx["db"].add(MFARecoveryCodeStore(enrollment_id=row.id, code_digest=digest))
+            ctx["db"].add(
+                MFARecoveryCodeStore(principal_id=principal_id, code_digest=digest)
+            )
         return {"secret": secret, "backup_codes": list(codes)}
 
     @op_ctx(alias="enabled", target="custom", arity="collection")
@@ -102,7 +101,7 @@ class MFAEnrollmentStore(PortwyrmTable, defineTableSpec(ops=("read", "list"))):
         result = await _await(
             ctx["db"].execute(
                 select(MFARecoveryCodeStore).where(
-                    MFARecoveryCodeStore.enrollment_id == row.id,
+                    MFARecoveryCodeStore.principal_id == row.principal_id,
                     MFARecoveryCodeStore.used_at.is_(None),
                 )
             )
@@ -132,12 +131,16 @@ class MFAEnrollmentStore(PortwyrmTable, defineTableSpec(ops=("read", "list"))):
             return {"backup_codes": None}
         await _await(
             ctx["db"].execute(
-                delete(MFARecoveryCodeStore).where(MFARecoveryCodeStore.enrollment_id == row.id)
+                delete(MFARecoveryCodeStore).where(
+                    MFARecoveryCodeStore.principal_id == row.principal_id
+                )
             )
         )
         codes, hashes = generate_backup_codes()
         for digest in hashes:
-            ctx["db"].add(MFARecoveryCodeStore(enrollment_id=row.id, code_digest=digest))
+            ctx["db"].add(
+                MFARecoveryCodeStore(principal_id=row.principal_id, code_digest=digest)
+            )
         return {"backup_codes": list(codes)}
 
     @staticmethod
@@ -156,7 +159,9 @@ class MFAEnrollmentStore(PortwyrmTable, defineTableSpec(ops=("read", "list"))):
             return
         await _await(
             db.execute(
-                delete(MFARecoveryCodeStore).where(MFARecoveryCodeStore.enrollment_id == row.id)
+                delete(MFARecoveryCodeStore).where(
+                    MFARecoveryCodeStore.principal_id == principal_id
+                )
             )
         )
         await _await(db.delete(row))
@@ -177,11 +182,11 @@ class MFAEnrollmentStore(PortwyrmTable, defineTableSpec(ops=("read", "list"))):
             raise RuntimeError("MFA secret cannot be decrypted") from exc
 
 
-class MFARecoveryCodeStore(PortwyrmTable, defineTableSpec(ops=())):
+class MFARecoveryCodeStore(PortwyrmTable):
     __tablename__ = "mfa_recovery_codes"
-    enrollment_id = Column(Integer, ForeignKey("mfa_enrollments.id"), nullable=False, index=True)
-    code_digest = Column(String(255), nullable=False)
-    used_at = Column(Integer, nullable=True)
+    principal_id = acol(Integer, ForeignKey("principals.id"), nullable=False, index=True)
+    code_digest = acol(String(255), nullable=False)
+    used_at = acol(Integer, nullable=True)
 
 
 MFAEnrollment = MFAEnrollmentStore

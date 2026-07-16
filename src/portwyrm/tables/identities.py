@@ -6,22 +6,21 @@ import asyncio
 import inspect
 from typing import Any, Literal
 
-from pydantic import Field
-from sqlalchemy import delete, select
 from tigrbl import op_ctx, schema_ctx
 from tigrbl.types import (
     BaseModel,
     Boolean,
-    Column,
+    Field,
     String,
     UniqueConstraint,
+    relationship,
 )
 
 from portwyrm.identity.passwords import hash_secret
 from portwyrm.identity.permissions import PermissionAction, PermissionGrant, permission_allows
+from portwyrm.kernel_support import delete, select
 
-from .base import ManagedPortwyrmTable
-from .compat import add_audit
+from .base import ManagedPortwyrmTable, acol
 from .credentials import CredentialStore
 from .rbac import (
     PermissionStore,
@@ -83,13 +82,13 @@ class PrincipalStore(ManagedPortwyrmTable):
     __tablename__ = "principals"
     __table_args__ = (UniqueConstraint("email", name="uq_principals_email"),)
 
-    email = Column(String(320), nullable=False, index=True)
-    display_name = Column(String(255), nullable=False, default="")
-    nickname = Column(String(255), nullable=False, default="")
-    is_admin = Column(Boolean, nullable=False, default=False)
-    is_disabled = Column(Boolean, nullable=False, default=False)
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    visibility = Column(String(32), nullable=False, default="user")
+    email = acol(String(320), nullable=False, index=True)
+    display_name = acol(String(255), nullable=False, default="")
+    nickname = acol(String(255), nullable=False, default="")
+    is_admin = acol(Boolean, nullable=False, default=False)
+    is_disabled = acol(Boolean, nullable=False, default=False)
+    is_deleted = acol(Boolean, nullable=False, default=False)
+    visibility = acol(String(32), nullable=False, default="user")
 
     @schema_ctx(alias="register", kind="in")
     class RegisterRequest(BaseModel):
@@ -177,24 +176,10 @@ class PrincipalStore(ManagedPortwyrmTable):
             metadata_json=dict(payload.get("metadata_json") or {}),
         )
         ctx["db"].add(principal)
-        await _await(ctx["db"].flush())
         digest = await asyncio.to_thread(hash_secret, password)
-        ctx["db"].add(CredentialStore(principal_id=principal.id, password_hash=digest))
+        principal.credentials.append(CredentialStore(password_hash=digest))
         await cls._replace_authorization(ctx["db"], principal, payload)
-        result = {
-            "id": principal.id,
-            "email": principal.email,
-            "display_name": principal.display_name,
-            "nickname": principal.nickname,
-            "is_admin": bool(principal.is_admin),
-            "is_disabled": False,
-            "is_deleted": False,
-            "visibility": principal.visibility,
-        }
-        await add_audit(
-            ctx["db"], action="created", object_type="users", object_id=principal.id, details=result
-        )
-        return result
+        return principal
 
     @op_ctx(alias="set_authorization", target="custom", arity="collection")
     async def set_authorization(cls, ctx: Any) -> dict[str, Any]:
@@ -234,27 +219,26 @@ class PrincipalStore(ManagedPortwyrmTable):
             "visibility": principal.visibility,
             "metadata_json": principal.metadata_json,
         }
-        await add_audit(
-            ctx["db"], action="updated", object_type="users", object_id=principal.id, details=result
-        )
         return result
 
     @classmethod
     async def _replace_authorization(cls, db: Any, principal: Any, payload: dict[str, Any]) -> None:
-        principal_id = int(principal.id)
-
-        await _await(
-            db.execute(
-                delete(PrincipalRoleStore).where(PrincipalRoleStore.principal_id == principal_id)
-            )
-        )
-        await _await(
-            db.execute(
-                delete(PrincipalPermissionStore).where(
-                    PrincipalPermissionStore.principal_id == principal_id
+        if principal.id is not None:
+            principal_id = int(principal.id)
+            await _await(
+                db.execute(
+                    delete(PrincipalRoleStore).where(
+                        PrincipalRoleStore.principal_id == principal_id
+                    )
                 )
             )
-        )
+            await _await(
+                db.execute(
+                    delete(PrincipalPermissionStore).where(
+                        PrincipalPermissionStore.principal_id == principal_id
+                    )
+                )
+            )
         for name in _role_names(payload.get("roles"), bool(principal.is_admin)):
             role = await _scalar(db, select(RoleStore).where(RoleStore.name == name))
             if role is None:
@@ -264,8 +248,7 @@ class PrincipalStore(ManagedPortwyrmTable):
                     is_system=name == "admin",
                 )
                 db.add(role)
-                await _await(db.flush())
-            db.add(PrincipalRoleStore(principal_id=principal_id, role_id=role.id))
+            db.add(PrincipalRoleStore(principal=principal, role=role))
 
         normalized = _permission_effects(payload.get("permissions"))
         for key, effect in normalized.items():
@@ -281,11 +264,10 @@ class PrincipalStore(ManagedPortwyrmTable):
                     description="",
                 )
                 db.add(permission)
-                await _await(db.flush())
             db.add(
                 PrincipalPermissionStore(
-                    principal_id=principal_id,
-                    permission_id=permission.id,
+                    principal=principal,
+                    permission=permission,
                     effect=effect,
                 )
             )
@@ -373,6 +355,12 @@ class PrincipalStore(ManagedPortwyrmTable):
 
 Principal = PrincipalStore
 SecurityPrincipal = PrincipalStore.SecurityPrincipal
+
+PrincipalStore.credentials = relationship(CredentialStore, cascade="all, delete-orphan")
+PrincipalRoleStore.principal = relationship(PrincipalStore)
+PrincipalRoleStore.role = relationship(RoleStore)
+PrincipalPermissionStore.principal = relationship(PrincipalStore)
+PrincipalPermissionStore.permission = relationship(PermissionStore)
 
 __all__ = [
     "Principal",

@@ -10,13 +10,12 @@ from enum import StrEnum
 from typing import Any, Self
 
 import bcrypt
-from pydantic import ConfigDict, Field, model_validator
-from sqlalchemy import CheckConstraint, delete, select
-from tigrbl import op_ctx, schema_ctx
+from tigrbl import hook_ctx, op_ctx, schema_ctx
 from tigrbl.types import (
     BaseModel,
     Boolean,
-    Column,
+    CheckConstraint,
+    Field,
     ForeignKey,
     Integer,
     String,
@@ -25,9 +24,10 @@ from tigrbl.types import (
 )
 
 from portwyrm.errors import DomainValidationError
+from portwyrm.kernel_support import ConfigDict, delete, model_validator, select
 
-from .base import ManagedPortwyrmTable, PortwyrmTable
-from .compat import add_audit, extension_metadata, extensions, iso
+from .base import READ_ONLY_PROFILE, ManagedPortwyrmTable, PortwyrmTable, acol
+from .compat import extension_metadata, extensions, iso
 
 _ACCESS_KNOWN = {
     "id",
@@ -53,9 +53,9 @@ class AccessDirective(StrEnum):
 
 class AccessListStore(ManagedPortwyrmTable):
     __tablename__ = "access_lists"
-    name = Column(String(255), nullable=False, index=True)
-    satisfy_any = Column(Boolean, nullable=False, default=False)
-    pass_auth = Column(Boolean, nullable=False, default=False)
+    name = acol(String(255), nullable=False, index=True)
+    satisfy_any = acol(Boolean, nullable=False, default=False)
+    pass_auth = acol(Boolean, nullable=False, default=False)
 
     class RuntimeCredential(BaseModel):
         model_config = ConfigDict(frozen=True, extra="forbid")
@@ -111,72 +111,35 @@ class AccessListStore(ManagedPortwyrmTable):
     class RuntimeAccessListList(BaseModel):
         items: list[AccessListStore.RuntimeAccessList] = Field(default_factory=list)
 
-    @op_ctx(alias="create_compat", target="custom", arity="collection")
-    async def create_compat(cls, ctx: Any) -> dict[str, Any]:
+    @hook_ctx(ops=("create", "update", "replace"), phase="PRE_HANDLER")
+    async def prepare_aggregate(cls, ctx: dict[str, Any]) -> None:
         payload = dict(ctx.get("payload") or {})
-        row = cls(**cls._values(payload))
-        ctx["db"].add(row)
-        await _await(ctx["db"].flush())
+        ctx.setdefault("temp", {})["access_aggregate"] = payload
+        root = cls._values(payload)
+        if payload.get("id") is not None:
+            root["id"] = int(payload["id"])
+        ctx["payload"] = root
+
+    @hook_ctx(ops=("create", "update", "replace"), phase="POST_HANDLER")
+    async def persist_aggregate(cls, ctx: dict[str, Any]) -> None:
+        row = ctx["result"]
+        payload = ctx.get("temp", {}).get("access_aggregate", {})
         await cls._replace_children(ctx["db"], row.id, payload)
-        result = await cls._project(ctx["db"], row, include_hashes=False)
-        await add_audit(
-            ctx["db"],
-            action="created",
-            object_type="access_lists",
-            object_id=row.id,
-            details=result,
-        )
-        return result
+        ctx["result"] = await cls._project(ctx["db"], row, include_hashes=False)
 
-    @op_ctx(alias="update_compat", target="custom", arity="collection")
-    async def update_compat(cls, ctx: Any) -> dict[str, Any]:
-        payload = dict(ctx.get("payload") or {})
-        access_list_id = int(payload.pop("id"))
-        result = await _await(ctx["db"].execute(select(cls).where(cls.id == access_list_id)))
-        row = result.scalar_one_or_none()
-        if row is None:
-            raise ValueError("access list not found")
-        for key, value in cls._values(payload).items():
-            setattr(row, key, value)
-        await cls._replace_children(ctx["db"], row.id, payload)
-        result = await cls._project(ctx["db"], row, include_hashes=False)
-        await add_audit(
-            ctx["db"],
-            action="updated",
-            object_type="access_lists",
-            object_id=row.id,
-            details=result,
-        )
-        return result
+    @hook_ctx(ops=("read", "list"), phase="POST_HANDLER")
+    async def project_aggregate(cls, ctx: dict[str, Any]) -> None:
+        result = ctx["result"]
+        if isinstance(result, list):
+            ctx["result"] = [
+                await cls._project(ctx["db"], row, include_hashes=False) for row in result
+            ]
+        else:
+            ctx["result"] = await cls._project(ctx["db"], result, include_hashes=False)
 
-    @op_ctx(alias="delete_compat", target="custom", arity="collection")
-    async def delete_compat(cls, ctx: Any) -> dict[str, Any]:
-        access_list_id = int((ctx.get("payload") or {})["id"])
-        await cls._replace_children(ctx["db"], access_list_id, {})
-        result = await _await(ctx["db"].execute(delete(cls).where(cls.id == access_list_id)))
-        if result.rowcount:
-            await add_audit(
-                ctx["db"], action="deleted", object_type="access_lists", object_id=access_list_id
-            )
-        return {"deleted": bool(result.rowcount), "id": access_list_id}
-
-    @op_ctx(alias="compat_list", target="custom", arity="collection")
-    async def compat_list(cls, ctx: Any) -> list[dict[str, Any]]:
-        rows = list((await _await(ctx["db"].execute(select(cls).order_by(cls.id)))).scalars())
-        return [await cls._project(ctx["db"], row, include_hashes=False) for row in rows]
-
-    @op_ctx(alias="compat_read", target="custom", arity="collection")
-    async def compat_read(cls, ctx: Any) -> dict[str, Any]:
-        row = (
-            await _await(
-                ctx["db"].execute(
-                    select(cls).where(cls.id == int((ctx.get("payload") or {})["id"]))
-                )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            raise ValueError("access list not found")
-        return await cls._project(ctx["db"], row, include_hashes=False)
+    @hook_ctx(ops="delete", phase="PRE_HANDLER")
+    async def delete_aggregate_children(cls, ctx: dict[str, Any]) -> None:
+        await cls._replace_children(ctx["db"], int(ctx["payload"]["id"]), {})
 
     @op_ctx(alias="runtime_list", target="custom", arity="collection")
     async def runtime_list(cls, ctx: Any) -> dict[str, Any]:
@@ -346,32 +309,35 @@ def _bcrypt_hash(value: str) -> str:
     return bcrypt.hashpw(value.encode(), bcrypt.gensalt()).decode()
 
 
-class AccessRuleStore(ManagedPortwyrmTable):
+class AccessRuleStore(PortwyrmTable):
     __tablename__ = "access_list_rules"
+    TABLE_PROFILE = READ_ONLY_PROFILE
     __table_args__ = (
         CheckConstraint("directive IN ('allow','deny')", name="ck_access_rule_directive"),
         CheckConstraint("length(address) > 0", name="ck_access_rule_address"),
     )
-    access_list_id = Column(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
-    position = Column(Integer, nullable=False, default=0)
-    directive = Column(String(16), nullable=False)
-    address = Column(String(255), nullable=False)
+    access_list_id = acol(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
+    position = acol(Integer, nullable=False, default=0)
+    directive = acol(String(16), nullable=False)
+    address = acol(String(255), nullable=False)
 
 
 class AccessCredentialStore(PortwyrmTable):
     __tablename__ = "access_list_credentials"
-    access_list_id = Column(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
-    username = Column(String(255), nullable=False)
-    password_hash = Column(Text, nullable=False)
+    TABLE_PROFILE = READ_ONLY_PROFILE
+    access_list_id = acol(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
+    username = acol(String(255), nullable=False)
+    password_hash = acol(Text, nullable=False)
 
 
-class AccessPrincipalStore(ManagedPortwyrmTable):
+class AccessPrincipalStore(PortwyrmTable):
     __tablename__ = "access_list_principals"
+    TABLE_PROFILE = READ_ONLY_PROFILE
     __table_args__ = (
         UniqueConstraint("access_list_id", "principal_id", name="uq_access_list_principal_edge"),
     )
-    access_list_id = Column(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
-    principal_id = Column(Integer, ForeignKey("principals.id"), nullable=False, index=True)
+    access_list_id = acol(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
+    principal_id = acol(Integer, ForeignKey("principals.id"), nullable=False, index=True)
 
 
 AccessList = AccessListStore

@@ -1,22 +1,21 @@
 """Durable, append-oriented audit events."""
 
-import inspect
 from typing import Any
 
 from tigrbl import op_ctx
-from tigrbl.factories.table import defineTableSpec
-from tigrbl.types import JSON, Column, ForeignKey, Integer, String
+from tigrbl.types import JSON, ForeignKey, Integer, String
 
-from .base import PortwyrmTable
+from .base import READ_ONLY_PROFILE, PortwyrmTable, acol
 
 
-class AuditEventStore(PortwyrmTable, defineTableSpec(ops=("read", "list", "delete"))):
+class AuditEventStore(PortwyrmTable):
     __tablename__ = "audit_events"
-    actor_principal_id = Column(Integer, ForeignKey("principals.id"), nullable=True, index=True)
-    action = Column(String(255), nullable=False, index=True)
-    object_type = Column(String(128), nullable=False, index=True)
-    object_id = Column(String(255), nullable=False)
-    details = Column(JSON, nullable=False, default=dict)
+    TABLE_PROFILE = READ_ONLY_PROFILE
+    actor_principal_id = acol(Integer, ForeignKey("principals.id"), nullable=True, index=True)
+    action = acol(String(255), nullable=False, index=True)
+    object_type = acol(String(128), nullable=False, index=True)
+    object_id = acol(String(255), nullable=False)
+    details = acol(JSON, nullable=False, default=dict)
 
     @op_ctx(alias="record", target="custom", arity="collection")
     async def record(cls, ctx: Any) -> dict[str, Any]:
@@ -29,9 +28,6 @@ class AuditEventStore(PortwyrmTable, defineTableSpec(ops=("read", "list", "delet
             details=dict(payload.get("details") or {}),
         )
         ctx["db"].add(row)
-        flushed = ctx["db"].flush()
-        if inspect.isawaitable(flushed):
-            await flushed
         return {
             "id": row.id,
             "action": row.action,

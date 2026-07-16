@@ -8,10 +8,8 @@ import asyncio
 import inspect
 import os
 import secrets
-import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, cast
 
@@ -46,14 +44,11 @@ from portwyrm.api.security import (
     TableSecurityDependencies,
     permissions_from_scopes,
 )
-from portwyrm.certificates import (
-    DEFAULT_PROVIDER_CATALOG,
-    CertificateRequest,
-    ChallengeType,
-    CustomCertificateBundle,
-)
+from portwyrm.certificates import DEFAULT_PROVIDER_CATALOG
 from portwyrm.migration import preflight_npm
 from portwyrm.security import Principal
+from portwyrm.tables import CertificateStore
+from portwyrm.tables.lifecycle import global_hooks
 
 
 async def _identity_call(function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -82,10 +77,12 @@ def create_compat_app(
         lifespan=lifespan,
         mount_system=False,
         engine=engine,
+        router_hooks=global_hooks(),
     )
     service = service or TableResources(app)
     if certificates is None and certificate_factory is not None:
         certificates = certificate_factory(app, service)
+    CertificateStore.configure_workflow(certificates)
     portability = portability or TablePortability(cast(TableResources, service), backend)
     token_store = tokens or TableIdentity(app)
     security_dependencies = TableSecurityDependencies(token_store)
@@ -178,7 +175,6 @@ def create_compat_app(
                     detail="valid MFA code required",
                 )
         token, expires = await _identity_call(token_store.issue_session, principal)
-        await _record_event(service, "authenticated", "users", principal.user_id, principal)
         return {"result": {"token": token, "expires": expires}}
 
     @app.post("/api/tokens/2fa")
@@ -270,7 +266,6 @@ def create_compat_app(
         if token_value is None:
             raise HTTPException(status_code=401, detail="bearer token required")
         await _identity_call(token_store.revoke_session, token_value)
-        await _record_event(service, "session.revoked", "users", _.user_id, _)
 
     @app.get("/api/v2/me")
     async def profile(principal: Principal = Depends(principal_from_bearer)) -> Resource:
@@ -297,9 +292,6 @@ def create_compat_app(
         if await _identity_call(mfa.enabled, principal.user_id):
             raise HTTPException(status_code=409, detail="MFA is already enabled")
         result = await _identity_call(mfa.begin, principal.user_id)
-        await _record_event(
-            service, "mfa.enrollment.started", "users", principal.user_id, principal
-        )
         return result
 
     @app.post("/api/v2/mfa/confirm", status_code=status.HTTP_204_NO_CONTENT)
@@ -313,7 +305,6 @@ def create_compat_app(
             or not await _identity_call(mfa.confirm, principal.user_id, code)
         ):
             raise HTTPException(status_code=422, detail="invalid enrollment code")
-        await _record_event(service, "mfa.enabled", "users", principal.user_id, principal)
 
     @app.delete("/api/v2/mfa", status_code=status.HTTP_204_NO_CONTENT)
     async def disable_mfa(
@@ -326,7 +317,6 @@ def create_compat_app(
             or not await _identity_call(mfa.disable, principal.user_id, code)
         ):
             raise HTTPException(status_code=422, detail="invalid MFA code")
-        await _record_event(service, "mfa.disabled", "users", principal.user_id, principal)
 
     @app.post("/api/v2/mfa/recovery-codes")
     async def regenerate_mfa_recovery_codes(
@@ -340,9 +330,6 @@ def create_compat_app(
         )
         if codes is None:
             raise HTTPException(status_code=422, detail="invalid MFA code")
-        await _record_event(
-            service, "mfa.recovery-codes.regenerated", "users", principal.user_id, principal
-        )
         return {"backup_codes": codes}
 
     @app.put("/api/v2/me")
@@ -377,7 +364,6 @@ def create_compat_app(
             if setter is None:
                 raise HTTPException(status_code=501, detail="password management unavailable")
             await _maybe_await(setter(user_id, password))
-            await _record_event(service, "password.reset", "users", user_id, principal)
             return
         if str(principal.user_id) != str(user_id) or not isinstance(current, str):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="permission denied")
@@ -385,7 +371,6 @@ def create_compat_app(
         if changer is None:
             raise HTTPException(status_code=501, detail="password management unavailable")
         await _maybe_await(changer(user_id, current, password))
-        await _record_event(service, "password.changed", "users", user_id, principal)
 
     @app.post("/api/users/{user_id}/login")
     async def impersonate_user(
@@ -397,14 +382,6 @@ def create_compat_app(
             raise HTTPException(status_code=404, detail="active user not found")
         impersonated = _as_principal(user, fallback_identity=str(user.get("email", user_id)))
         token, expires = await _identity_call(token_store.issue_session, impersonated)
-        await _record_event(
-            service,
-            "user.impersonated",
-            "users",
-            user_id,
-            principal,
-            {"impersonated_by": principal.user_id},
-        )
         return {"token": token, "expires": expires, "user": user}
 
     @app.get("/api/v2/tokens")
@@ -464,14 +441,6 @@ def create_compat_app(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
             ) from exc
-        await _record_event(
-            service,
-            "access-token.created",
-            "access-tokens",
-            record.id,
-            principal,
-            {"name": record.name, "scopes": sorted(record.principal.scopes)},
-        )
         return {**record.public(), "token": plaintext}
 
     @app.post("/api/v2/tokens/{token_id}/rotate", status_code=status.HTTP_201_CREATED)
@@ -485,14 +454,6 @@ def create_compat_app(
             replacement, plaintext = await _identity_call(token_store.rotate_pat, token_id)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        await _record_event(
-            service,
-            "access-token.rotated",
-            "access-tokens",
-            replacement.id,
-            principal,
-            {"replaces": token_id, "name": replacement.name},
-        )
         return {**replacement.public(), "token": plaintext}
 
     @app.delete("/api/v2/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -503,7 +464,6 @@ def create_compat_app(
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
         await _identity_call(token_store.revoke_pat, token_id)
-        await _record_event(service, "access-token.revoked", "access-tokens", token_id, principal)
 
     @app.get("/api/v2/export")
     async def export_state(principal: Principal = Depends(principal_from_bearer)) -> Resource:
@@ -580,28 +540,17 @@ def create_compat_app(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="create")
-        manager = _require_certificate_manager(certificates)
-        bundle = _certificate_bundle(payload)
-        info = manager.validator.validate(bundle)
-        return {
-            "subject": info.subject,
-            "issuer": info.issuer,
-            "serial": info.serial,
-            "domain_names": list(info.domain_names),
-            "not_before": info.not_before.isoformat(),
-            "not_after": info.not_after.isoformat(),
-        }
+        return await app.core.CertificateStore.validate(
+            payload, ctx={"principal": _actor(principal)}
+        )
 
     @app.post("/api/nginx/certificates/upload", status_code=status.HTTP_201_CREATED)
     async def upload_certificate(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="create")
-        manager = _require_certificate_manager(certificates)
-        return await _identity_call(
-            manager.upload,
-            _certificate_bundle(payload),
-            nice_name=str(payload.get("nice_name", "")),
+        return await app.core.CertificateStore.upload(
+            payload, ctx={"principal": _actor(principal)}
         )
 
     @app.post("/api/nginx/certificates/{certificate_id}/upload")
@@ -611,12 +560,8 @@ def create_compat_app(
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="update")
-        manager = _require_certificate_manager(certificates)
-        return await _identity_call(
-            manager.upload,
-            _certificate_bundle(payload),
-            nice_name=str(payload.get("nice_name", "")),
-            certificate_id=certificate_id,
+        return await app.core.CertificateStore.upload(
+            {"id": certificate_id, **payload}, ctx={"principal": _actor(principal)}
         )
 
     @app.post("/api/nginx/certificates/request", status_code=status.HTTP_201_CREATED)
@@ -624,41 +569,13 @@ def create_compat_app(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="create")
-        manager = _require_certificate_manager(certificates)
         domains = payload.get("domain_names")
         if not isinstance(domains, list):
             raise HTTPException(status_code=422, detail="domain_names must be an array")
         try:
-            request = CertificateRequest(
-                nice_name=str(payload.get("nice_name", "Certificate")),
-                domain_names=tuple(str(item) for item in domains),
-                email=str(payload.get("email", "")),
-                challenge_type=ChallengeType(str(payload.get("challenge_type", "http-01"))),
-                key_type=str(payload.get("key_type", "rsa")),
-                provider=(str(payload["dns_provider"]) if payload.get("dns_provider") else None),
+            return await app.core.CertificateStore.request(
+                payload, ctx={"principal": _actor(principal)}
             )
-            credentials = payload.get("dns_credentials")
-            if request.challenge_type == ChallengeType.DNS_01:
-                if not request.provider or not isinstance(credentials, Mapping):
-                    raise ValueError("DNS-01 requires dns_provider and dns_credentials")
-                normalized_credentials = {
-                    str(key): str(value) for key, value in credentials.items()
-                }
-                DEFAULT_PROVIDER_CATALOG.validate_credentials(
-                    request.provider, normalized_credentials
-                )
-                descriptor, name = tempfile.mkstemp(prefix="portwyrm-dns-", text=True)
-                try:
-                    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                        for key, value in normalized_credentials.items():
-                            handle.write(f"{key} = {value}\n")
-                    os.chmod(name, 0o600)
-                    return await _identity_call(
-                        manager.request, request, credentials_file=Path(name)
-                    )
-                finally:
-                    Path(name).unlink(missing_ok=True)
-            return await _identity_call(manager.request, request)
         except (RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -670,10 +587,8 @@ def create_compat_app(
     ) -> Resource:
         force = _query_bool(request, "force")
         _authorize(principal, "certificates", admin_only=False, action="update")
-        return await _identity_call(
-            _require_certificate_manager(certificates).renew,
-            certificate_id,
-            force=force,
+        return await app.core.CertificateStore.renew(
+            {"id": certificate_id, "force": force}, ctx={"principal": _actor(principal)}
         )
 
     @app.get("/api/nginx/certificates/{certificate_id}/download")
@@ -683,8 +598,8 @@ def create_compat_app(
     ) -> Response:
         _authorize(principal, "certificates", admin_only=False, action="read")
         try:
-            content = await _identity_call(
-                _require_certificate_manager(certificates).download, certificate_id
+            content = await app.core.CertificateStore.download(
+                {"id": certificate_id}, ctx={"principal": _actor(principal)}
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -704,12 +619,9 @@ def create_compat_app(
         principal: Principal = Depends(principal_from_bearer),
     ) -> bool:
         _authorize(principal, "certificates", admin_only=False, action="delete")
-        if certificates is None:
-            deleted = await _service_delete(service, "certificates", certificate_id, principal)
-            if not deleted:
-                raise HTTPException(status_code=404, detail="resource not found")
-            return True
-        await _identity_call(certificates.delete, certificate_id)
+        await app.core.CertificateStore.remove(
+            {"id": certificate_id}, ctx={"principal": _actor(principal)}
+        )
         return True
 
     _register_resource_routes(app, service, principal_from_bearer)
@@ -767,6 +679,7 @@ def _register_resource_routes(
         get_item = _get_handler(service, principal_dependency, collection, admin_only)
         create_item = _create_handler(service, principal_dependency, collection, admin_only)
         update_item = _update_handler(service, principal_dependency, collection, admin_only)
+        replace_item = _replace_handler(service, principal_dependency, collection, admin_only)
         delete_item = _delete_handler(service, principal_dependency, collection, admin_only)
 
         app.add_route(path, list_items, methods=["GET"], name=f"list_{collection}")
@@ -777,7 +690,7 @@ def _register_resource_routes(
             f"{path}/{{resource_id}}", get_item, methods=["GET"], name=f"get_{collection}"
         )
         app.add_route(
-            f"{path}/{{resource_id}}", update_item, methods=["PUT"], name=f"update_{collection}"
+            f"{path}/{{resource_id}}", replace_item, methods=["PUT"], name=f"replace_{collection}"
         )
         app.add_route(
             f"{path}/{{resource_id}}", update_item, methods=["PATCH"], name=f"patch_{collection}"
@@ -866,6 +779,32 @@ def _update_handler(
     return handler
 
 
+def _replace_handler(
+    service: CompatibilityService, principal_dependency: Any, collection: str, admin_only: bool
+) -> Any:
+    async def handler(
+        resource_id: str,
+        payload: dict[str, Any],
+        principal: Principal = Depends(principal_dependency),
+    ) -> Resource:
+        _authorize(principal, collection, admin_only=admin_only, action="update")
+        _validate_payload(payload)
+        normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
+        existing = await _service_get(service, collection, normalized_id, principal)
+        if existing is None or not _is_visible(existing, principal):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        replacement = dict(payload)
+        replacement["id"] = existing["id"]
+        replaced = await _service_replace(
+            service, collection, normalized_id, replacement, principal
+        )
+        if replaced is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        return _valid_resource(replaced, collection)
+
+    return handler
+
+
 def _delete_handler(
     service: CompatibilityService, principal_dependency: Any, collection: str, admin_only: bool
 ) -> Any:
@@ -906,9 +845,9 @@ def _toggle_handler(
         existing = await _service_get(service, collection, normalized_id, principal)
         if existing is None or not _is_visible(existing, principal):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
-        merged = dict(existing)
-        merged["enabled"] = int(enabled)
-        updated = await _service_update(service, collection, normalized_id, merged, principal)
+        updated = await _service_toggle(
+            service, collection, normalized_id, enabled=enabled, principal=principal
+        )
         if updated is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
         return _valid_resource(updated, collection)
@@ -1036,12 +975,6 @@ def _valid_resource(resource: Mapping[str, Any], collection: str) -> Resource:
     return item
 
 
-def _require_certificate_manager(value: Any | None) -> Any:
-    if value is None:
-        raise HTTPException(status_code=501, detail="certificate management unavailable")
-    return value
-
-
 def _set_browser_cookies(response: Response, token: str) -> None:
     secure = os.getenv("PORTWYRM_SECURE_COOKIES", "0").lower() in {"1", "true", "yes"}
     csrf = secrets.token_urlsafe(24)
@@ -1099,17 +1032,6 @@ def _query_bool(request: Request, name: str, *, default: bool = False) -> bool:
     return value.strip().casefold() in {"1", "true", "yes", "on"}
 
 
-def _certificate_bundle(payload: Mapping[str, Any]) -> CustomCertificateBundle:
-    certificate = payload.get("certificate")
-    private_key = payload.get("private_key")
-    intermediate = payload.get("intermediate_certificate", "")
-    if not isinstance(certificate, str) or not isinstance(private_key, str):
-        raise HTTPException(status_code=422, detail="certificate and private_key are required")
-    if not isinstance(intermediate, str):
-        raise HTTPException(status_code=422, detail="intermediate_certificate must be text")
-    return CustomCertificateBundle(certificate, private_key, intermediate)
-
-
 async def _maybe_await[T](value: T | Awaitable[T]) -> T:
     if inspect.isawaitable(value):
         return await value
@@ -1122,27 +1044,6 @@ async def _reload_after_import(service: CompatibilityService) -> None:
         await _maybe_await(reload_service())
 
 
-async def _record_event(
-    service: CompatibilityService,
-    action: str,
-    object_type: str,
-    object_id: int | str,
-    principal: Principal,
-    details: Resource | None = None,
-) -> None:
-    recorder = getattr(service, "record_event", None)
-    if recorder is not None:
-        await _maybe_await(
-            recorder(
-                action,
-                object_type,
-                object_id,
-                details=details,
-                actor=_actor(principal),
-            )
-        )
-
-
 def _control_plane_collection(collection: str) -> str:
     return collection.replace("_", "-")
 
@@ -1152,6 +1053,9 @@ def _actor(principal: Principal) -> SimpleNamespace:
         id=principal.user_id,
         email=principal.identity,
         is_admin=principal.is_admin,
+        permissions=dict(principal.permissions),
+        visibility=principal.visibility,
+        scopes=frozenset(principal.scopes),
         owner=principal.owner,
     )
 
@@ -1196,7 +1100,8 @@ async def _service_create(
     principal: Principal,
 ) -> Resource:
     if method := getattr(service, "create_resource", None):
-        return await _maybe_await(method(collection, payload))
+        kwargs = {"actor": _actor(principal)} if isinstance(service, TableResources) else {}
+        return await _maybe_await(method(collection, payload, **kwargs))
     control_plane = cast(Any, service)
     return await _call_service(
         control_plane.create,
@@ -1214,7 +1119,8 @@ async def _service_update(
     principal: Principal,
 ) -> Resource | None:
     if method := getattr(service, "update_resource", None):
-        return await _maybe_await(method(collection, resource_id, payload))
+        kwargs = {"actor": _actor(principal)} if isinstance(service, TableResources) else {}
+        return await _maybe_await(method(collection, resource_id, payload, **kwargs))
     control_plane = cast(Any, service)
     try:
         return await _call_service(
@@ -1238,7 +1144,8 @@ async def _service_delete(
     principal: Principal,
 ) -> bool:
     if method := getattr(service, "delete_resource", None):
-        return await _maybe_await(method(collection, resource_id))
+        kwargs = {"actor": _actor(principal)} if isinstance(service, TableResources) else {}
+        return await _maybe_await(method(collection, resource_id, **kwargs))
     control_plane = cast(Any, service)
     try:
         return await _call_service(
@@ -1250,6 +1157,59 @@ async def _service_delete(
     except HTTPException as exc:
         if exc.status_code == status.HTTP_404_NOT_FOUND:
             return False
+        raise
+
+
+async def _service_replace(
+    service: CompatibilityService,
+    collection: str,
+    resource_id: int | str,
+    payload: Resource,
+    principal: Principal,
+) -> Resource | None:
+    if method := getattr(service, "replace_resource", None):
+        kwargs = {"actor": _actor(principal)} if isinstance(service, TableResources) else {}
+        return await _maybe_await(method(collection, resource_id, payload, **kwargs))
+    control_plane = cast(Any, service)
+    try:
+        return await _call_service(
+            control_plane.replace,
+            _control_plane_collection(collection),
+            resource_id,
+            payload,
+            actor=_actor(principal),
+        )
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            return None
+        raise
+
+
+async def _service_toggle(
+    service: CompatibilityService,
+    collection: str,
+    resource_id: int | str,
+    *,
+    enabled: bool,
+    principal: Principal,
+) -> Resource | None:
+    if method := getattr(service, "set_enabled", None):
+        kwargs = {"actor": _actor(principal)} if isinstance(service, TableResources) else {}
+        return await _maybe_await(
+            method(collection, resource_id, enabled=enabled, **kwargs)
+        )
+    control_plane = cast(Any, service)
+    operation = control_plane.enable if enabled else control_plane.disable
+    try:
+        return await _call_service(
+            operation,
+            _control_plane_collection(collection),
+            resource_id,
+            actor=_actor(principal),
+        )
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            return None
         raise
 
 

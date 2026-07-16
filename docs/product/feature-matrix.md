@@ -4,6 +4,13 @@ Observed: **2026-07-13** (America/Chicago)
 Upstream snapshot: `NginxProxyManager/nginx-proxy-manager` `master` at commit [`76f09db610cfcaecf6d608a8947d6f75aa028870`](https://github.com/NginxProxyManager/nginx-proxy-manager/tree/76f09db610cfcaecf6d608a8947d6f75aa028870), repository version `2.15.1`; commit date 2026-06-03.  
 Research method: official website, official repository source, schemas, migrations, Nginx templates, UI, tests/release metadata. Facts below are direct unless explicitly marked **Inference**, **Gap**, or **Extension**.
 
+Implementation note (2026-07-16): managed collections now execute through canonical single-row
+Tigrbl CRUD. Host/stream toggles are update aliases with hooks, aggregate children are lifecycle
+hooks, audit/ownership are router-global hooks, and Nginx reconciliation is post-commit policy.
+Legacy `*_compat` table CRUD and the pre-Tigrbl record-store importer were removed.
+Verification is recorded in
+[`artifacts/tigrbl-lifecycle-refactor-2026-07-16.md`](../../artifacts/tigrbl-lifecycle-refactor-2026-07-16.md).
+
 ## Scope and product boundary
 
 Nginx Proxy Manager (NPM) is a self-hosted reverse-proxy control plane and UI packaged with Nginx/OpenResty and Certbot. Its authoritative metadata is in SQLite, MySQL/MariaDB, or PostgreSQL, while generated Nginx configuration, JWT keys, logs, custom certificates, and ACME material live on mounted filesystems. NPM is therefore already a **DB + filesystem hybrid**, but does not expose an in-memory or file-only metadata backend. [S1][S4][S8]

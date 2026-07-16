@@ -6,30 +6,28 @@ import asyncio
 import inspect
 from typing import Any
 
-from pydantic import Field
-from sqlalchemy import select
 from tigrbl import op_ctx, schema_ctx
-from tigrbl.factories.table import defineTableSpec
-from tigrbl.types import BaseModel, Column, ForeignKey, Integer, Text, UniqueConstraint
+from tigrbl.types import BaseModel, Field, ForeignKey, Integer, Text, UniqueConstraint
 
 from portwyrm.identity.passwords import hash_secret, verify_secret
+from portwyrm.kernel_support import select
 
-from .base import PortwyrmTable
+from .base import PortwyrmTable, acol
 
 
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
-class CredentialStore(PortwyrmTable, defineTableSpec(ops=())):
+class CredentialStore(PortwyrmTable):
     """Own password persistence, verification, and rotation for principals."""
 
     __tablename__ = "credentials"
     __table_args__ = (UniqueConstraint("principal_id", name="uq_credentials_principal"),)
 
-    principal_id = Column(Integer, ForeignKey("principals.id"), nullable=False, index=True)
-    password_hash = Column(Text, nullable=False)
-    password_version = Column(Integer, nullable=False, default=1)
+    principal_id = acol(Integer, ForeignKey("principals.id"), nullable=False, index=True)
+    password_hash = acol(Text, nullable=False)
+    password_version = acol(Integer, nullable=False, default=1)
 
     @schema_ctx(alias="authenticate", kind="in")
     class AuthenticateRequest(BaseModel):

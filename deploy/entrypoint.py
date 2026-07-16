@@ -38,6 +38,8 @@ async def seed_demo_proxy_host(resources: TableResources) -> None:
         "hsts_enabled": 0,
         "meta": {
             "managed_by": "portwyrm-demo",
+            "owner": "portwyrm-demo",
+            "resource_id": f"proxy-host:{domain}",
             "purpose": "local reverse-proxy demonstration",
         },
     }

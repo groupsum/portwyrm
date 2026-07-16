@@ -28,6 +28,12 @@ def _checksum(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _comparable_resource(resource: Mapping[str, Any]) -> dict[str, Any]:
+    """Ignore absent optional fields synthesized as null by list projections."""
+
+    return {key: value for key, value in resource.items() if value is not None}
+
+
 class TablePortability:
     def __init__(self, resources: TableResources, backend: str) -> None:
         self.resources = resources
@@ -65,7 +71,9 @@ class TablePortability:
                 raise ValueError(f"unsupported portable collection {collection!r}")
             resource = dict(entry["resource"])
             existing = await self.resources.get_resource(collection, resource["id"])
-            if existing == resource:
+            if existing is not None and _comparable_resource(existing) == _comparable_resource(
+                resource
+            ):
                 summary["unchanged"] += 1
                 continue
             if existing is not None and not replace:

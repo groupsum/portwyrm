@@ -10,11 +10,36 @@ Resource = dict[str, Any]
 class CompatibilityService(Protocol):
     async def list_resources(self, collection: str) -> list[Resource]: ...
     async def get_resource(self, collection: str, resource_id: int | str) -> Resource | None: ...
-    async def create_resource(self, collection: str, payload: Resource) -> Resource: ...
+    async def create_resource(
+        self, collection: str, payload: Resource, *, actor: Any | None = None
+    ) -> Resource: ...
     async def update_resource(
-        self, collection: str, resource_id: int | str, payload: Resource
+        self,
+        collection: str,
+        resource_id: int | str,
+        payload: Resource,
+        *,
+        actor: Any | None = None,
     ) -> Resource | None: ...
-    async def delete_resource(self, collection: str, resource_id: int | str) -> bool: ...
+    async def replace_resource(
+        self,
+        collection: str,
+        resource_id: int | str,
+        payload: Resource,
+        *,
+        actor: Any | None = None,
+    ) -> Resource | None: ...
+    async def delete_resource(
+        self, collection: str, resource_id: int | str, *, actor: Any | None = None
+    ) -> bool: ...
+    async def set_enabled(
+        self,
+        collection: str,
+        resource_id: int | str,
+        *,
+        enabled: bool,
+        actor: Any | None = None,
+    ) -> Resource | None: ...
     async def list_audit(self, since: str | None = None) -> list[Resource]: ...
 
 

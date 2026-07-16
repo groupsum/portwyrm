@@ -13,4 +13,13 @@ class OwnershipError(PermissionError):
     """A caller attempted to mutate a resource owned by another controller."""
 
 
-__all__ = ["CollisionError", "DomainValidationError", "OwnershipError"]
+class AuthorizationError(PermissionError):
+    """A principal lacks authority for the requested collection operation."""
+
+
+__all__ = [
+    "AuthorizationError",
+    "CollisionError",
+    "DomainValidationError",
+    "OwnershipError",
+]

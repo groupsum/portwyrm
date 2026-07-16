@@ -10,13 +10,13 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Any, Literal, Self
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import CheckConstraint, delete, select
-from tigrbl import op_ctx, schema_ctx
+from tigrbl import hook_ctx, op_alias, op_ctx, schema_ctx
+from tigrbl.factories.column import IO, F, S
 from tigrbl.types import (
     BaseModel,
     Boolean,
-    Column,
+    CheckConstraint,
+    Field,
     ForeignKey,
     Integer,
     String,
@@ -25,9 +25,10 @@ from tigrbl.types import (
 )
 
 from portwyrm.errors import CollisionError, DomainValidationError
+from portwyrm.kernel_support import ConfigDict, delete, field_validator, model_validator, select
 
-from .base import ManagedPortwyrmTable
-from .compat import add_audit, extension_metadata, extensions, iso
+from .base import APPEND_ONLY_PROFILE, READ_ONLY_PROFILE, ManagedPortwyrmTable, PortwyrmTable, acol
+from .compat import extension_metadata, extensions, iso
 
 _HOST_KNOWN = {
     "id",
@@ -155,6 +156,8 @@ async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
+@op_alias(alias="enable", target="update", arity="member", http_methods=("POST",))
+@op_alias(alias="disable", target="update", arity="member", http_methods=("POST",))
 class RoutingHostStore(ManagedPortwyrmTable):
     __tablename__ = "routing_hosts"
     __table_args__ = (
@@ -305,104 +308,74 @@ class RoutingHostStore(ManagedPortwyrmTable):
         digest: str
         warnings: list[str] = Field(default_factory=list)
 
-    kind = Column(String(32), nullable=False, index=True)
-    owner_principal_id = Column(Integer, ForeignKey("principals.id"), nullable=True, index=True)
-    enabled = Column(Boolean, nullable=False, default=True)
-    certificate_id = Column(Integer, ForeignKey("certificates.id"), nullable=True)
-    force_ssl = Column(Boolean, nullable=False, default=False)
-    hsts_enabled = Column(Boolean, nullable=False, default=False)
-    hsts_subdomains = Column(Boolean, nullable=False, default=False)
-    http2_enabled = Column(Boolean, nullable=False, default=False)
-    trust_forwarded_proto = Column(Boolean, nullable=False, default=False)
-    websocket_enabled = Column(Boolean, nullable=False, default=True)
-    cache_enabled = Column(Boolean, nullable=False, default=False)
-    block_exploits = Column(Boolean, nullable=False, default=True)
-    redirect_target = Column(String(1024), nullable=True)
-    redirect_scheme = Column(String(16), nullable=True)
-    redirect_code = Column(Integer, nullable=True)
-    preserve_path = Column(Boolean, nullable=False, default=False)
-    advanced_config = Column(Text, nullable=False, default="")
+    kind = acol(String(32), nullable=False, index=True)
+    owner_principal_id = acol(Integer, ForeignKey("principals.id"), nullable=True, index=True)
+    enabled = acol(
+        storage=S(type_=Boolean, nullable=False, default=True),
+        field=F(py_type=bool),
+        io=IO(
+            in_verbs=("create", "update", "replace", "enable", "disable"),
+            out_verbs=("read", "list", "create", "update", "replace", "enable", "disable"),
+        ),
+    )
+    certificate_id = acol(Integer, ForeignKey("certificates.id"), nullable=True)
+    force_ssl = acol(Boolean, nullable=False, default=False)
+    hsts_enabled = acol(Boolean, nullable=False, default=False)
+    hsts_subdomains = acol(Boolean, nullable=False, default=False)
+    http2_enabled = acol(Boolean, nullable=False, default=False)
+    trust_forwarded_proto = acol(Boolean, nullable=False, default=False)
+    websocket_enabled = acol(Boolean, nullable=False, default=True)
+    cache_enabled = acol(Boolean, nullable=False, default=False)
+    block_exploits = acol(Boolean, nullable=False, default=True)
+    redirect_target = acol(String(1024), nullable=True)
+    redirect_scheme = acol(String(16), nullable=True)
+    redirect_code = acol(Integer, nullable=True)
+    preserve_path = acol(Boolean, nullable=False, default=False)
+    advanced_config = acol(Text, nullable=False, default="")
 
-    @op_ctx(alias="create_compat", target="custom", arity="collection")
-    async def create_compat(cls, ctx: Any) -> dict[str, Any]:
-        payload = dict(ctx.get("payload") or {})
-        cls._validate_payload(payload)
-        await cls._assert_source_collisions(ctx["db"], payload.get("domain_names") or [])
-        row = cls(**cls._host_values(payload))
-        ctx["db"].add(row)
-        await _await(ctx["db"].flush())
-        await cls._replace_children(ctx["db"], row.id, payload)
-        result = await cls._project(ctx["db"], row)
-        await add_audit(
-            ctx["db"],
-            action="created",
-            object_type=cls._collection(row.kind),
-            object_id=row.id,
-            details=result,
-        )
-        return result
+    @hook_ctx(ops="enable", phase="PRE_HANDLER")
+    def enable_payload(cls, ctx: dict[str, Any]) -> None:
+        ctx.setdefault("payload", {})["enabled"] = True
 
-    @op_ctx(alias="update_compat", target="custom", arity="collection")
-    async def update_compat(cls, ctx: Any) -> dict[str, Any]:
+    @hook_ctx(ops="disable", phase="PRE_HANDLER")
+    def disable_payload(cls, ctx: dict[str, Any]) -> None:
+        ctx.setdefault("payload", {})["enabled"] = False
+
+    @hook_ctx(ops=("create", "update", "replace"), phase="PRE_HANDLER")
+    async def prepare_aggregate(cls, ctx: dict[str, Any]) -> None:
         payload = dict(ctx.get("payload") or {})
-        result = await _await(
-            ctx["db"].execute(select(cls).where(cls.id == int(payload.pop("id"))))
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
-            raise ValueError("routing host not found")
         cls._validate_payload(payload)
         await cls._assert_source_collisions(
-            ctx["db"], payload.get("domain_names") or [], exclude_host_id=row.id
-        )
-        for key, value in cls._host_values(payload).items():
-            setattr(row, key, value)
-        await cls._replace_children(ctx["db"], row.id, payload)
-        result = await cls._project(ctx["db"], row)
-        await add_audit(
             ctx["db"],
-            action="updated",
-            object_type=cls._collection(row.kind),
-            object_id=row.id,
-            details=result,
+            payload.get("domain_names") or [],
+            exclude_host_id=payload.get("id"),
         )
-        return result
+        ctx.setdefault("temp", {})["routing_aggregate"] = payload
+        root = cls._host_values(payload)
+        if payload.get("id") is not None:
+            root["id"] = int(payload["id"])
+        ctx["payload"] = root
 
-    @op_ctx(alias="delete_compat", target="custom", arity="collection")
-    async def delete_compat(cls, ctx: Any) -> dict[str, Any]:
-        host_id = int((ctx.get("payload") or {})["id"])
-        await cls._replace_children(ctx["db"], host_id, {})
-        kind = (
-            await _await(ctx["db"].execute(select(cls.kind).where(cls.id == host_id)))
-        ).scalar_one_or_none()
-        result = await _await(ctx["db"].execute(delete(cls).where(cls.id == host_id)))
-        if result.rowcount:
-            await add_audit(
-                ctx["db"],
-                action="deleted",
-                object_type=cls._collection(kind or "proxy"),
-                object_id=host_id,
-            )
-        return {"deleted": bool(result.rowcount), "id": host_id}
+    @hook_ctx(ops=("create", "update", "replace"), phase="POST_HANDLER")
+    async def persist_aggregate(cls, ctx: dict[str, Any]) -> None:
+        row = ctx["result"]
+        payload = ctx.get("temp", {}).get("routing_aggregate", {})
+        await cls._replace_children(ctx["db"], row.id, payload)
+        ctx["result"] = await cls._project(ctx["db"], row)
 
-    @op_ctx(alias="compat_list", target="custom", arity="collection")
-    async def compat_list(cls, ctx: Any) -> list[dict[str, Any]]:
-        payload = dict(ctx.get("payload") or {})
-        statement = select(cls).order_by(cls.id)
-        if payload.get("kind"):
-            statement = statement.where(cls.kind == str(payload["kind"]))
-        rows = list((await _await(ctx["db"].execute(statement))).scalars())
-        return [await cls._project(ctx["db"], row) for row in rows]
+    @hook_ctx(ops=("read", "list"), phase="POST_HANDLER")
+    async def project_aggregate(cls, ctx: dict[str, Any]) -> None:
+        result = ctx["result"]
+        if isinstance(result, list):
+            kind = (ctx.get("payload") or {}).get("kind")
+            rows = [row for row in result if kind is None or row.kind == str(kind)]
+            ctx["result"] = [await cls._project(ctx["db"], row) for row in rows]
+        else:
+            ctx["result"] = await cls._project(ctx["db"], result)
 
-    @op_ctx(alias="compat_read", target="custom", arity="collection")
-    async def compat_read(cls, ctx: Any) -> dict[str, Any]:
-        host_id = int((ctx.get("payload") or {})["id"])
-        row = (
-            await _await(ctx["db"].execute(select(cls).where(cls.id == host_id)))
-        ).scalar_one_or_none()
-        if row is None:
-            raise ValueError("routing host not found")
-        return await cls._project(ctx["db"], row)
+    @hook_ctx(ops="delete", phase="PRE_HANDLER")
+    async def delete_aggregate_children(cls, ctx: dict[str, Any]) -> None:
+        await cls._replace_children(ctx["db"], int(ctx["payload"]["id"]), {})
 
     @op_ctx(alias="runtime_list", target="custom", arity="collection")
     async def runtime_list(cls, ctx: Any) -> dict[str, Any]:
@@ -592,12 +565,6 @@ class RoutingHostStore(ManagedPortwyrmTable):
                 )
             )
 
-    @staticmethod
-    def _collection(kind: str) -> str:
-        return {"proxy": "proxy_hosts", "redirect": "redirection_hosts", "dead": "dead_hosts"}.get(
-            kind, "proxy_hosts"
-        )
-
     @classmethod
     async def _project(cls, db: Any, row: Any) -> dict[str, Any]:
         sources = list(
@@ -777,60 +744,66 @@ class RoutingHostStore(ManagedPortwyrmTable):
         }
 
 
-class RoutingSourceStore(ManagedPortwyrmTable):
+class RoutingSourceStore(PortwyrmTable):
     __tablename__ = "routing_sources"
+    TABLE_PROFILE = READ_ONLY_PROFILE
     __table_args__ = (
         UniqueConstraint("domain_name", name="uq_routing_source_domain"),
         CheckConstraint("domain_name = lower(domain_name)", name="ck_routing_source_lowercase"),
     )
-    routing_host_id = Column(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
-    domain_name = Column(String(253), nullable=False, index=True)
+    routing_host_id = acol(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
+    domain_name = acol(String(253), nullable=False, index=True)
 
 
-class RoutingUpstreamStore(ManagedPortwyrmTable):
+class RoutingUpstreamStore(PortwyrmTable):
     __tablename__ = "routing_upstreams"
+    TABLE_PROFILE = READ_ONLY_PROFILE
     __table_args__ = (
         CheckConstraint("protocol IN ('http','https')", name="ck_routing_upstream_protocol"),
         CheckConstraint("target_kind IN ('ip','dns','docker')", name="ck_routing_upstream_target"),
         CheckConstraint("port BETWEEN 1 AND 65535", name="ck_routing_upstream_port"),
         CheckConstraint("weight > 0", name="ck_routing_upstream_weight"),
     )
-    routing_host_id = Column(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
-    protocol = Column(String(16), nullable=False, default="http")
-    target_kind = Column(String(16), nullable=False)
-    target = Column(String(1024), nullable=False)
-    port = Column(Integer, nullable=False)
-    position = Column(Integer, nullable=False, default=0)
-    weight = Column(Integer, nullable=False, default=1)
+    routing_host_id = acol(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
+    protocol = acol(String(16), nullable=False, default="http")
+    target_kind = acol(String(16), nullable=False)
+    target = acol(String(1024), nullable=False)
+    port = acol(Integer, nullable=False)
+    position = acol(Integer, nullable=False, default=0)
+    weight = acol(Integer, nullable=False, default=1)
 
 
-class RoutingLocationStore(ManagedPortwyrmTable):
+class RoutingLocationStore(PortwyrmTable):
     __tablename__ = "routing_locations"
+    TABLE_PROFILE = READ_ONLY_PROFILE
     __table_args__ = (
         UniqueConstraint("routing_host_id", "path", name="uq_routing_location_path"),
         CheckConstraint("protocol IN ('http','https')", name="ck_routing_location_protocol"),
         CheckConstraint("target_kind IN ('ip','dns','docker')", name="ck_routing_location_target"),
         CheckConstraint("port BETWEEN 1 AND 65535", name="ck_routing_location_port"),
     )
-    routing_host_id = Column(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
-    path = Column(String(1024), nullable=False)
-    protocol = Column(String(16), nullable=False, default="http")
-    target_kind = Column(String(16), nullable=False)
-    target = Column(String(1024), nullable=False)
-    port = Column(Integer, nullable=False)
-    forward_path = Column(String(1024), nullable=False, default="")
-    advanced_config = Column(Text, nullable=False, default="")
+    routing_host_id = acol(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
+    path = acol(String(1024), nullable=False)
+    protocol = acol(String(16), nullable=False, default="http")
+    target_kind = acol(String(16), nullable=False)
+    target = acol(String(1024), nullable=False)
+    port = acol(Integer, nullable=False)
+    forward_path = acol(String(1024), nullable=False, default="")
+    advanced_config = acol(Text, nullable=False, default="")
 
 
-class RoutingHostAccessListStore(ManagedPortwyrmTable):
+class RoutingHostAccessListStore(PortwyrmTable):
     __tablename__ = "routing_host_access_lists"
+    TABLE_PROFILE = READ_ONLY_PROFILE
     __table_args__ = (
         UniqueConstraint("routing_host_id", "access_list_id", name="uq_routing_host_access_list"),
     )
-    routing_host_id = Column(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
-    access_list_id = Column(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
+    routing_host_id = acol(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
+    access_list_id = acol(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
 
 
+@op_alias(alias="enable", target="update", arity="member", http_methods=("POST",))
+@op_alias(alias="disable", target="update", arity="member", http_methods=("POST",))
 class StreamRouteStore(ManagedPortwyrmTable):
     __tablename__ = "stream_routes"
     __table_args__ = (
@@ -844,14 +817,29 @@ class StreamRouteStore(ManagedPortwyrmTable):
             name="ck_stream_tls_tcp",
         ),
     )
-    owner_principal_id = Column(Integer, ForeignKey("principals.id"), nullable=True, index=True)
-    protocol = Column(String(8), nullable=False)
-    incoming_port = Column(Integer, nullable=False, index=True)
-    target_kind = Column(String(16), nullable=False)
-    target = Column(String(1024), nullable=False)
-    target_port = Column(Integer, nullable=False)
-    certificate_id = Column(Integer, ForeignKey("certificates.id"), nullable=True)
-    enabled = Column(Boolean, nullable=False, default=True)
+    owner_principal_id = acol(Integer, ForeignKey("principals.id"), nullable=True, index=True)
+    protocol = acol(String(8), nullable=False)
+    incoming_port = acol(Integer, nullable=False, index=True)
+    target_kind = acol(String(16), nullable=False)
+    target = acol(String(1024), nullable=False)
+    target_port = acol(Integer, nullable=False)
+    certificate_id = acol(Integer, ForeignKey("certificates.id"), nullable=True)
+    enabled = acol(
+        storage=S(type_=Boolean, nullable=False, default=True),
+        field=F(py_type=bool),
+        io=IO(
+            in_verbs=("create", "update", "replace", "enable", "disable"),
+            out_verbs=("read", "list", "create", "update", "replace", "enable", "disable"),
+        ),
+    )
+
+    @hook_ctx(ops="enable", phase="PRE_HANDLER")
+    def enable_payload(cls, ctx: dict[str, Any]) -> None:
+        ctx.setdefault("payload", {})["enabled"] = True
+
+    @hook_ctx(ops="disable", phase="PRE_HANDLER")
+    def disable_payload(cls, ctx: dict[str, Any]) -> None:
+        ctx.setdefault("payload", {})["enabled"] = False
 
     @schema_ctx(alias="runtime_read", kind="out")
     class RuntimeStream(BaseModel):
@@ -965,15 +953,16 @@ class StreamRouteStore(ManagedPortwyrmTable):
         )
 
 
-class HostConfigRevisionStore(ManagedPortwyrmTable):
+class HostConfigRevisionStore(PortwyrmTable):
     __tablename__ = "config_revisions"
+    TABLE_PROFILE = APPEND_ONLY_PROFILE
     __table_args__ = (UniqueConstraint("routing_host_id", "generation", name="uq_host_generation"),)
-    routing_host_id = Column(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
-    generation = Column(String(64), nullable=False)
-    config_text = Column(Text, nullable=False)
-    config_digest = Column(String(64), nullable=False)
-    applied = Column(Boolean, nullable=False, default=False)
-    applied_at = Column(Integer, nullable=True)
+    routing_host_id = acol(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
+    generation = acol(String(64), nullable=False)
+    config_text = acol(Text, nullable=False)
+    config_digest = acol(String(64), nullable=False)
+    applied = acol(Boolean, nullable=False, default=False)
+    applied_at = acol(Integer, nullable=True)
 
     @op_ctx(alias="compare", target="custom", arity="member")
     def compare(cls, ctx: Any) -> dict[str, Any]:

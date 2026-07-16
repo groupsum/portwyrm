@@ -8,14 +8,22 @@ import secrets
 import time
 from typing import Any
 
-from pydantic import Field
-from sqlalchemy import select
 from tigrbl import op_ctx, schema_ctx
-from tigrbl.types import JSON, BaseModel, Column, ForeignKey, Integer, String, UniqueConstraint
+from tigrbl.types import (
+    JSON,
+    BaseModel,
+    Field,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    relationship,
+)
 
 from portwyrm.identity.passwords import hash_secret, verify_secret
+from portwyrm.kernel_support import select
 
-from .base import ManagedPortwyrmTable
+from .base import READ_ONLY_PROFILE, PortwyrmTable, acol
 from .principals import PrincipalStore
 
 
@@ -23,19 +31,25 @@ async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
-class PATStore(ManagedPortwyrmTable):
+class PATStore(PortwyrmTable):
     __tablename__ = "personal_access_tokens"
+    TABLE_PROFILE = READ_ONLY_PROFILE
     __table_args__ = (UniqueConstraint("token_prefix", name="uq_pat_prefix"),)
 
-    principal_id = Column(Integer, ForeignKey("principals.id"), nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    token_prefix = Column(String(64), nullable=False)
-    token_digest = Column(String(255), nullable=False)
-    scopes = Column(JSON, nullable=False, default=list)
-    expires_at = Column(Integer, nullable=True)
-    last_used_at = Column(Integer, nullable=True)
-    revoked_at = Column(Integer, nullable=True)
-    replaced_by_id = Column(Integer, ForeignKey("personal_access_tokens.id"), nullable=True)
+    principal_id = acol(Integer, ForeignKey("principals.id"), nullable=False, index=True)
+    name = acol(String(255), nullable=False)
+    token_prefix = acol(String(64), nullable=False)
+    token_digest = acol(String(255), nullable=False)
+    scopes = acol(JSON, nullable=False, default=list)
+    expires_at = acol(Integer, nullable=True)
+    last_used_at = acol(Integer, nullable=True)
+    revoked_at = acol(Integer, nullable=True)
+    replaced_by_id = acol(Integer, ForeignKey("personal_access_tokens.id"), nullable=True)
+    replaced_by = relationship(
+        "PATStore",
+        remote_side="PATStore.id",
+        foreign_keys=[replaced_by_id],
+    )
 
     @schema_ctx(alias="issue", kind="in")
     class IssueRequest(BaseModel):
@@ -107,7 +121,12 @@ class PATStore(ManagedPortwyrmTable):
 
     @op_ctx(alias="issue", target="custom", arity="collection")
     async def issue(cls, ctx: Any) -> dict[str, Any]:
-        payload = dict(ctx.get("payload") or {})
+        row, result = await cls._new_token(dict(ctx.get("payload") or {}))
+        ctx["db"].add(row)
+        return result
+
+    @classmethod
+    async def _new_token(cls, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         name = str(payload.get("name") or "").strip()
         if not name:
             raise ValueError("PAT name must not be empty")
@@ -119,6 +138,7 @@ class PATStore(ManagedPortwyrmTable):
         plaintext = f"pwyrm_{prefix}_{secrets.token_urlsafe(32)}"
         digest = await asyncio.to_thread(hash_secret, plaintext)
         row = cls(
+            id=secrets.randbelow(2**63 - 1) + 1,
             principal_id=int(payload["principal_id"]),
             name=name,
             token_prefix=prefix,
@@ -126,9 +146,7 @@ class PATStore(ManagedPortwyrmTable):
             scopes=sorted(set(payload.get("scopes") or [])),
             expires_at=int(expires_at) if expires_at is not None else None,
         )
-        ctx["db"].add(row)
-        await _await(ctx["db"].flush())
-        return {
+        return row, {
             "id": row.id,
             "name": row.name,
             "token": plaintext,
@@ -167,16 +185,17 @@ class PATStore(ManagedPortwyrmTable):
         row = await cls._by_prefix(ctx["db"], prefix)
         if row is None or row.revoked_at is not None:
             raise ValueError("token not found or revoked")
-        issue_ctx = dict(ctx)
-        issue_ctx["payload"] = {
-            "principal_id": row.principal_id,
-            "name": row.name,
-            "scopes": list(row.scopes or []),
-            "expires_at": row.expires_at,
-        }
-        result = await cls.issue(issue_ctx)
+        replacement, result = await cls._new_token(
+            {
+                "principal_id": row.principal_id,
+                "name": row.name,
+                "scopes": list(row.scopes or []),
+                "expires_at": row.expires_at,
+            }
+        )
+        ctx["db"].add(replacement)
         row.revoked_at = int(time.time())
-        row.replaced_by_id = int(result["id"])
+        row.replaced_by = replacement
         return {**result, "replaced_token_prefix": prefix}
 
     @op_ctx(alias="verify", target="custom", arity="collection")

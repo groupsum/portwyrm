@@ -8,30 +8,29 @@ import secrets
 import time
 from typing import Any
 
-from sqlalchemy import select
 from tigrbl import op_ctx
-from tigrbl.factories.table import defineTableSpec
-from tigrbl.types import JSON, Column, Integer, String, UniqueConstraint
+from tigrbl.types import JSON, Integer, String, UniqueConstraint
 
 from portwyrm.identity.passwords import hash_secret, verify_secret
+from portwyrm.kernel_support import select
 
-from .base import PortwyrmTable
+from .base import PortwyrmTable, acol
 
 
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
-class BrowserSessionStore(PortwyrmTable, defineTableSpec(ops=())):
+class BrowserSessionStore(PortwyrmTable):
     """Issue, verify, and revoke opaque browser-session credentials."""
 
     __tablename__ = "browser_sessions"
     __table_args__ = (UniqueConstraint("token_id", name="uq_browser_session_token_id"),)
 
-    token_id = Column(String(64), nullable=False, index=True)
-    token_digest = Column(String(255), nullable=False)
-    principal_snapshot = Column(JSON, nullable=False)
-    expires_at = Column(Integer, nullable=False, index=True)
+    token_id = acol(String(64), nullable=False, index=True)
+    token_digest = acol(String(255), nullable=False)
+    principal_snapshot = acol(JSON, nullable=False)
+    expires_at = acol(Integer, nullable=False, index=True)
 
     @op_ctx(alias="issue", target="custom", arity="collection")
     async def issue(cls, ctx: Any) -> dict[str, Any]:
