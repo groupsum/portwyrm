@@ -27,3 +27,16 @@ the named class must not exist in a downstream Tigrbl application.
 
 The eleven files under `tests/planned/` are retained by name but no longer skip. They now execute
 capability-presence contracts and keep future regressions visible in the normal test run.
+
+## Current backend evidence
+
+On 2026-07-16, `portwyrm:npmctl-current` was run against a disposable PostgreSQL 17
+container. An administrator and npmctl-owned proxy host were created, the Portwyrm container
+was destroyed and recreated without bootstrap credentials, and the persisted administrator
+authenticated successfully with `doctor ok=true` while npmctl reported `drift_count=0`.
+
+The same current image fails closed before MySQL application startup with
+`Unknown or unavailable engine kind 'mysql'`. The image contains Tigrbl 0.4.4; the local
+`tigrbl_engine_mysql` source requires Tigrbl 0.4.5.dev4 and is not available from the package
+index. MySQL/MariaDB restart conformance therefore remains an external engine-publication gate,
+not a passing Portwyrm persistence claim.
