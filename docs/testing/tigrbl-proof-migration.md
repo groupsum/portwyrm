@@ -9,7 +9,7 @@ the named class must not exist in a downstream Tigrbl application.
 
 | Former proof file | Replacement proof |
 |---|---|
-| `integration/test_database_backends.py` | `runtime/test_tigrbl_native_composition.py`; live PostgreSQL CRUD/restart evidence; MySQL stays gated until its engine package is published |
+| `integration/test_postgresql_restart.py` | live PostgreSQL identity and routing persistence across app reconstruction; MySQL stays gated until its engine package is published |
 | `robustness/test_api_security_ui_t2.py` | SSOT T2 identity/UI suites, `runtime/test_ui_assets.py`, `runtime/test_tigrbl_app_runtime.py` |
 | `robustness/test_data_operations_distribution_t2.py` | `planned/test_distribution.py`, `planned/test_operations.py`, real container protocol test |
 | `runtime/test_compat_api.py` | `runtime/test_tigrbl_app_runtime.py`, npm compatibility SSOT suites, converted `planned/test_npm_wire.py` and `planned/test_npmctl_e2e.py` |
