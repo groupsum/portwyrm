@@ -11,9 +11,10 @@ from tigrbl import TigrblApp
 from tigrbl.factories.engine import sqlitef
 
 from portwyrm.api.compat.resources import TableResources
+from portwyrm.identity.passwords import hash_secret, verify_secret
 from portwyrm.migration import preflight_npm, preflight_npm_sqlite
 from portwyrm.tables import PORTWYRM_TABLES
-from portwyrm.tables.migrations import ROUTING_CONTRACT_MIGRATION
+from portwyrm.tables.migrations import LEGACY_CREDENTIAL_MIGRATION, ROUTING_CONTRACT_MIGRATION
 
 
 def test_npm_preflight_preserves_ids_metadata_and_quarantines_invalid_references() -> None:
@@ -304,3 +305,62 @@ def test_partial_legacy_upgrade_skips_source_domain_collisions(tmp_path: Path) -
         assert hosts[0]["forward_host"] == "127.0.0.1"
 
     asyncio.run(upgrade())
+
+
+def test_completed_legacy_upgrade_restores_omitted_credentials(tmp_path: Path) -> None:
+    path = tmp_path / "credential-repair.sqlite"
+    password_hash = hash_secret("correct horse battery staple")
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE records (collection TEXT, resource_id TEXT, payload TEXT, "
+        "PRIMARY KEY (collection, resource_id))"
+    )
+    connection.execute(
+        "INSERT INTO records(collection, resource_id, payload) VALUES (?, ?, ?)",
+        (
+            "_credentials",
+            "admin@portwyrm.local",
+            json.dumps(
+                {"id": "admin@portwyrm.local", "password_hash": password_hash}
+            ),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    async def repair() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        await TableResources(app).create_resource(
+            "users",
+            {
+                "email": "admin@portwyrm.local",
+                "password": "temporary bootstrap password",
+                "name": "Administrator",
+                "nickname": "admin",
+                "is_admin": True,
+                "visibility": "all",
+            },
+        )
+        connection = sqlite3.connect(path)
+        connection.execute("DELETE FROM credentials")
+        connection.commit()
+        connection.close()
+        await app.core.SchemaMigrationStore.apply({})
+
+    asyncio.run(repair())
+    connection = sqlite3.connect(path)
+    marker = connection.execute(
+        "SELECT status FROM system_migrations WHERE name = ?",
+        (LEGACY_CREDENTIAL_MIGRATION,),
+    ).fetchone()
+    restored_hash = connection.execute(
+        "SELECT password_hash FROM credentials WHERE principal_id = 1"
+    ).fetchone()
+    connection.close()
+    assert marker == ("applied",)
+    assert restored_hash is not None
+    assert verify_secret(restored_hash[0], "correct horse battery staple")

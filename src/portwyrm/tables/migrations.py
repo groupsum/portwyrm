@@ -16,6 +16,7 @@ from tigrbl.types import BaseModel, Column, Integer, String, Text, UniqueConstra
 from .base import PortwyrmTable
 
 MIGRATION_NAME = "legacy-records-v1"
+LEGACY_CREDENTIAL_MIGRATION = "legacy-credentials-v2"
 ROUTING_CONTRACT_MIGRATION = "routing-contracts-v2"
 _ROUTING_COLUMNS = (
     ("routing_hosts", "http2_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
@@ -73,6 +74,7 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
     @op_ctx(alias="apply", target="custom", arity="collection")
     async def apply(cls, ctx: Any) -> dict[str, Any]:
         await cls._upgrade_routing_contracts(ctx["db"])
+        await cls._upgrade_legacy_credentials(ctx["db"])
         plan = await cls._plan(ctx["db"])
         if not plan["required"]:
             return {**plan, "applied": False}
@@ -90,6 +92,73 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
             )
         )
         return {**plan, "required": False, "applied": True}
+
+    @classmethod
+    async def _upgrade_legacy_credentials(cls, db: Any) -> bool:
+        """Restore write-only password hashes omitted by the first normalized import."""
+        from .credentials import CredentialStore
+        from .identities import PrincipalStore
+
+        rows = [row for row in await cls._legacy_rows(db) if row[0] == "_credentials"]
+        checksum = cls._checksum(rows)
+        existing = (
+            await _await(
+                db.execute(select(cls).where(cls.name == LEGACY_CREDENTIAL_MIGRATION))
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.checksum != checksum:
+                raise ValueError(
+                    "legacy credential migration checksum changed after it was recorded"
+                )
+            return False
+
+        restored = False
+        for _collection, resource_id, payload_text in rows:
+            payload = json.loads(payload_text)
+            identity = str(payload.get("id") or resource_id).strip().casefold()
+            password_hash = str(payload.get("password_hash") or "")
+            if not identity or not password_hash:
+                continue
+            principal = (
+                await _await(
+                    db.execute(select(PrincipalStore).where(PrincipalStore.email == identity))
+                )
+            ).scalar_one_or_none()
+            if principal is None:
+                continue
+            credential = (
+                await _await(
+                    db.execute(
+                        select(CredentialStore).where(
+                            CredentialStore.principal_id == principal.id
+                        )
+                    )
+                )
+            ).scalar_one_or_none()
+            if credential is None:
+                db.add(
+                    CredentialStore(
+                        principal_id=principal.id,
+                        password_hash=password_hash,
+                    )
+                )
+                restored = True
+
+        now = int(time.time())
+        db.add(
+            cls(
+                name=LEGACY_CREDENTIAL_MIGRATION,
+                checksum=checksum,
+                source_version="records-v1",
+                status="applied",
+                started_at=now,
+                applied_at=now,
+                diagnostic="restored legacy credential rows" if restored else None,
+            )
+        )
+        await _await(db.flush())
+        return restored
 
     @classmethod
     async def _upgrade_routing_contracts(cls, db: Any) -> bool:
@@ -375,4 +444,9 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
             await PrincipalStore._replace_authorization(db, row, payload)
 
 
-__all__ = ["MIGRATION_NAME", "ROUTING_CONTRACT_MIGRATION", "SchemaMigrationStore"]
+__all__ = [
+    "LEGACY_CREDENTIAL_MIGRATION",
+    "MIGRATION_NAME",
+    "ROUTING_CONTRACT_MIGRATION",
+    "SchemaMigrationStore",
+]
