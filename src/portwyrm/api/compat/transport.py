@@ -1,11 +1,11 @@
-"""Transitional request binding for npm-compatible routes on Tigrbl."""
+"""Isolated request binding for the frozen npm-compatible wire surface."""
 
 from __future__ import annotations
 
 import inspect
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from tigrbl import HTTPException, Request, Response
 from tigrbl.factories.app import deriveApp
@@ -125,7 +125,8 @@ class _CompatibilityRouteMixin:
         **kwargs: Any,
     ) -> None:
         status_code = int(kwargs.get("status_code") or 200)
-        super().add_route(  # type: ignore[misc]
+        parent = cast(Any, super())
+        parent.add_route(
             path,
             _compat_endpoint(endpoint, path=path, status_code=status_code),
             methods=methods,
