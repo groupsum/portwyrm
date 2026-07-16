@@ -90,7 +90,10 @@ deterministic and covered by golden tests. Active files are never edited in plac
 “Filesystem-only” is an import/export and disaster-recovery artifact profile, not a second live
 metadata implementation. “Hybrid” means one Tigrbl database authority plus filesystem/object
 certificate and generated-config artifacts. Every durable profile supports a backend-neutral,
-checksummed export bundle and dry-run import.
+checksummed configuration export bundle and dry-run import. This portable bundle excludes
+principals, password hashes, MFA secrets, session/token state, and certificate filesystem
+material. A fresh instance must bootstrap an administrator before import. Full disaster
+recovery remains the encrypted database-plus-filesystem bundle described in the p100 target.
 
 ## Security model
 

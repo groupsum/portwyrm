@@ -108,6 +108,10 @@ class TableResources:
                 )
         except (LookupError, ValueError):
             return None
+        except TigrblHTTPException as exc:
+            if getattr(exc, "status_code", None) == 404 or "not found" in str(exc).casefold():
+                return None
+            raise
         projected = self._project(collection, row)
         if collection == "users":
             await self._attach_authorization(projected)

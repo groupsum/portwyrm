@@ -40,3 +40,11 @@ The same current image fails closed before MySQL application startup with
 `tigrbl_engine_mysql` source requires Tigrbl 0.4.5.dev4 and is not available from the package
 index. MySQL/MariaDB restart conformance therefore remains an external engine-publication gate,
 not a passing Portwyrm persistence claim.
+
+The real Docker protocol suite passed against the same image for HTTP proxying, WebSocket
+upgrade, cache behavior, redirects, dead hosts, TCP, and UDP. A separate cross-instance test
+exports a checksummed configuration bundle, previews and restores it into a fresh SQLite
+instance, and verifies stable IDs, aggregate references, and npmctl ownership metadata. Bundle
+tampering is rejected. Identities and secret-bearing filesystem material are deliberately
+excluded; this is configuration portability evidence, not the still-open encrypted full-backup
+claim.

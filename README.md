@@ -11,7 +11,7 @@ partial MVP completion.
 
 The frozen S0-S5 runtime scope is under active implementation on `master`: composed Python
 CLI/API/UIX, deterministic Nginx protocols, durable identity and MFA, certificate lifecycle,
-portable state, NPM migration, and npmctl-compatible plan/apply/drift/audit behavior have executable
+portable configuration, NPM migration, and npmctl-compatible plan/apply/drift/audit behavior have executable
 coverage. External ACME, live PostgreSQL/MySQL restart conformance, multi-architecture publication,
 and formal SSOT certification remain fail-closed release gates; implementation does not imply a
 published `1.0.0`.

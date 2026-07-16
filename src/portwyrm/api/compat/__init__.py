@@ -488,7 +488,7 @@ def create_compat_app(
     ) -> Resource:
         replace = _query_bool(request, "replace")
         _require_admin(principal)
-        result = await portability.import_(payload, replace=replace)
+        result = await portability.import_(payload, replace=replace, actor=principal)
         await _reload_after_import(service)
         return result
 

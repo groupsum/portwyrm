@@ -12,7 +12,6 @@ from portwyrm.api.compat.resources import TableResources
 
 BUNDLE_VERSION = "portwyrm.export.v2"
 PORTABLE_COLLECTIONS = (
-    "users",
     "settings",
     "access_lists",
     "certificates",
@@ -57,11 +56,22 @@ class TablePortability:
     async def preview(self, bundle: Mapping[str, Any], *, replace: bool = False) -> dict[str, int]:
         return await self._apply(bundle, replace=replace, commit=False)
 
-    async def import_(self, bundle: Mapping[str, Any], *, replace: bool = False) -> dict[str, int]:
-        return await self._apply(bundle, replace=replace, commit=True)
+    async def import_(
+        self,
+        bundle: Mapping[str, Any],
+        *,
+        replace: bool = False,
+        actor: Any | None = None,
+    ) -> dict[str, int]:
+        return await self._apply(bundle, replace=replace, commit=True, actor=actor)
 
     async def _apply(
-        self, bundle: Mapping[str, Any], *, replace: bool, commit: bool
+        self,
+        bundle: Mapping[str, Any],
+        *,
+        replace: bool,
+        commit: bool,
+        actor: Any | None = None,
     ) -> dict[str, int]:
         self._validate(bundle)
         summary = {"created": 0, "replaced": 0, "unchanged": 0}
@@ -83,9 +93,11 @@ class TablePortability:
             if not commit:
                 continue
             if existing is None:
-                await self.resources.create_resource(collection, resource)
+                await self.resources.create_resource(collection, resource, actor=actor)
             else:
-                await self.resources.update_resource(collection, resource["id"], resource)
+                await self.resources.update_resource(
+                    collection, resource["id"], resource, actor=actor
+                )
         return summary
 
     @staticmethod
