@@ -13,6 +13,7 @@ from tigrbl.factories.engine import sqlitef
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.migration import preflight_npm, preflight_npm_sqlite
 from portwyrm.tables import PORTWYRM_TABLES
+from portwyrm.tables.migrations import ROUTING_CONTRACT_MIGRATION
 
 
 def test_npm_preflight_preserves_ids_metadata_and_quarantines_invalid_references() -> None:
@@ -150,3 +151,47 @@ def test_legacy_sqlite_records_upgrade_is_idempotent_and_preserves_ids(tmp_path:
         assert certificate["domain_names"] == ["edge.example.test"]
 
     asyncio.run(run())
+
+
+def test_existing_normalized_sqlite_gets_routing_columns_and_migration_record(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "normalized-v1.sqlite"
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE routing_hosts ("
+        "id INTEGER PRIMARY KEY, kind TEXT NOT NULL, redirect_code INTEGER, "
+        "hsts_enabled BOOLEAN NOT NULL DEFAULT 0, force_ssl BOOLEAN NOT NULL DEFAULT 0, "
+        "certificate_id INTEGER, hsts_subdomains BOOLEAN NOT NULL DEFAULT 0)"
+    )
+    connection.execute(
+        "CREATE TABLE stream_routes ("
+        "id INTEGER PRIMARY KEY, protocol TEXT NOT NULL, incoming_port INTEGER NOT NULL, "
+        "target_kind TEXT NOT NULL, target_port INTEGER NOT NULL)"
+    )
+    connection.commit()
+    connection.close()
+
+    async def run() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        first = await app.core.SchemaMigrationStore.apply({})
+        second = await app.core.SchemaMigrationStore.apply({})
+        assert first["applied"] is False
+        assert second["applied"] is False
+
+    asyncio.run(run())
+    connection = sqlite3.connect(path)
+    host_columns = {row[1] for row in connection.execute("PRAGMA table_info(routing_hosts)")}
+    stream_columns = {row[1] for row in connection.execute("PRAGMA table_info(stream_routes)")}
+    migration_count = connection.execute(
+        "SELECT COUNT(*) FROM system_migrations WHERE name = ? AND status = 'applied'",
+        (ROUTING_CONTRACT_MIGRATION,),
+    ).fetchone()[0]
+    connection.close()
+    assert {"http2_enabled", "trust_forwarded_proto"} <= host_columns
+    assert "certificate_id" in stream_columns
+    assert migration_count == 1

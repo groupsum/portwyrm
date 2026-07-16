@@ -1,4 +1,4 @@
-"""Stable compatibility imports for identity policy and MFA primitives."""
+"""Stable compatibility imports for table-owned identity security schemas."""
 
 from portwyrm.identity.mfa import (
     consume_backup_code,
@@ -7,7 +7,9 @@ from portwyrm.identity.mfa import (
     totp_code,
     verify_totp,
 )
-from portwyrm.identity.models import Permission, PersonalAccessToken, Principal
+from portwyrm.identity.permissions import PermissionLevel as Permission
+from portwyrm.tables import PATRecord as PersonalAccessToken
+from portwyrm.tables import SecurityPrincipal as Principal
 
 __all__ = [
     "Permission",

@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from portwyrm.identity.models import Principal
+from portwyrm.tables import SecurityPrincipal as Principal
 
 Resource = dict[str, Any]
 
@@ -131,6 +131,10 @@ class TableResources:
                 }
             )
             row = {**row, "metadata_json": {"compat": candidate}}
+        elif collection == "streams":
+            values = self._values(collection, candidate)
+            await self.app.core.StreamRouteStore.validate(values)
+            row = await self.app.core.StreamRouteStore.create(values)
         else:
             row = await getattr(self.app.core, self._table_name(collection)).create(
                 self._values(collection, candidate)
@@ -168,6 +172,12 @@ class TableResources:
                     "roles": candidate.get("roles") or [],
                     "permissions": candidate.get("permissions") or {},
                 }
+            )
+        elif collection == "streams":
+            values = self._values(collection, candidate)
+            await self.app.core.StreamRouteStore.validate({"id": int(resource_id), **values})
+            row = await self.app.core.StreamRouteStore.update(
+                {"id": int(resource_id), **values}
             )
         else:
             row = await getattr(self.app.core, self._table_name(collection)).update(
@@ -276,6 +286,7 @@ class TableResources:
                 "force_ssl",
                 "websocket_enabled",
                 "cache_enabled",
+                "http2_enabled",
                 "redirect_target",
                 "redirect_scheme",
                 "redirect_code",
@@ -349,6 +360,7 @@ class TableResources:
                 "target_kind": str(payload.get("target_kind") or "dns"),
                 "target": str(payload.get("forwarding_host") or ""),
                 "target_port": int(payload.get("forwarding_port") or 0),
+                "certificate_id": int(payload.get("certificate_id") or 0) or None,
                 "enabled": bool(payload.get("enabled", True)),
                 "metadata_json": {"compat": compat},
             }

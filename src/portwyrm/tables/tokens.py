@@ -82,6 +82,29 @@ class PATStore(ManagedPortwyrmTable):
     class RotateResult(IssueResult):
         replaced_token_prefix: str
 
+    class TokenRecord(BaseModel):
+        """Write-only-secret PAT projection exported by the owning table."""
+
+        id: str
+        name: str
+        principal: PrincipalStore.SecurityPrincipal
+        created_at: int
+        expires_at: int | None
+        last_used_at: int | None = None
+        revoked_at: int | None = None
+
+        def public(self) -> dict[str, Any]:
+            return {
+                "id": self.id,
+                "name": self.name,
+                "user_id": self.principal.user_id,
+                "scopes": sorted(self.principal.scopes),
+                "created_at": self.created_at,
+                "expires_at": self.expires_at,
+                "last_used_at": self.last_used_at,
+                "revoked_at": self.revoked_at,
+            }
+
     @op_ctx(alias="issue", target="custom", arity="collection")
     async def issue(cls, ctx: Any) -> dict[str, Any]:
         payload = dict(ctx.get("payload") or {})
@@ -205,10 +228,12 @@ PATVerifyRequest = PATStore.VerifyRequest
 PATVerification = PATStore.Verification
 PATRotateRequest = PATStore.RotateRequest
 PATRotateResult = PATStore.RotateResult
+PATRecord = PATStore.TokenRecord
 
 __all__ = [
     "PATIssueRequest",
     "PATIssueResult",
+    "PATRecord",
     "PATRotateRequest",
     "PATRotateResult",
     "PATStore",

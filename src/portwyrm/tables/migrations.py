@@ -16,6 +16,12 @@ from tigrbl.types import BaseModel, Column, Integer, String, Text, UniqueConstra
 from .base import PortwyrmTable
 
 MIGRATION_NAME = "legacy-records-v1"
+ROUTING_CONTRACT_MIGRATION = "routing-contracts-v2"
+_ROUTING_COLUMNS = (
+    ("routing_hosts", "http2_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("routing_hosts", "trust_forwarded_proto", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("stream_routes", "certificate_id", "INTEGER NULL"),
+)
 
 
 async def _await(value: Any) -> Any:
@@ -66,6 +72,7 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
 
     @op_ctx(alias="apply", target="custom", arity="collection")
     async def apply(cls, ctx: Any) -> dict[str, Any]:
+        await cls._upgrade_routing_contracts(ctx["db"])
         plan = await cls._plan(ctx["db"])
         if not plan["required"]:
             return {**plan, "applied": False}
@@ -84,6 +91,139 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
         )
         return {**plan, "required": False, "applied": True}
 
+    @classmethod
+    async def _upgrade_routing_contracts(cls, db: Any) -> bool:
+        existing = (
+            await _await(db.execute(select(cls).where(cls.name == ROUTING_CONTRACT_MIGRATION)))
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.checksum != cls._routing_contract_checksum():
+                raise ValueError(
+                    "routing contract migration checksum changed after it was recorded"
+                )
+            return False
+
+        changed = False
+        for table_name, column_name, definition in _ROUTING_COLUMNS:
+            columns = await cls._table_columns(db, table_name)
+            if not columns or column_name in columns:
+                continue
+            await _await(
+                db.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
+            )
+            changed = True
+
+        await cls._validate_routing_contracts(db)
+        now = int(time.time())
+        db.add(
+            cls(
+                name=ROUTING_CONTRACT_MIGRATION,
+                checksum=cls._routing_contract_checksum(),
+                source_version="normalized-v1",
+                status="applied",
+                started_at=now,
+                applied_at=now,
+            )
+        )
+        await _await(db.flush())
+        return changed
+
+    @staticmethod
+    async def _table_columns(db: Any, table_name: str) -> set[str]:
+        try:
+            result = await _await(db.execute(text(f"SELECT * FROM {table_name} WHERE 1 = 0")))
+        except Exception:
+            return set()
+        return set(map(str, result.keys()))
+
+    @classmethod
+    async def _validate_routing_contracts(cls, db: Any) -> None:
+        validations = (
+            (
+                "routing_hosts",
+                "kind NOT IN ('proxy','redirect','dead') "
+                "OR (redirect_code IS NOT NULL AND redirect_code NOT IN (301,302,307,308)) "
+                "OR (hsts_enabled = TRUE AND (force_ssl = FALSE OR certificate_id IS NULL)) "
+                "OR (hsts_subdomains = TRUE AND hsts_enabled = FALSE)",
+                "routing host rows violate the normalized routing contract",
+            ),
+            (
+                "routing_sources",
+                "domain_name <> lower(domain_name)",
+                "routing source domains must be canonical lowercase values",
+            ),
+            (
+                "routing_upstreams",
+                "protocol NOT IN ('http','https') OR target_kind NOT IN ('ip','dns','docker') "
+                "OR port < 1 OR port > 65535 OR weight < 1",
+                "routing upstream rows violate protocol, target, port, or weight constraints",
+            ),
+            (
+                "routing_locations",
+                "protocol NOT IN ('http','https') OR target_kind NOT IN ('ip','dns','docker') "
+                "OR port < 1 OR port > 65535",
+                "routing location rows violate protocol, target, or port constraints",
+            ),
+            (
+                "stream_routes",
+                "protocol NOT IN ('tcp','udp','tcp+udp') "
+                "OR target_kind NOT IN ('ip','dns','docker') "
+                "OR incoming_port < 1 OR incoming_port > 65535 "
+                "OR target_port < 1 OR target_port > 65535 "
+                "OR (certificate_id IS NOT NULL AND protocol = 'udp')",
+                "stream rows violate protocol, target, port, or TLS constraints",
+            ),
+            (
+                "access_list_rules",
+                "directive NOT IN ('allow','deny')",
+                "access rules contain an unsupported directive",
+            ),
+        )
+        for table_name, predicate, diagnostic in validations:
+            if not await cls._table_columns(db, table_name):
+                continue
+            result = await _await(
+                db.execute(text(f"SELECT COUNT(*) FROM {table_name} WHERE {predicate}"))
+            )
+            if int(result.scalar_one()) > 0:
+                raise ValueError(diagnostic)
+
+        if await cls._table_columns(db, "routing_sources"):
+            duplicates = await _await(
+                db.execute(
+                    text(
+                        "SELECT COUNT(*) FROM ("
+                        "SELECT lower(domain_name) FROM routing_sources "
+                        "GROUP BY lower(domain_name) HAVING COUNT(*) > 1"
+                        ") AS duplicate_domains"
+                    )
+                )
+            )
+            if int(duplicates.scalar_one()) > 0:
+                raise ValueError("routing source domains must be globally unique")
+
+        if await cls._table_columns(db, "stream_routes"):
+            collisions = await _await(
+                db.execute(
+                    text(
+                        "SELECT COUNT(*) FROM stream_routes AS left_route "
+                        "JOIN stream_routes AS right_route "
+                        "ON left_route.id < right_route.id "
+                        "AND left_route.incoming_port = right_route.incoming_port "
+                        "WHERE left_route.protocol = 'tcp+udp' "
+                        "OR right_route.protocol = 'tcp+udp' "
+                        "OR left_route.protocol = right_route.protocol"
+                    )
+                )
+            )
+            if int(collisions.scalar_one()) > 0:
+                raise ValueError("stream routes contain overlapping port/protocol claims")
+
+    @staticmethod
+    def _routing_contract_checksum() -> str:
+        encoded = json.dumps(_ROUTING_COLUMNS, separators=(",", ":")).encode()
+        return hashlib.sha256(encoded).hexdigest()
+
     @op_ctx(alias="record_failure", target="custom", arity="collection")
     async def record_failure(cls, ctx: Any) -> dict[str, Any]:
         payload = dict(ctx.get("payload") or {})
@@ -101,6 +241,9 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
 
     @staticmethod
     async def _legacy_rows(db: Any) -> list[tuple[str, str, str]]:
+        bind = db.get_bind()
+        if bind.dialect.name != "sqlite":
+            return []
         exists = await _await(
             db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='records'"))
         )
@@ -165,6 +308,7 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
                     target_kind=str(payload.get("target_kind") or "dns"),
                     target=str(payload.get("forwarding_host") or ""),
                     target_port=int(payload.get("forwarding_port") or 0),
+                    certificate_id=int(payload.get("certificate_id") or 0) or None,
                     enabled=bool(payload.get("enabled", True)),
                 )
             )
@@ -200,4 +344,4 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
             await PrincipalStore._replace_authorization(db, row, payload)
 
 
-__all__ = ["MIGRATION_NAME", "SchemaMigrationStore"]
+__all__ = ["MIGRATION_NAME", "ROUTING_CONTRACT_MIGRATION", "SchemaMigrationStore"]

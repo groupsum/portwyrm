@@ -5,6 +5,7 @@ import inspect
 import tempfile
 from pathlib import Path
 
+import pytest
 from cryptography.fernet import Fernet
 from tigrbl import TigrblApp
 from tigrbl.factories.engine import sqlitef
@@ -19,6 +20,9 @@ from portwyrm.tables import (
     PATIssueResult,
     PATStore,
     ReconcileResult,
+    RoutingHostStore,
+    RuntimeAccessList,
+    StreamRouteStore,
 )
 
 _SHARED_APP: TigrblApp | None = None
@@ -62,6 +66,92 @@ def test_custom_schema_exports_are_owned_by_tables() -> None:
     assert PATIssueRequest is PATStore.IssueRequest
     assert PATIssueResult is PATStore.IssueResult
     assert ReconcileResult.__qualname__.endswith("ReconcileStore.ReconcileResult")
+    assert RuntimeAccessList is not None
+    assert RoutingHostStore.RuntimeHost.__qualname__.endswith("RoutingHostStore.RuntimeHost")
+    assert StreamRouteStore.RuntimeStream.__qualname__.endswith(
+        "StreamRouteStore.RuntimeStream"
+    )
+
+
+def test_routing_tables_expose_runtime_and_validation_operations() -> None:
+    assert {"runtime_list", "runtime_read", "validate"} <= set(
+        RoutingHostStore.ops.by_alias
+    )
+    assert {"runtime_list", "runtime_read", "validate"} <= set(
+        StreamRouteStore.ops.by_alias
+    )
+
+
+async def _routing_validation_contracts() -> None:
+    app = await _app()
+    resources = TableResources(app)
+    await resources.create_resource(
+        "proxy_hosts",
+        {
+            "domain_names": ["validation.example.test"],
+            "forward_host": "backend",
+            "forward_port": 8080,
+            "target_kind": "docker",
+        },
+    )
+    with pytest.raises(Exception, match="CollisionError"):
+        await app.core.RoutingHostStore.validate(
+            {
+                "kind": "dead",
+                "domain_names": ["VALIDATION.EXAMPLE.TEST"],
+            }
+        )
+    with pytest.raises(Exception, match="IPv4 or IPv6"):
+        await app.core.RoutingHostStore.validate(
+            {
+                "kind": "proxy",
+                "domain_names": ["invalid-target.example.test"],
+                "forward_host": "not-an-ip",
+                "forward_port": 80,
+                "target_kind": "ip",
+            }
+        )
+    with pytest.raises(Exception, match="forced HTTPS requires"):
+        await app.core.RoutingHostStore.validate(
+            {
+                "kind": "dead",
+                "domain_names": ["invalid-tls.example.test"],
+                "ssl_forced": True,
+            }
+        )
+    with pytest.raises(Exception, match="301, 302, 307, or 308"):
+        await app.core.RoutingHostStore.validate(
+            {
+                "kind": "redirect",
+                "domain_names": ["invalid-redirect.example.test"],
+                "forward_domain_name": "destination.example.test",
+                "forward_http_code": 306,
+            }
+        )
+    await app.core.StreamRouteStore.create(
+        {
+            "protocol": "tcp",
+            "incoming_port": 15432,
+            "target_kind": "dns",
+            "target": "database",
+            "target_port": 5432,
+            "enabled": True,
+        }
+    )
+    with pytest.raises(Exception, match="CollisionError"):
+        await app.core.StreamRouteStore.validate(
+            {
+                "protocol": "tcp+udp",
+                "incoming_port": 15432,
+                "target_kind": "dns",
+                "target": "database",
+                "target_port": 5432,
+            }
+        )
+
+
+def test_routing_validation_is_owned_by_table_operations() -> None:
+    asyncio.run(_routing_validation_contracts())
 
 
 async def _principal_lifecycle() -> None:

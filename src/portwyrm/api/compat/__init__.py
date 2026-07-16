@@ -41,7 +41,11 @@ from portwyrm.api.compat.transport import CompatibilityTigrblApp
 from portwyrm.api.mfa import TableMFA
 from portwyrm.api.middleware import ControlPlaneHTTPMiddleware
 from portwyrm.api.portability import TablePortability
-from portwyrm.api.security import TableIdentity
+from portwyrm.api.security import (
+    TableIdentity,
+    TableSecurityDependencies,
+    permissions_from_scopes,
+)
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
     CertificateRequest,
@@ -84,6 +88,9 @@ def create_compat_app(
         certificates = certificate_factory(app, service)
     portability = portability or TablePortability(cast(TableResources, service), backend)
     token_store = tokens or TableIdentity(app)
+    security_dependencies = TableSecurityDependencies(token_store)
+    principal_from_bearer = security_dependencies.principal
+    principal_from_mfa_bearer = security_dependencies.mfa_principal
     mfa = mfa or TableMFA(app)
     app.state.control_plane = service
     app.state.token_store = token_store
@@ -100,72 +107,6 @@ def create_compat_app(
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["Authorization", "Content-Type"],
         )
-
-    async def principal_from_bearer(request: Request) -> Principal:
-        authorization = request.headers.get("authorization")
-        session_cookie = request.cookies.get("portwyrm_session")
-        if authorization and authorization.startswith("Bearer "):
-            token = authorization.removeprefix("Bearer ").strip()
-        elif session_cookie:
-            token = session_cookie
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="bearer token required"
-            )
-        try:
-            principal = await _identity_call(token_store.verify, token)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-        if "user" not in principal.scopes:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="MFA challenge pending"
-            )
-        # Sessions and PATs carry an identity snapshot for durable verification. Rehydrate
-        # mutable authorization fields so an administrator's permission changes take effect
-        # on the user's very next request instead of waiting for a new login.
-        current_user = await _service_get(service, "users", principal.user_id, principal)
-        current_identity = str((current_user or {}).get("email", principal.identity)).casefold()
-        if current_user is not None and current_identity == principal.identity.casefold():
-            if current_user.get("is_deleted") or current_user.get("is_disabled"):
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED, detail="user is disabled"
-                )
-            permissions = dict(current_user.get("permissions") or {})
-            is_admin = bool(current_user.get("is_admin"))
-            # ``user`` is the backward-compatible full-account PAT scope. Tokens
-            # carrying resource scopes are deliberately narrowed on every request,
-            # even when their owner is an administrator.
-            resource_scopes = principal.scopes - {"user"}
-            if resource_scopes:
-                permissions = _permissions_from_token_scopes(resource_scopes)
-                is_admin = False
-            principal = Principal(
-                user_id=principal.user_id,
-                identity=str(current_user.get("email") or principal.identity),
-                is_admin=is_admin,
-                permissions=permissions,
-                visibility="all" if current_user.get("visibility") == "all" else "user",
-                scopes=principal.scopes,
-                owner=principal.owner,
-            )
-        return principal
-
-    async def principal_from_mfa_bearer(request: Request) -> Principal:
-        authorization = request.headers.get("authorization")
-        session_cookie = request.cookies.get("portwyrm_session")
-        if authorization and authorization.startswith("Bearer "):
-            token = authorization.removeprefix("Bearer ").strip()
-        elif session_cookie:
-            token = session_cookie
-        else:
-            raise HTTPException(status_code=401, detail="MFA challenge token required")
-        try:
-            principal = await _identity_call(token_store.verify, token)
-        except ValueError as exc:
-            raise HTTPException(status_code=401, detail=str(exc)) from exc
-        if principal.scopes != frozenset({"mfa"}):
-            raise HTTPException(status_code=403, detail="MFA challenge token required")
-        return principal
 
     @app.get("/api/", include_in_schema=True)
     async def health() -> dict[str, Any]:
@@ -990,17 +931,12 @@ def _as_principal(value: Principal | Mapping[str, Any], *, fallback_identity: st
 
 
 def _permissions_from_token_scopes(scopes: frozenset[str]) -> dict[str, dict[str, bool]]:
-    permissions: dict[str, dict[str, bool]] = {}
-    for scope in scopes:
-        section, separator, action = scope.partition(":")
-        if (
-            not separator
-            or section not in TOKEN_SCOPE_SECTIONS
-            or action not in TOKEN_SCOPE_ACTIONS
-        ):
-            continue
-        permissions.setdefault(section, {})[action] = True
-    return permissions
+    return {
+        section: grants
+        for section, grants in permissions_from_scopes(scopes).items()
+        if section in TOKEN_SCOPE_SECTIONS
+        and all(action in TOKEN_SCOPE_ACTIONS for action in grants)
+    }
 
 
 def _validate_token_scopes(

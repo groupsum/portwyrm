@@ -11,10 +11,16 @@ import ipaddress
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
-from portwyrm.domain.routing import (
+from portwyrm.tables.access import (
     AccessClient,
-    AccessList,
-    AccessListCredential,
+)
+from portwyrm.tables.access import (
+    RuntimeAccessCredential as AccessListCredential,
+)
+from portwyrm.tables.access import (
+    RuntimeAccessList as AccessList,
+)
+from portwyrm.tables.routing import (
     DeadHost,
     ProxyHost,
     ProxyLocation,
@@ -88,9 +94,7 @@ def _access_lines(access_list: AccessList | None, password_file: str | None = No
         if not access_list.pass_auth:
             lines.append('proxy_set_header Authorization "";')
     if access_list.clients:
-        lines.extend(
-            f"{client.directive.value} {client.address};" for client in access_list.clients
-        )
+        lines.extend(f"{client.directive} {client.address};" for client in access_list.clients)
         lines.append("deny all;")
     if access_list.credentials or access_list.clients:
         lines.append("satisfy any;" if access_list.satisfy_any else "satisfy all;")
@@ -324,7 +328,9 @@ class NginxRenderer:
 
     @staticmethod
     def render_htpasswd(access_list: AccessList) -> str:
-        return "".join(f"{item.username}:{item.password}\n" for item in access_list.credentials)
+        return "".join(
+            f"{item.username}:{item.password_hash}\n" for item in access_list.credentials
+        )
 
     @staticmethod
     def _merge_access_lists(access_lists: list[AccessList]) -> AccessList | None:
@@ -337,14 +343,14 @@ class NginxRenderer:
         for access_list in ordered:
             for credential in access_list.credentials:
                 existing = credentials.get(credential.username)
-                if existing is not None and existing.password != credential.password:
+                if existing is not None and existing.password_hash != credential.password_hash:
                     raise ValueError(
                         "conflicting credentials for "
                         f"{credential.username!r} in selected access lists"
                     )
                 credentials[credential.username] = credential
             for client in access_list.clients:
-                clients[(client.directive.value, client.address)] = client
+                clients[(str(client.directive), client.address)] = client
         first = ordered[0]
         return AccessList(
             id=first.id,
@@ -353,7 +359,6 @@ class NginxRenderer:
             clients=[clients[key] for key in sorted(clients)],
             satisfy_any=all(item.satisfy_any for item in ordered),
             pass_auth=all(item.pass_auth for item in ordered),
-            owner_user_id=first.owner_user_id,
         )
 
     def render_proxy(
@@ -371,7 +376,7 @@ class NginxRenderer:
         lines.extend(self._acme_challenge_location())
         lines.extend(
             [
-                f"  set $forward_scheme {host.forward_scheme.value};",
+                f"  set $forward_scheme {host.forward_scheme};",
                 f'  set $server "{host.forward_host}";',
                 f"  set $port {host.forward_port};",
                 f"  access_log /data/logs/proxy-host-{host.id}_access.log proxy;",
@@ -433,7 +438,8 @@ class NginxRenderer:
                 "    proxy_set_header X-Forwarded-Proto $scheme;",
                 "    proxy_set_header X-Forwarded-For $remote_addr;",
                 "    proxy_set_header X-Real-IP $remote_addr;",
-                f"    proxy_pass {location.forward_scheme.value}://{location.forward_host}:{location.forward_port}{location.forward_path};",
+                f"    proxy_pass {location.forward_scheme}://{location.forward_host}:"
+                f"{location.forward_port}{location.forward_path};",
             ]
         )
         lines.extend(f"    {line}" for line in _access_lines(access_list, password_file))
@@ -452,7 +458,7 @@ class NginxRenderer:
         if not host.enabled:
             return f"# redirection host {host.id} disabled\n"
         ssl = host.ssl.normalized()
-        scheme = "$scheme" if host.forward_scheme.value == "auto" else host.forward_scheme.value
+        scheme = "$scheme" if host.forward_scheme == "auto" else str(host.forward_scheme)
         suffix = "$request_uri" if host.preserve_path else ""
         lines = ["server {", *_listen(host.domain_names, ssl, self.platform.ipv6)]
         lines.extend(_ssl_lines(ssl))

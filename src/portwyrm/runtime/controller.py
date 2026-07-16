@@ -8,9 +8,10 @@ from typing import Any
 from uuid import uuid4
 
 from portwyrm.api.compat.resources import TableResources
+from portwyrm.tables.access import RuntimeAccessList
+from portwyrm.tables.routing import RoutingHostStore, StreamRouteStore
 
 from .nginx import NginxRenderer
-from .projections import access_list, dead_host, proxy_host, redirection_host, stream
 from .publisher import build_reconciler
 from .reconcile import ReconcileResult
 
@@ -53,21 +54,21 @@ class TableRuntimeController:
         return await self.reconcile()
 
     async def reconcile(self) -> ReconcileResult:
+        hosts = await self.resources.app.core.RoutingHostStore.runtime_list({})
+        streams = await self.resources.app.core.StreamRouteStore.runtime_list({})
+        access_lists = await self.resources.app.core.AccessListStore.runtime_list({})
+        runtime_hosts = [
+            RoutingHostStore.RuntimeHost.model_validate(row) for row in hosts["items"]
+        ]
         rendered = NginxRenderer().render(
-            proxy_hosts=[
-                proxy_host(row) for row in await self.resources.list_resources("proxy_hosts")
+            proxy_hosts=[host for host in runtime_hosts if host.kind == "proxy"],
+            redirection_hosts=[host for host in runtime_hosts if host.kind == "redirect"],
+            dead_hosts=[host for host in runtime_hosts if host.kind == "dead"],
+            streams=[
+                StreamRouteStore.RuntimeStream.model_validate(row) for row in streams["items"]
             ],
-            redirection_hosts=[
-                redirection_host(row)
-                for row in await self.resources.list_resources("redirection_hosts")
-            ],
-            dead_hosts=[
-                dead_host(row) for row in await self.resources.list_resources("dead_hosts")
-            ],
-            streams=[stream(row) for row in await self.resources.list_resources("streams")],
             access_lists=[
-                access_list(row)
-                for row in await self.resources.app.core.AccessListStore.runtime_list({})
+                RuntimeAccessList.model_validate(row) for row in access_lists["items"]
             ],
         )
         return await self.reconcile_files(rendered.files)

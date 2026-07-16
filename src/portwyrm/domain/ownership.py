@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .errors import DomainValidationError, OwnershipError
+from portwyrm.errors import DomainValidationError, OwnershipError
 
 
 @dataclass(frozen=True, slots=True)

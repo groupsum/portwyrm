@@ -6,7 +6,7 @@ import asyncio
 import inspect
 import secrets
 import time
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 from sqlalchemy import delete, select
@@ -25,6 +25,7 @@ from tigrbl.types import (
 )
 
 from portwyrm.identity.passwords import hash_secret, verify_secret
+from portwyrm.identity.permissions import PermissionAction, PermissionGrant, permission_allows
 
 from .base import ManagedPortwyrmTable, PortwyrmTable
 from .compat import add_audit
@@ -120,6 +121,38 @@ class PrincipalStore(ManagedPortwyrmTable):
         is_admin: bool
         permissions: dict[str, Any] = Field(default_factory=dict)
         scopes: list[str] = Field(default_factory=lambda: ["user"])
+
+    @schema_ctx(alias="resolve", kind="in")
+    class ResolveRequest(BaseModel):
+        principal_id: int
+        scopes: list[str] = Field(default_factory=lambda: ["user"])
+        owner: str | None = None
+
+    @schema_ctx(alias="resolve", kind="out")
+    class SecurityPrincipal(BaseModel):
+        """Authenticated request principal exported by the owning table."""
+
+        user_id: int | str
+        identity: str
+        display_name: str = ""
+        is_admin: bool = False
+        permissions: dict[str, PermissionGrant] = Field(default_factory=dict)
+        visibility: Literal["all", "user"] = "user"
+        scopes: frozenset[str] = Field(default_factory=lambda: frozenset({"user"}))
+        owner: str | None = None
+
+        def may(
+            self,
+            section: str,
+            *,
+            write: bool = False,
+            action: PermissionAction | None = None,
+        ) -> bool:
+            if self.is_admin:
+                return True
+            requested = action or ("update" if write else "read")
+            normalized = section.replace("-", "_")
+            return permission_allows(self.permissions.get(normalized, "hidden"), requested)
 
     @schema_ctx(alias="change_password", kind="in")
     class ChangePasswordRequest(BaseModel):
@@ -363,6 +396,25 @@ class PrincipalStore(ManagedPortwyrmTable):
             raise ValueError(f"principal does not exist: {principal_id}")
         return await cls._authorization(ctx["db"], principal)
 
+    @op_ctx(alias="resolve", target="custom", arity="collection")
+    async def resolve(cls, ctx: Any) -> dict[str, Any]:
+        """Resolve the current durable identity and authorization for a token subject."""
+        payload = dict(ctx.get("payload") or {})
+        principal = await _await(ctx["db"].get(cls, int(payload["principal_id"])))
+        if principal is None or principal.is_disabled or principal.is_deleted:
+            raise ValueError("principal is unavailable")
+        authorization = await cls._authorization(ctx["db"], principal)
+        return {
+            "user_id": principal.id,
+            "identity": principal.email,
+            "display_name": principal.display_name,
+            "is_admin": bool(principal.is_admin),
+            "permissions": authorization["permissions"],
+            "visibility": "all" if principal.visibility == "all" else "user",
+            "scopes": list(payload.get("scopes") or ["user"]),
+            "owner": payload.get("owner"),
+        }
+
     @classmethod
     async def _principal_result(cls, db: Any, principal: Any) -> dict[str, Any]:
         authorization = await cls._authorization(db, principal)
@@ -484,6 +536,7 @@ Principal = PrincipalStore
 Credential = CredentialStore
 BrowserSession = BrowserSessionStore
 AuthenticatedPrincipal = PrincipalStore.AuthenticatedPrincipal
+SecurityPrincipal = PrincipalStore.SecurityPrincipal
 
 __all__ = [
     "AuthenticatedPrincipal",
@@ -493,4 +546,5 @@ __all__ = [
     "CredentialStore",
     "Principal",
     "PrincipalStore",
+    "SecurityPrincipal",
 ]

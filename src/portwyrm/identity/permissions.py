@@ -16,6 +16,6 @@ def permission_allows(grant: object, action: PermissionAction) -> bool:
         return True
     if grant == "view":
         return action == "read"
-    if grant in {"hidden", None}:
+    if grant == "hidden" or grant is None:
         return False
     return isinstance(grant, Mapping) and grant.get(action) is True
