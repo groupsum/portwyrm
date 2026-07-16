@@ -6,8 +6,23 @@ import inspect
 from typing import Any
 
 from tigrbl import TableBase, hook_ctx, op_ctx
+from tigrbl.factories.table import defineTableSpec
 from tigrbl.orm.mixins import Timestamped
 from tigrbl.types import JSON, Boolean, Column, ForeignKey, Integer, String, Text, UniqueConstraint
+
+PortwyrmTableSpec = defineTableSpec(
+    ops=(
+        "create",
+        "read",
+        "update",
+        "replace",
+        "delete",
+        "list",
+        "bulk_create",
+        "bulk_update",
+        "bulk_delete",
+    )
+)
 
 
 class PortwyrmTable(TableBase, Timestamped):
@@ -15,6 +30,7 @@ class PortwyrmTable(TableBase, Timestamped):
 
     __abstract__ = True
     __allow_unmapped__ = True
+    OPS = PortwyrmTableSpec.OPS
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     metadata_json = Column(JSON, nullable=False, default=dict)
@@ -74,9 +90,7 @@ class Permission(PortwyrmTable):
 
 class PrincipalRole(PortwyrmTable):
     __tablename__ = "principal_roles"
-    __table_args__ = (
-        UniqueConstraint("principal_id", "role_id", name="uq_principal_roles_edge"),
-    )
+    __table_args__ = (UniqueConstraint("principal_id", "role_id", name="uq_principal_roles_edge"),)
 
     principal_id = Column(Integer, ForeignKey("principals.id"), nullable=False, index=True)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False, index=True)
@@ -95,9 +109,7 @@ class RolePermission(PortwyrmTable):
 class PrincipalPermission(PortwyrmTable):
     __tablename__ = "principal_permissions"
     __table_args__ = (
-        UniqueConstraint(
-            "principal_id", "permission_id", name="uq_principal_permissions_edge"
-        ),
+        UniqueConstraint("principal_id", "permission_id", name="uq_principal_permissions_edge"),
     )
 
     principal_id = Column(Integer, ForeignKey("principals.id"), nullable=False, index=True)
@@ -176,9 +188,7 @@ class AccessListCredential(PortwyrmTable):
 class AccessListPrincipal(PortwyrmTable):
     __tablename__ = "access_list_principals"
     __table_args__ = (
-        UniqueConstraint(
-            "access_list_id", "principal_id", name="uq_access_list_principal_edge"
-        ),
+        UniqueConstraint("access_list_id", "principal_id", name="uq_access_list_principal_edge"),
     )
 
     access_list_id = Column(Integer, ForeignKey("access_lists.id"), nullable=False, index=True)
@@ -253,9 +263,7 @@ class RoutingUpstream(PortwyrmTable):
 class RoutingHostAccessList(PortwyrmTable):
     __tablename__ = "routing_host_access_lists"
     __table_args__ = (
-        UniqueConstraint(
-            "routing_host_id", "access_list_id", name="uq_routing_host_access_list"
-        ),
+        UniqueConstraint("routing_host_id", "access_list_id", name="uq_routing_host_access_list"),
     )
 
     routing_host_id = Column(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
@@ -276,9 +284,7 @@ class StreamRoute(PortwyrmTable):
 
 class ConfigRevision(PortwyrmTable):
     __tablename__ = "config_revisions"
-    __table_args__ = (
-        UniqueConstraint("routing_host_id", "generation", name="uq_host_generation"),
-    )
+    __table_args__ = (UniqueConstraint("routing_host_id", "generation", name="uq_host_generation"),)
 
     routing_host_id = Column(Integer, ForeignKey("routing_hosts.id"), nullable=False, index=True)
     generation = Column(String(64), nullable=False)

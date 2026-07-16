@@ -225,9 +225,7 @@ def test_sqlite_profile_creates_normalized_tables_beside_legacy_projection(
     with sqlite3.connect(path) as connection:
         names = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
     assert {"records", "principals", "routing_hosts", "config_revisions"} <= names
 
@@ -252,7 +250,7 @@ def test_postgres_repository_configuration_maps_to_tigrbl_engine() -> None:
         "port": 6543,
         "dbname": "portwyrm",
         "user": "operator",
-        "password": "secret",
+        "pwd": "secret",
     }
 
     config = engine_for_repository(repository)
@@ -276,9 +274,9 @@ def test_mysql_repository_configuration_maps_to_registered_tigrbl_engine() -> No
     repository.config = {
         "host": "mysql.internal",
         "port": 3307,
-        "database": "portwyrm",
+        "db": "portwyrm",
         "user": "operator",
-        "password": "secret",
+        "pwd": "secret",
     }
 
     config = engine_for_repository(repository)
@@ -287,10 +285,10 @@ def test_mysql_repository_configuration_maps_to_registered_tigrbl_engine() -> No
         "kind": "mysql",
         "async": False,
         "user": "operator",
-        "password": "secret",
+        "pwd": "secret",
         "host": "mysql.internal",
         "port": 3307,
-        "database": "portwyrm",
+        "db": "portwyrm",
         "pool_size": 10,
         "max": 20,
     }

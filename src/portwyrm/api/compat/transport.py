@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from tigrbl import HTTPException, Request, Response, TigrblApp, TigrblRouter
+from tigrbl.factories.app import defineAppSpec
 
 
 async def _resolve_dependency(dependency: Callable[..., Any], request: Request) -> Any:
@@ -142,7 +143,18 @@ class CompatibilityTigrblRouter(_CompatibilityRouteMixin, TigrblRouter):
     """Tigrbl router for the frozen compatibility surface."""
 
 
-class CompatibilityTigrblApp(_CompatibilityRouteMixin, TigrblApp):
+class PortwyrmAppSpec(
+    defineAppSpec(
+        title="Portwyrm",
+        description="Self-hosted reverse-proxy control plane",
+        version="0.1.0a0",
+        execution_backend="auto",
+    )
+):
+    """Declarative application defaults collected by the Tigrbl kernel."""
+
+
+class CompatibilityTigrblApp(_CompatibilityRouteMixin, PortwyrmAppSpec, TigrblApp):
     """Tigrbl app that binds the frozen npmctl facade during migration."""
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
