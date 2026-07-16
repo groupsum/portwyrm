@@ -8,6 +8,25 @@ async function assertNoAxeViolations(page, label) {
   expect(results.violations, `${label}: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
 }
 
+test('a stale setup screen rechecks server state before authentication', async ({ page }) => {
+  await page.setViewportSize({width: 390, height: 844});
+  let setupChecks = 0;
+  await page.route('**/api/setup', async route => {
+    if (route.request().method() === 'GET' && setupChecks++ === 0) {
+      await route.fulfill({json: {setup: false}});
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/ui/');
+  await expect(page.getByRole('heading', { name: 'Create administrator' })).toBeVisible();
+  await page.getByLabel('Email').fill('accessibility@example.test');
+  await page.getByLabel('Password').fill('Accessibility-Test-Password-123!');
+  await page.getByRole('button', { name: 'Create administrator' }).click();
+  await expect(page.getByRole('heading', { name: 'Change the temporary password' })).toBeVisible();
+});
+
 test('login and authenticated operator surfaces pass automated WCAG checks', async ({ page }) => {
   await page.goto('/ui/');
   await expect(page.getByRole('heading', { name: /create administrator|welcome back/i })).toBeVisible();

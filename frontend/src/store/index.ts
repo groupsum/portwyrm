@@ -168,6 +168,8 @@ export class PortwyrmStore {
   }
 
   async login(email: string, password: string): Promise<'ok' | 'mfa' | 'password'> {
+    const setup = await api('/api/setup');
+    this.setupRequired = !setup.setup;
     if (this.setupRequired) await api('/api/setup', {method: 'POST', body: JSON.stringify({email, password})});
     const result = await api('/api/v2/browser/login', {method: 'POST', body: JSON.stringify({identity: email, secret: password, scope: 'user'})});
     if (result.result?.scope === 'mfa') return 'mfa';

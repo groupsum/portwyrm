@@ -35,6 +35,7 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert "/api/v2/browser/password" in script.text
     assert "Change the temporary password" in script.text
     assert "Password changed. Sign in with your new password." in script.text
+    assert script.text.count("/api/setup") >= 2
     assert "/api/nginx/" in script.text and "proxy-hosts" in script.text
     assert "Discard unsaved changes?" in script.text
     assert "Password: write-only" in script.text
