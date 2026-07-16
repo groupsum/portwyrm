@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from tigrbl import HTTPException as TigrblHTTPException
+
 from portwyrm.tables import SecurityPrincipal as Principal
 
 Resource = dict[str, Any]
@@ -47,6 +49,10 @@ class TableResources:
             )
         except ValueError:
             return None
+        except TigrblHTTPException as exc:
+            if "invalid credentials" in str(exc).casefold():
+                return None
+            raise
         return Principal(
             user_id=payload["principal_id"],
             identity=payload["email"],

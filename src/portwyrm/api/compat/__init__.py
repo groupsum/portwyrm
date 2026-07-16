@@ -154,7 +154,8 @@ def create_compat_app(
         )
         if authenticated is None:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password.",
             )
         principal = _as_principal(authenticated, fallback_identity=identity)
         if mfa is not None and await _identity_call(mfa.enabled, principal.user_id):

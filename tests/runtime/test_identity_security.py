@@ -4,6 +4,9 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+from tigrbl import HTTPException
+
+from portwyrm.api.compat.resources import TableResources
 from portwyrm.api.security import TableIdentity
 from portwyrm.identity.models import PersonalAccessToken, Principal
 from portwyrm.tables import PORTWYRM_TABLES, PATRecord, SecurityPrincipal
@@ -71,3 +74,14 @@ async def _security_lifecycle() -> None:
 
 def test_identity_verification_resolves_current_table_authorization() -> None:
     asyncio.run(_security_lifecycle())
+
+
+def test_authentication_redacts_wrapped_credential_failures() -> None:
+    class _CredentialOps:
+        async def authenticate(self, _payload: dict[str, Any]) -> dict[str, Any]:
+            raise HTTPException(status_code=400, detail="invalid credentials")
+
+    resources = TableResources(
+        SimpleNamespace(core=SimpleNamespace(CredentialStore=_CredentialOps()))
+    )
+    assert asyncio.run(resources.authenticate("admin@example.test", "wrong")) is None
