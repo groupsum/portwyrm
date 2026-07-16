@@ -145,6 +145,12 @@ class CertificateStore(ManagedPortwyrmTable):
     @hook_ctx(ops=("create", "update", "replace"), phase="PRE_HANDLER")
     async def prepare_aggregate(cls, ctx: dict[str, Any]) -> None:
         payload = dict(ctx.get("payload") or {})
+        op = ctx.get("op") or ctx.get("alias") or ""
+        alias = str(getattr(op, "alias", op)).casefold()
+        if alias == "update":
+            row = await _await(ctx["db"].get(cls, int(payload["id"])))
+            if row is not None:
+                payload = {**(await cls._project(ctx["db"], row)), **payload}
         ctx.setdefault("temp", {})["certificate_aggregate"] = payload
         root = cls._values(payload)
         if payload.get("id") is not None:

@@ -2,15 +2,31 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import InstrumentedAttribute
 from tigrbl import HTTPException, TigrblApp
 from tigrbl.factories.engine import sqlitef
 
+from portwyrm.api.compat.resources import TableResources
 from portwyrm.tables import PORTWYRM_TABLES
-from portwyrm.tables.lifecycle import global_hooks
+from portwyrm.tables.lifecycle import configure_lifecycle_runtime, global_hooks
+from portwyrm.tables.mfa import MFARecoveryCodeStore
 from portwyrm.tables.settings import SettingStore
+
+
+async def _app(path: Path) -> TigrblApp:
+    app = TigrblApp(
+        engine=sqlitef(str(path), async_=False),
+        mount_system=False,
+        router_hooks=global_hooks(),
+    )
+    app.include_tables(PORTWYRM_TABLES)
+    initialized = app.initialize(tables=PORTWYRM_TABLES)
+    if inspect.isawaitable(initialized):
+        await initialized
+    return app
 
 
 def test_canonical_crud_persists_and_global_audit_is_atomic(tmp_path) -> None:
@@ -85,3 +101,161 @@ def test_canonical_crud_persists_and_global_audit_is_atomic(tmp_path) -> None:
         assert all(row["key"] != "must-roll-back" for row in remaining)
 
     asyncio.run(run())
+
+
+def test_collection_and_internal_operation_surfaces_are_exact(tmp_path: Path) -> None:
+    async def run() -> None:
+        app = await _app(tmp_path / "surfaces.sqlite")
+
+        managed = {"create", "read", "update", "replace", "delete", "list"}
+        assert set(app.core.SettingStore._model.ops.by_alias) == managed
+        assert managed | {"runtime_list"} == set(app.core.AccessListStore._model.ops.by_alias)
+        assert managed | {
+            "enable",
+            "disable",
+            "validate",
+            "runtime_read",
+            "runtime_list",
+        } == set(app.core.StreamRouteStore._model.ops.by_alias)
+        assert managed | {
+            "enable",
+            "disable",
+            "validate",
+            "preview",
+            "runtime_read",
+            "runtime_list",
+        } == set(app.core.RoutingHostStore._model.ops.by_alias)
+
+        assert set(app.core.AuditEventStore._model.ops.by_alias) == {
+            "read",
+            "list",
+            "record",
+        }
+        assert set(app.core.LeaseStore._model.ops.by_alias) == {"acquire", "renew", "release"}
+        assert set(MFARecoveryCodeStore.ops.by_alias) == set()
+
+        aliases = {
+            alias
+            for table in PORTWYRM_TABLES
+            for alias in getattr(getattr(table, "ops", None), "by_alias", {})
+        }
+        assert not {alias for alias in aliases if alias.startswith("bulk_")}
+        assert {
+            "create_compat",
+            "update_compat",
+            "delete_compat",
+            "compat_read",
+            "compat_list",
+        }.isdisjoint(aliases)
+
+    asyncio.run(run())
+
+
+def test_compatibility_transport_and_direct_core_share_canonical_state(tmp_path: Path) -> None:
+    async def run() -> None:
+        app = await _app(tmp_path / "carriers.sqlite")
+        resources = TableResources(app)
+        created = await resources.create_resource(
+            "proxy_hosts",
+            {
+                "domain_names": ["carrier.example.test"],
+                "forward_scheme": "http",
+                "forward_host": "backend",
+                "forward_port": 8080,
+                "target_kind": "dns",
+            },
+        )
+        direct = await app.core.RoutingHostStore.read({"id": created["id"]})
+        assert direct["domain_names"] == created["domain_names"]
+        assert direct["forward_host"] == created["forward_host"]
+        assert direct["forward_port"] == created["forward_port"]
+
+        updated = await app.core.RoutingHostStore.update(
+            {"id": created["id"], "forward_port": 8181}
+        )
+        through_transport = await resources.get_resource("proxy_hosts", created["id"])
+        assert updated["forward_port"] == 8181
+        assert through_transport is not None
+        assert through_transport["forward_port"] == 8181
+
+        access_list = await app.core.AccessListStore.create(
+            {
+                "name": "Operators",
+                "items": [{"username": "operator", "password": "secret"}],
+                "clients": [{"address": "10.0.0.0/8", "directive": "allow"}],
+            }
+        )
+        changed_access_list = await app.core.AccessListStore.update(
+            {"id": access_list["id"], "name": "Platform operators"}
+        )
+        assert changed_access_list["items"] == [{"username": "operator"}]
+        assert changed_access_list["clients"] == [
+            {"address": "10.0.0.0/8", "directive": "allow"}
+        ]
+
+        certificate = await app.core.CertificateStore.create(
+            {
+                "nice_name": "Carrier certificate",
+                "domain_names": ["carrier.example.test"],
+            }
+        )
+        changed_certificate = await app.core.CertificateStore.update(
+            {"id": certificate["id"], "nice_name": "Renamed certificate"}
+        )
+        assert changed_certificate["domain_names"] == ["carrier.example.test"]
+
+    asyncio.run(run())
+
+
+def test_global_hooks_redact_secrets_and_reconcile_once_per_mutation(tmp_path: Path) -> None:
+    class RuntimeProbe:
+        def __init__(self) -> None:
+            self.collections: list[str] = []
+
+        async def changed(self, collection: str) -> None:
+            self.collections.append(collection)
+
+    async def run() -> None:
+        runtime = RuntimeProbe()
+        configure_lifecycle_runtime(lambda: runtime)
+        try:
+            app = await _app(tmp_path / "hooks.sqlite")
+            await app.core.PrincipalStore.register(
+                {
+                    "email": "audit@example.test",
+                    "password": "never-record-this",
+                    "display_name": "Audit",
+                    "is_admin": True,
+                }
+            )
+            host = await app.core.RoutingHostStore.create(
+                {
+                    "kind": "proxy",
+                    "domain_names": ["hooks.example.test"],
+                    "forward_scheme": "http",
+                    "forward_host": "backend",
+                    "forward_port": 8080,
+                    "target_kind": "dns",
+                }
+            )
+            await app.core.RoutingHostStore.disable({"id": host["id"]})
+
+            events = await app.core.AuditEventStore.list({})
+            registration = next(event for event in events if event["action"] == "register")
+            assert registration["details"]["password"] == "[redacted]"
+            assert runtime.collections == ["proxy_hosts", "proxy_hosts"]
+        finally:
+            configure_lifecycle_runtime(lambda: None)
+
+    asyncio.run(run())
+
+
+def test_table_modules_do_not_reimplement_kernel_persistence() -> None:
+    table_root = Path(__file__).parents[2] / "src" / "portwyrm" / "tables"
+    source = "\n".join(path.read_text(encoding="utf-8") for path in table_root.glob("*.py"))
+    assert ".flush(" not in source
+    assert ".commit(" not in source
+    assert ".rollback(" not in source
+    assert "def create_compat" not in source
+    assert "def update_compat" not in source
+    assert "def delete_compat" not in source
