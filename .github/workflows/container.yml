@@ -69,6 +69,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify GHCR package Actions access
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api /orgs/groupsum/packages/container/portwyrm > /dev/null
       - uses: docker/metadata-action@v6
         id: meta
         with:

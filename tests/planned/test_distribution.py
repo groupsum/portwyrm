@@ -22,6 +22,8 @@ def test_container_publication_is_multiarch_attested_signed_and_verified() -> No
     assert "cosign sign --yes" in workflow
     assert "uses: actions/attest@v4" in workflow
     assert "push-to-registry: true" in workflow
+    assert "Verify GHCR package Actions access" in workflow
+    assert "gh api /orgs/groupsum/packages/container/portwyrm" in workflow
     assert 'docker pull "$IMAGE"' in workflow
     assert 'cosign verify "$IMAGE"' in workflow
     assert 'gh attestation verify "oci://$IMAGE" --repo groupsum/portwyrm' in workflow
