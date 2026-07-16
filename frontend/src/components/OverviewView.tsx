@@ -228,7 +228,7 @@ export default function OverviewView({
 
       {/* QUICK INVENTORY METRICS */}
       <section className="space-y-3">
-        <h3 className="font-bold text-sm text-slate-400 uppercase tracking-wider">
+        <h3 className="font-bold text-sm text-slate-600 dark:text-zinc-400 uppercase tracking-wider">
           Reconciliation Database Inventory
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -306,7 +306,7 @@ export default function OverviewView({
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-[11px] text-slate-400 font-semibold font-mono">
+                    <span className="text-[11px] text-slate-600 dark:text-zinc-400 font-semibold font-mono">
                       {formatDate(log.timestamp)}
                     </span>
                     <span className={`px-2 py-0.5 text-[9px] uppercase font-bold border rounded-md tracking-wider ${outcomeStyle}`}>

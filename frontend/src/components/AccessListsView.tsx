@@ -231,7 +231,7 @@ export default function AccessListsView({
       {/* ACL INVENTORY CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="acl-cards-grid">
         {paginatedAcls.length === 0 ? (
-          <div className="col-span-full p-12 text-center text-slate-400 dark:text-zinc-500 font-semibold bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl">
+          <div className="col-span-full p-12 text-center text-slate-600 dark:text-zinc-400 font-semibold bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl">
             No access control lists matched active search parameters.
           </div>
         ) : (

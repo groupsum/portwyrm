@@ -12,6 +12,8 @@ htmlcov/
 dist/
 build/
 frontend/node_modules/
+frontend/test-results/
+.a11y-runtime/
 *.egg-info/
 .env
 .DS_Store

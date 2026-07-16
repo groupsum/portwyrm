@@ -1,0 +1,37 @@
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test } from 'playwright/test';
+
+const tags = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'];
+
+async function assertNoAxeViolations(page, label) {
+  const results = await new AxeBuilder({ page }).withTags(tags).analyze();
+  expect(results.violations, `${label}: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
+}
+
+test('login and authenticated operator surfaces pass automated WCAG checks', async ({ page }) => {
+  await page.goto('/ui/');
+  await expect(page.getByRole('heading', { name: /create administrator|welcome back/i })).toBeVisible();
+  await assertNoAxeViolations(page, 'login');
+
+  await page.getByLabel('Email').fill('accessibility@example.test');
+  await page.getByLabel('Password').fill('Accessibility-Test-Password-123!');
+  await page.getByRole('button', { name: /create administrator|sign in/i }).click();
+  await expect(page.getByRole('heading', { name: 'Proxy Workspace Overview' })).toBeVisible();
+
+  for (const route of ['overview', 'hosts', 'certificates', 'access-lists', 'users', 'audit', 'settings']) {
+    await page.evaluate(value => { window.location.hash = value; }, route);
+    await page.waitForTimeout(150);
+    await assertNoAxeViolations(page, route);
+  }
+});
+
+test('login controls retain a keyboard-visible focus sequence', async ({ page }) => {
+  await page.goto('/ui/');
+  await expect(page.getByRole('heading', { name: /create administrator|welcome back/i })).toBeVisible();
+  await page.getByLabel('Email').focus();
+  await expect(page.getByLabel('Email')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Password')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: /create administrator|sign in/i })).toBeFocused();
+});

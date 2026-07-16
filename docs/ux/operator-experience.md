@@ -59,3 +59,9 @@ states so failure is visible and recoverable.
 
 Use neutral surfaces, restrained elevation, and strong semantic status colors. Reserve
 monospace typography for domains, addresses, identifiers, and generated configuration.
+
+The browser gate runs installed Chrome with axe rules tagged for WCAG 2 A/AA, WCAG 2.1 AA,
+and WCAG 2.2 AA. It scans setup/login plus the authenticated overview, hosts, certificates,
+access lists, users, audit, and settings surfaces, and separately verifies the login form's
+keyboard focus sequence. The current gate passes with no automated violations; manual zoom,
+screen-reader, reduced-motion, and mobile assistive-technology review remain release checks.

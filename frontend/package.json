@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build"
+    "build": "tsc --noEmit && vite build",
+    "test:a11y": "node tests/prepare-a11y.mjs && playwright test --config playwright.config.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -12,10 +13,12 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@tailwindcss/vite": "^4.1.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.0",
+    "playwright": "^1.61.1",
     "tailwindcss": "^4.1.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

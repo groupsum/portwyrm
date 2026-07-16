@@ -460,6 +460,7 @@ ${customDirectives}
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
               <input
                 type="text"
+                aria-label="Search routing hosts"
                 placeholder="Search routing domain, target destination, owner, provenance..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -469,7 +470,7 @@ ${customDirectives}
 
             {/* Segmented Filter Pills for Router Type */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-100 dark:border-zinc-800/85">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Traffic Routing:</span>
+              <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider shrink-0">Traffic Routing:</span>
               {[
                 { id: 'all', label: 'All Routing' },
                 { id: 'proxy', label: 'Proxy' },
@@ -497,8 +498,9 @@ ${customDirectives}
 
               {/* Operational status filter */}
               <div className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Operational Status</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">Operational Status</span>
                 <select
+                  aria-label="Operational status"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -515,8 +517,9 @@ ${customDirectives}
 
               {/* Owner controller filter */}
               <div className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Owner / Controller</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">Owner / Controller</span>
                 <select
+                  aria-label="Owner or controller"
                   value={ownerFilter}
                   onChange={(e) => setOwnerFilter(e.target.value)}
                   className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -530,8 +533,9 @@ ${customDirectives}
 
               {/* TLS Profiles */}
               <div className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">TLS Certificate Scope</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">TLS Certificate Scope</span>
                 <select
+                  aria-label="TLS certificate scope"
                   value={sslFilter}
                   onChange={(e) => setSslFilter(e.target.value)}
                   className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -546,8 +550,9 @@ ${customDirectives}
 
               {/* Access restrictions */}
               <div className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Access Control Filter</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">Access Control Filter</span>
                 <select
+                  aria-label="Access control filter"
                   value={accessFilter}
                   onChange={(e) => setAccessFilter(e.target.value)}
                   className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -612,7 +617,7 @@ ${customDirectives}
                 <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
                   {paginatedHosts.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
+                      <td colSpan={7} className="px-6 py-12 text-center text-slate-600 dark:text-zinc-400 font-semibold">
                         No reverse proxy routing hosts matched search filters.
                       </td>
                     </tr>

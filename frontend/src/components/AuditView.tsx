@@ -89,6 +89,7 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
           <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
           <input
             type="text"
+            aria-label="Search audit logs"
             placeholder="Search resources, actions, diff text, summary logs..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -99,6 +100,7 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
         {/* Actor */}
         <div className="w-full md:w-48">
           <select
+            aria-label="Audit actor"
             value={actorFilter}
             onChange={(e) => setActorFilter(e.target.value)}
             className="w-full p-2.5 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -113,6 +115,7 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
         {/* Outcome */}
         <div className="w-full md:w-48">
           <select
+            aria-label="Audit outcome"
             value={outcomeFilter}
             onChange={(e) => setOutcomeFilter(e.target.value)}
             className="w-full p-2.5 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -158,9 +161,9 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
                   <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/20 transition-colors">
 
                     {/* Timestamp with localized time details */}
-                    <td className="px-6 py-4.5 whitespace-nowrap font-mono text-xs text-slate-400">
+                    <td className="px-6 py-4.5 whitespace-nowrap font-mono text-xs text-slate-600 dark:text-zinc-400">
                       <div>{formatDate(log.timestamp)}</div>
-                      <div className="text-[10px] mt-0.5 text-slate-400 font-medium">
+                      <div className="text-[10px] mt-0.5 text-slate-600 dark:text-zinc-400 font-medium">
                         {new Date(log.timestamp).toLocaleTimeString()}
                       </div>
                     </td>

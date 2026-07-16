@@ -356,7 +356,7 @@ export default function UsersView({
                               </span>
                             )}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-mono mt-0.5">{user.username}</span>
+                          <span className="text-[10px] text-slate-600 dark:text-zinc-400 font-mono mt-0.5">{user.username}</span>
                         </div>
                       </div>
                     </td>
@@ -373,7 +373,7 @@ export default function UsersView({
                         }`}>
                           {user.role}
                         </span>
-                        <span className="text-[10px] font-semibold text-slate-400">
+                        <span className="text-[10px] font-semibold text-slate-600 dark:text-zinc-400">
                           {user.visibility === 'all' ? 'All Resources' : 'Owned Resources'}
                         </span>
                       </div>
@@ -385,7 +385,7 @@ export default function UsersView({
                         <span className="font-semibold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
                           <Mail className="h-3 w-3 text-slate-400" /> {user.email || 'N/A'}
                         </span>
-                        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
                           <Lock className="h-3 w-3" /> Password: write-only
                         </div>
                         {associatedAcls.length > 0 && (
@@ -402,14 +402,14 @@ export default function UsersView({
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] font-mono text-slate-600 dark:text-zinc-400 font-semibold">
                         {PERMISSION_RESOURCES.map(resource => {
                           const summary = grantSummary(user.permissions[resource.id]);
-                          return <div key={resource.id} className="flex justify-between gap-2"><span>{resource.shortLabel}</span><strong className={summary === 'CRUD' ? 'text-emerald-600 dark:text-emerald-400' : summary === 'None' ? 'text-red-500' : 'text-indigo-600 dark:text-indigo-400'}>{summary}</strong></div>;
+                          return <div key={resource.id} className="flex justify-between gap-2"><span>{resource.shortLabel}</span><strong className={summary === 'CRUD' ? 'text-emerald-700 dark:text-emerald-400' : summary === 'None' ? 'text-red-600 dark:text-red-400' : 'text-indigo-700 dark:text-indigo-400'}>{summary}</strong></div>;
                         })}
                       </div>
                     </td>
 
                     {/* MFA Status */}
                     <td className="px-6 py-4.5">
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${user.mfa ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${user.mfa ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-zinc-400'}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${user.mfa ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
                         {user.mfa ? 'MFA Enabled' : 'MFA Off'}
                       </span>
@@ -427,7 +427,7 @@ export default function UsersView({
                     </td>
 
                     {/* Last Activity */}
-                    <td className="px-6 py-4.5 text-xs font-medium font-mono text-slate-400">
+                    <td className="px-6 py-4.5 text-xs font-medium font-mono text-slate-600 dark:text-zinc-400">
                       <div className="flex items-center justify-between gap-3">
                         <span>{formatDate(user.lastActivity)}</span>
                         {currentUser.role === 'Administrator' && (

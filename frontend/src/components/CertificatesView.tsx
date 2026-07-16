@@ -270,6 +270,7 @@ export default function CertificatesView({
           <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
           <input
             type="text"
+            aria-label="Search certificate profiles"
             placeholder="Search certificate profile name, domains covered..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -282,8 +283,9 @@ export default function CertificatesView({
 
           {/* Provider */}
           <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Authority / Provider</span>
+            <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">Authority / Provider</span>
             <select
+              aria-label="Certificate authority or provider"
               value={providerFilter}
               onChange={(e) => setProviderFilter(e.target.value)}
               className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -296,8 +298,9 @@ export default function CertificatesView({
 
           {/* Operational State */}
           <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Operational State</span>
+            <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">Operational State</span>
             <select
+              aria-label="Certificate operational state"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -312,8 +315,9 @@ export default function CertificatesView({
 
           {/* Expiry filter */}
           <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Expiry Horizon</span>
+            <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">Expiry Horizon</span>
             <select
+              aria-label="Certificate expiry horizon"
               value={expiryFilter}
               onChange={(e) => setExpiryFilter(e.target.value)}
               className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -327,8 +331,9 @@ export default function CertificatesView({
 
           {/* Assignment */}
           <div className="space-y-1">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Host Assignment</span>
+            <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">Host Assignment</span>
             <select
+              aria-label="Certificate host assignment"
               value={assignmentFilter}
               onChange={(e) => setAssignmentFilter(e.target.value)}
               className="w-full p-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-zinc-300"
@@ -379,7 +384,7 @@ export default function CertificatesView({
           <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
             {paginatedCerts.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
+                <td colSpan={6} className="px-6 py-12 text-center text-slate-600 dark:text-zinc-400 font-semibold">
                   No TLS Certificate profiles matched active search filters.
                 </td>
               </tr>
