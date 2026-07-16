@@ -250,3 +250,57 @@ def test_partial_legacy_upgrade_skips_already_normalized_resource_ids(tmp_path: 
         assert len(await resources.list_resources("proxy_hosts")) == 1
 
     asyncio.run(upgrade())
+
+
+def test_partial_legacy_upgrade_skips_source_domain_collisions(tmp_path: Path) -> None:
+    path = tmp_path / "partial-domain.sqlite"
+
+    async def seed_normalized() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        await TableResources(app).create_resource(
+            "proxy_hosts",
+            {
+                "domain_names": ["verify-proxy.portwyrm.localhost"],
+                "forward_scheme": "http",
+                "forward_host": "127.0.0.1",
+                "forward_port": 81,
+            },
+        )
+
+    asyncio.run(seed_normalized())
+    payload = {
+        "id": 3,
+        "domain_names": ["VERIFY-PROXY.PORTWYRM.LOCALHOST"],
+        "forward_scheme": "http",
+        "forward_host": "legacy-upstream",
+        "forward_port": 8080,
+    }
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE records (collection TEXT, resource_id TEXT, payload TEXT, "
+        "PRIMARY KEY (collection, resource_id))"
+    )
+    connection.execute(
+        "INSERT INTO records(collection, resource_id, payload) VALUES (?, ?, ?)",
+        ("proxy_hosts", "3", json.dumps(payload)),
+    )
+    connection.commit()
+    connection.close()
+
+    async def upgrade() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        applied = await app.core.SchemaMigrationStore.apply({})
+        assert applied["applied"] is True
+        hosts = await TableResources(app).list_resources("proxy_hosts")
+        assert len(hosts) == 1
+        assert hosts[0]["forward_host"] == "127.0.0.1"
+
+    asyncio.run(upgrade())

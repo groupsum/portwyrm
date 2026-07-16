@@ -269,7 +269,7 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
         from .access import AccessListStore
         from .certificates import CertificateStore
         from .principals import CredentialStore, PrincipalStore
-        from .routing import RoutingHostStore, StreamRouteStore
+        from .routing import RoutingHostStore, RoutingSourceStore, StreamRouteStore
         from .settings import SettingStore
 
         resource_id = int(payload["id"]) if str(payload.get("id", "")).isdigit() else None
@@ -290,6 +290,21 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
         ):
             return
         if collection in {"proxy_hosts", "redirection_hosts", "dead_hosts"}:
+            domains = {
+                str(domain).strip().casefold()
+                for domain in payload.get("domain_names") or []
+                if str(domain).strip()
+            }
+            if domains:
+                collision = await _await(
+                    db.execute(
+                        select(RoutingSourceStore.id).where(
+                            RoutingSourceStore.domain_name.in_(domains)
+                        )
+                    )
+                )
+                if collision.first() is not None:
+                    return
             payload["kind"] = {
                 "proxy_hosts": "proxy",
                 "redirection_hosts": "redirect",
