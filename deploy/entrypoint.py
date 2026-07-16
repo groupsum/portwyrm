@@ -46,6 +46,7 @@ async def seed_demo_proxy_host(resources: TableResources) -> None:
             row
             for row in await resources.list_resources("proxy_hosts")
             if row.get("meta", {}).get("managed_by") == "portwyrm-demo"
+            or domain in row.get("domain_names", [])
         ),
         None,
     )

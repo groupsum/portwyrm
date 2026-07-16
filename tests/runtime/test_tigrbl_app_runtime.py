@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tigrbl.factories.engine import sqlitef
 
+from deploy.entrypoint import seed_demo_proxy_host
 from portwyrm.api import create_app
 from portwyrm.config import PortwyrmSettings
 from tests.support import TestClient
@@ -134,9 +135,10 @@ def test_runtime_changes_persist_and_publish_immutable_generation(tmp_path: Path
         staged = await app.core.GenerationStore.stage({})
         assert staged["generation"] == rendered["generation"]
         assert staged["state"] == "active"
-        assert await app.core.GenerationStore.validate(
-            {"generation": staged["generation"]}
-        ) == {"generation": staged["generation"], "valid": True}
+        assert await app.core.GenerationStore.validate({"generation": staged["generation"]}) == {
+            "generation": staged["generation"],
+            "valid": True,
+        }
 
         difference = await app.core.GenerationStore.diff({})
         assert difference == {
@@ -161,3 +163,35 @@ def test_runtime_changes_persist_and_publish_immutable_generation(tmp_path: Path
     contents = password_file.read_text(encoding="utf-8")
     assert "operator:$2" in contents
     assert "write-only-secret" not in contents
+
+
+def test_demo_seed_reuses_an_existing_canonical_domain(tmp_path: Path, monkeypatch: object) -> None:
+    monkeypatch.setenv("PORTWYRM_DEMO_HOST", "demo.portwyrm.localhost")
+    app = create_app(
+        settings=PortwyrmSettings(
+            backend="sqlite",
+            sqlite_path=tmp_path / "seed.sqlite",
+            nginx_runtime=False,
+        )
+    )
+    resources = app.state.control_plane
+
+    async def exercise() -> None:
+        original = await resources.create_resource(
+            "proxy_hosts",
+            {
+                "domain_names": ["demo.portwyrm.localhost"],
+                "forward_scheme": "http",
+                "forward_host": "stale-upstream",
+                "forward_port": 8080,
+            },
+        )
+        await seed_demo_proxy_host(resources)
+        await seed_demo_proxy_host(resources)
+        hosts = await resources.list_resources("proxy_hosts")
+        assert len(hosts) == 1
+        assert hosts[0]["id"] == original["id"]
+        assert hosts[0]["forward_host"] == "127.0.0.1"
+        assert hosts[0]["forward_port"] == 81
+
+    asyncio.run(exercise())
