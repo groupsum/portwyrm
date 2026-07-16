@@ -9,12 +9,12 @@ from typing import Any
 from tigrbl import HTTPException, JSONResponse, PlainTextResponse
 
 from portwyrm.api.compat.transport import CompatibilityTigrblRouter
-from portwyrm.application import PersistentControlPlane
+from portwyrm.application import ControlPlane
 from portwyrm.operations import HealthService
 
 
 def create_native_router(
-    control_plane: PersistentControlPlane,
+    control_plane: ControlPlane,
     health: HealthService,
 ) -> CompatibilityTigrblRouter:
     """Build setup, observability, and product metadata routes."""

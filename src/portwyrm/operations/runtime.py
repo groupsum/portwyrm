@@ -2,17 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import os
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-
-from portwyrm import __version__
-from portwyrm.persistence import create_repository
-
-from .health import HealthService
 
 
 def repository_config_from_environment() -> dict[str, Any]:
@@ -44,38 +36,15 @@ def repository_config_from_environment() -> dict[str, Any]:
 
 
 def serve() -> None:
-    repository = create_repository(repository_config_from_environment())
-    health = HealthService(repository)
+    """Run the composed Tigrbl application with its native engine configuration."""
+    import uvicorn
 
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            if self.path == "/health/live":
-                self._json(HTTPStatus.OK, health.live())
-            elif self.path == "/health/ready":
-                payload = health.ready()
-                status = (
-                    HTTPStatus.OK if payload["status"] == "ok" else HTTPStatus.SERVICE_UNAVAILABLE
-                )
-                self._json(status, payload)
-            elif self.path == "/version":
-                self._json(HTTPStatus.OK, {"version": __version__})
-            else:
-                self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-
-        def log_message(self, format: str, *args: object) -> None:
-            return
-
-        def _json(self, status: HTTPStatus, payload: object) -> None:
-            body = json.dumps(payload, separators=(",", ":")).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-    address = os.getenv("PORTWYRM_ADMIN_HOST", "0.0.0.0")
-    port = int(os.getenv("PORTWYRM_ADMIN_PORT", "81"))
-    ThreadingHTTPServer((address, port), Handler).serve_forever()
+    uvicorn.run(
+        "portwyrm.api:create_app",
+        factory=True,
+        host=os.getenv("PORTWYRM_ADMIN_HOST", "0.0.0.0"),
+        port=int(os.getenv("PORTWYRM_ADMIN_PORT", "81")),
+    )
 
 
 if __name__ == "__main__":

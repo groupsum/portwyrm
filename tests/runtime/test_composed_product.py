@@ -8,7 +8,6 @@ from tigrbl.engine import resolver
 
 from portwyrm import __main__ as cli
 from portwyrm.api import create_app
-from portwyrm.api.dependencies import create_default_repository
 from portwyrm.application import PersistentControlPlane
 from portwyrm.cli.commands import remote
 from portwyrm.persistence import SQLiteRepository
@@ -519,10 +518,11 @@ def test_installed_server_defaults_to_durable_sqlite(
     monkeypatch.delenv("PORTWYRM_SQLITE_PATH", raising=False)
     monkeypatch.setenv("PORTWYRM_DATA_ROOT", str(tmp_path))
 
-    repository = create_default_repository()
+    app = create_app()
 
-    assert isinstance(repository, SQLiteRepository)
-    assert repository.path == tmp_path / "portwyrm.sqlite"
+    assert app.state.repository.backend_name == "sqlite"
+    assert (tmp_path / "portwyrm.sqlite").is_file()
+    assert TestClient(app).get("/health/ready").status_code == 200
 
 
 def test_admin_portability_and_npm_cutover_endpoints_reload_live_service(tmp_path: Path) -> None:

@@ -72,15 +72,23 @@ class Repository(Protocol):
 class RepositoryProxy:
     """Mutable composition-root indirection used during authority cutover."""
 
-    def __init__(self, target: Repository) -> None:
+    def __init__(self, target: Repository | None = None) -> None:
         self.target = target
+
+    def bind(self, target: Repository) -> None:
+        self.target = target
+
+    def _bound(self) -> Repository:
+        if self.target is None:
+            raise RuntimeError("repository proxy is not bound")
+        return self.target
 
     @property
     def backend_name(self) -> str:
-        return self.target.backend_name
+        return self._bound().backend_name
 
     def transaction(self) -> AbstractContextManager[Transaction]:
-        return self.target.transaction()
+        return self._bound().transaction()
 
 
 @runtime_checkable

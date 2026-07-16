@@ -13,24 +13,23 @@ from cryptography.fernet import Fernet
 from tigrbl import TigrblApp
 
 from portwyrm.api.compat import create_compat_app
-from portwyrm.api.dependencies import create_default_repository
 from portwyrm.api.native import create_native_router
 from portwyrm.application import (
     ApplicationServiceProxy,
+    ControlPlane,
     KernelControlPlane,
     KernelMFAStore,
-    MFAStore,
-    PersistentControlPlane,
 )
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
-from portwyrm.identity import IdentityStoreProxy, KernelTokenStore, TokenStore
+from portwyrm.identity import IdentityStoreProxy, KernelTokenStore
 from portwyrm.operations import HealthService, NginxStatusClient, UpgradeManager, default_upgrades
+from portwyrm.operations.runtime import repository_config_from_environment
 from portwyrm.persistence import Repository, RepositoryProxy
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 from portwyrm.tables import PORTWYRM_TABLES
-from portwyrm.tables.engine import engine_for_repository
-from portwyrm.tables.legacy import LegacyProjector
-from portwyrm.tables.repository import TigrblRepository
+from portwyrm.tables.engine import engine_for_config, engine_for_repository
+from portwyrm.tables.kernel_repository import KernelRepository
+from portwyrm.tables.legacy import LegacyImporter
 from portwyrm.uix import mount_uix
 
 
@@ -39,10 +38,19 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
 
     email = os.getenv("PORTWYRM_INITIAL_ADMIN_EMAIL") or os.getenv("INITIAL_ADMIN_EMAIL")
     password = os.getenv("PORTWYRM_INITIAL_ADMIN_PASSWORD") or os.getenv("INITIAL_ADMIN_PASSWORD")
-    repository = repository or create_default_repository()
-    UpgradeManager(repository, default_upgrades()).run()
-    live_repository = RepositoryProxy(repository)
-    control_plane = ApplicationServiceProxy(PersistentControlPlane(live_repository))
+    configuration = repository_config_from_environment()
+    backend_name = (
+        repository.backend_name if repository is not None else str(configuration["backend"])
+    )
+    engine = (
+        engine_for_repository(repository)
+        if repository is not None
+        else engine_for_config(configuration)
+    )
+    if repository is not None:
+        UpgradeManager(repository, default_upgrades()).run()
+    live_repository = RepositoryProxy()
+    control_plane = ApplicationServiceProxy(ControlPlane())
     certificate_root = Path(
         os.getenv("PORTWYRM_CERTIFICATE_ROOT", str(Path.cwd() / ".portwyrm" / "certificates"))
     )
@@ -56,8 +64,8 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
         ),
     )
     mfa_key = _load_mfa_key()
-    mfa_store = IdentityStoreProxy(MFAStore(live_repository, mfa_key))
-    token_store = IdentityStoreProxy(TokenStore(repository=live_repository))
+    mfa_store = IdentityStoreProxy()
+    token_store = IdentityStoreProxy()
     runtime: RuntimeCoordinator | None = None
     if os.getenv("PORTWYRM_NGINX_RUNTIME", "0").lower() in {"1", "true", "yes"}:
         root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
@@ -124,7 +132,7 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
         repository=live_repository,
         mfa=mfa_store,
         system_status=system_status,
-        engine=engine_for_repository(repository),
+        engine=engine,
     )
     app.state.import_repository = repository
     app.state.runtime = runtime
@@ -139,15 +147,15 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
     # every compatibility, native, and UI route before this boundary so the
     # Uvicorn application exposes the complete packaged surface.
     app.initialize(tables=PORTWYRM_TABLES)
-    authoritative_repository = TigrblRepository(app, backend_name=repository.backend_name)
-    if not authoritative_repository.has_state():
-        LegacyProjector(app, repository).rebuild()
+    authoritative_repository = KernelRepository(app, backend_name=backend_name)
+    if repository is not None and not authoritative_repository.has_state():
+        LegacyImporter(app, repository).import_once()
 
     # Authority reversal: after the one-time import, every compatibility read
     # and write is projected from normalized Tigrbl rows. The original adapter
     # remains available only as import provenance and is no longer on the live
     # mutation path.
-    live_repository.target = authoritative_repository
+    live_repository.bind(authoritative_repository)
     control_plane.bind(KernelControlPlane(app))
     if email and password and not control_plane.list("users"):
         control_plane.bootstrap_admin(email, password)

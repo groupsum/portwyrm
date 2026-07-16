@@ -8,8 +8,6 @@ from collections.abc import Iterable, Mapping
 from hashlib import sha256
 from typing import Any
 
-from tigrbl.engine import resolver
-
 from portwyrm.persistence import Repository
 
 from .models import (
@@ -39,6 +37,7 @@ from .models import (
     Setting,
     StreamRoute,
 )
+from .unit_of_work import KernelUnitOfWork
 
 
 def _rows(repository: Repository, collection: str) -> list[dict[str, Any]]:
@@ -76,15 +75,15 @@ def _iter_ids(value: Any) -> Iterable[int]:
             yield normalized
 
 
-class LegacyProjector:
-    """Rebuild normalized tables from the compatibility repository atomically."""
+class LegacyImporter:
+    """One-time normalized-table import from a pre-Tigrbl repository."""
 
     def __init__(self, app: Any, repository: Repository) -> None:
         self.app = app
         self.repository = repository
         self._source: dict[str, list[dict[str, Any]]] = {}
 
-    def rebuild(self) -> None:
+    def import_once(self) -> None:
         collections = (
             "users",
             "_credentials",
@@ -103,19 +102,9 @@ class LegacyProjector:
         source = {
             collection: _rows(self.repository, collection) for collection in collections
         }
-        session, release = resolver.acquire(
-            router=self.app,
-            model=Principal,
-            require_ready=True,
+        KernelUnitOfWork(self.app).run_sync(
+            lambda session: self.replace_in_session(session, source)
         )
-        try:
-            self.replace_in_session(session, source)
-            session.commit()
-        except BaseException:
-            session.rollback()
-            raise
-        finally:
-            release()
 
     def replace_in_session(
         self,

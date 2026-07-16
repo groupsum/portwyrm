@@ -28,7 +28,6 @@ from tigrbl_typing.status.mappings import status
 
 from portwyrm.api.compat.transport import CompatibilityTigrblApp
 from portwyrm.api.middleware import ControlPlaneHTTPMiddleware
-from portwyrm.application import MFAStore
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
     CertificateManager,
@@ -38,7 +37,7 @@ from portwyrm.certificates import (
 )
 from portwyrm.migration import import_npm, preflight_npm
 from portwyrm.persistence import Repository, export_bundle, import_bundle, preview_import
-from portwyrm.security import Principal, TokenStore
+from portwyrm.security import Principal
 
 Resource = dict[str, Any]
 
@@ -64,6 +63,22 @@ class CompatibilityService(Protocol):
     def delete_resource(self, collection: str, resource_id: int | str) -> bool: ...
 
     def list_audit(self, since: str | None = None) -> list[Resource]: ...
+
+
+class TokenService(Protocol):
+    def verify(self, token: str, *, now: int | None = None) -> Any: ...
+
+
+class MFAService(Protocol):
+    def enabled(self, user_id: int | str) -> Any: ...
+
+    def begin(self, user_id: int | str) -> Any: ...
+
+    def confirm(self, user_id: int | str, code: str) -> Any: ...
+
+    def verify(self, user_id: int | str, code: str) -> Any: ...
+
+    def disable(self, user_id: int | str, code: str) -> Any: ...
 
 
 COLLECTIONS: dict[str, tuple[str, bool]] = {
@@ -95,17 +110,21 @@ TOGGLE_COLLECTIONS = {"proxy_hosts", "redirection_hosts", "dead_hosts", "streams
 def create_compat_app(
     service: CompatibilityService,
     *,
-    tokens: TokenStore | None = None,
+    tokens: TokenService | None = None,
     version: str = "0.1.0a0",
     authenticator: Any | None = None,
     certificates: CertificateManager | None = None,
     lifespan: Any | None = None,
     repository: Repository | None = None,
-    mfa: MFAStore | None = None,
+    mfa: MFAService | None = None,
     system_status: Callable[[], Mapping[str, Any]] | None = None,
     engine: Any | None = None,
 ) -> TigrblApp:
-    token_store = tokens or TokenStore()
+    if tokens is None:
+        from portwyrm.identity import TokenStore
+
+        tokens = TokenStore()
+    token_store = tokens
     app = CompatibilityTigrblApp(
         title="Portwyrm NPM compatibility API",
         version="2.10.4",
@@ -1048,7 +1067,7 @@ def _validate_token_scopes(
     return permissions, False
 
 
-async def _owned_token(token_store: TokenStore, token_id: str, principal: Principal) -> Any:
+async def _owned_token(token_store: TokenService, token_id: str, principal: Principal) -> Any:
     record = await _identity_call(token_store.get_pat, token_id)
     if record is None or (
         not principal.is_admin and str(record.principal.user_id) != str(principal.user_id)
