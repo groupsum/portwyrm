@@ -16,7 +16,7 @@ from portwyrm.security import (
 )
 
 
-class MFAStore:
+class LegacyMFAStore:
     def __init__(
         self,
         repository: Repository,

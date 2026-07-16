@@ -121,9 +121,9 @@ def create_compat_app(
     engine: Any | None = None,
 ) -> TigrblApp:
     if tokens is None:
-        from portwyrm.identity import TokenStore
+        from portwyrm.identity import LegacyTokenStore
 
-        tokens = TokenStore()
+        tokens = LegacyTokenStore()
     token_store = tokens
     app = CompatibilityTigrblApp(
         title="Portwyrm NPM compatibility API",

@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 from cryptography.fernet import Fernet
 
-from portwyrm.application import MFAStore
+from portwyrm.application import LegacyMFAStore
 from portwyrm.persistence import MemoryRepository, SQLiteRepository
 from portwyrm.security import (
+    LegacyTokenStore,
     Principal,
-    TokenStore,
     consume_backup_code,
     generate_backup_codes,
     generate_totp_secret,
@@ -49,7 +49,7 @@ def test_principal_supports_independent_crud_grants() -> None:
 
 
 def test_session_refresh_expiry_and_invalid_token() -> None:
-    store = TokenStore(session_ttl_seconds=60)
+    store = LegacyTokenStore(session_ttl_seconds=60)
     principal = Principal(1, "admin@example.com", is_admin=True)
     token, expires = store.issue_session(principal, now=100)
     assert expires == 160
@@ -64,7 +64,7 @@ def test_session_refresh_expiry_and_invalid_token() -> None:
 
 
 def test_personal_access_token_is_one_time_revealed_hashed_revocable_and_expiring() -> None:
-    store = TokenStore()
+    store = LegacyTokenStore()
     principal = Principal(7, "service@example.com", scopes=frozenset({"proxy:write"}))
     record, plaintext = store.create_pat(
         name="deployment", principal=principal, expires_at=200, now=100
@@ -85,7 +85,7 @@ def test_personal_access_token_is_one_time_revealed_hashed_revocable_and_expirin
 
 
 def test_personal_access_token_rotation_replaces_once_and_preserves_policy() -> None:
-    store = TokenStore()
+    store = LegacyTokenStore()
     principal = Principal(7, "service@example.com", scopes=frozenset({"user", "proxy:read"}))
     original, plaintext = store.create_pat(
         name="deployment", principal=principal, expires_at=500, now=100
@@ -107,20 +107,20 @@ def test_personal_access_token_rotation_replaces_once_and_preserves_policy() -> 
 def test_sessions_and_personal_tokens_survive_repository_restart(tmp_path) -> None:
     repository = SQLiteRepository(tmp_path / "identity.sqlite")
     principal = Principal(7, "service@example.com", scopes=frozenset({"user", "proxy:write"}))
-    first = TokenStore(repository=repository)
+    first = LegacyTokenStore(repository=repository)
     session, _ = first.issue_session(principal, now=100)
     record, personal = first.create_pat(
         name="automation", principal=principal, expires_at=500, now=100
     )
 
-    restarted = TokenStore(repository=repository)
+    restarted = LegacyTokenStore(repository=repository)
     assert restarted.verify(session, now=101) == principal
     assert restarted.verify(personal, now=101) == principal
     assert restarted.get_pat(record.id).last_used_at == 101
     assert restarted.revoke_session(session)
     assert restarted.revoke_pat(record.id, now=102)
 
-    final = TokenStore(repository=repository)
+    final = LegacyTokenStore(repository=repository)
     with pytest.raises(ValueError, match="invalid token"):
         final.verify(session, now=103)
     with pytest.raises(ValueError, match="invalid token"):
@@ -148,7 +148,7 @@ def test_backup_codes_are_one_use() -> None:
 
 
 def test_mfa_recovery_rotation_revokes_previous_backup_codes() -> None:
-    store = MFAStore(MemoryRepository(), Fernet.generate_key())
+    store = LegacyMFAStore(MemoryRepository(), Fernet.generate_key())
     enrollment = store.begin(7)
     assert store.confirm(7, totp_code(enrollment["secret"]))
 

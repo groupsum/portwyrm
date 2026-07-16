@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from portwyrm.application import PersistentControlPlane
+from portwyrm.application import LegacyPersistentControlPlane
 from portwyrm.persistence import MemoryRepository
 
 _ENTRYPOINT = Path(__file__).parents[2] / "deploy" / "entrypoint.py"
@@ -16,7 +16,7 @@ seed_demo_proxy_host = _MODULE.seed_demo_proxy_host
 
 def test_demo_host_is_opt_in(monkeypatch) -> None:
     monkeypatch.delenv("PORTWYRM_DEMO_HOST", raising=False)
-    control_plane = PersistentControlPlane(MemoryRepository())
+    control_plane = LegacyPersistentControlPlane(MemoryRepository())
 
     seed_demo_proxy_host(control_plane)
 
@@ -25,7 +25,7 @@ def test_demo_host_is_opt_in(monkeypatch) -> None:
 
 def test_demo_host_uses_dns_free_localhost_and_repairs_existing(monkeypatch) -> None:
     monkeypatch.setenv("PORTWYRM_DEMO_HOST", "Demo.Portwyrm.Localhost")
-    control_plane = PersistentControlPlane(MemoryRepository())
+    control_plane = LegacyPersistentControlPlane(MemoryRepository())
 
     seed_demo_proxy_host(control_plane)
     seed_demo_proxy_host(control_plane)

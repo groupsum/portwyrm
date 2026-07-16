@@ -3,8 +3,8 @@
 from .control_plane import Actor, Conflict, ControlPlane, ControlPlaneError, Forbidden, NotFound
 from .kernel_control_plane import KernelControlPlane
 from .kernel_mfa import KernelMFAStore
-from .mfa import MFAStore
-from .persistent import PersistentControlPlane
+from .mfa import LegacyMFAStore
+from .persistent import LegacyPersistentControlPlane
 from .proxy import ApplicationServiceProxy
 
 __all__ = [
@@ -16,7 +16,7 @@ __all__ = [
     "Forbidden",
     "KernelControlPlane",
     "KernelMFAStore",
-    "MFAStore",
+    "LegacyMFAStore",
+    "LegacyPersistentControlPlane",
     "NotFound",
-    "PersistentControlPlane",
 ]

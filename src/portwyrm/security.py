@@ -16,13 +16,13 @@ import time
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 
-from portwyrm.identity import Permission, PersonalAccessToken, Principal, TokenStore
+from portwyrm.identity import LegacyTokenStore, Permission, PersonalAccessToken, Principal
 
 __all__ = [
+    "LegacyTokenStore",
     "Permission",
     "PersonalAccessToken",
     "Principal",
-    "TokenStore",
     "consume_backup_code",
     "generate_backup_codes",
     "generate_totp_secret",

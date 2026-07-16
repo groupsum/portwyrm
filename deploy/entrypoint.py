@@ -9,14 +9,13 @@ import sys
 import time
 from pathlib import Path
 
-from portwyrm.application import PersistentControlPlane
-from portwyrm.operations import LogRotator, UpgradeManager, default_upgrades
-from portwyrm.operations.runtime import repository_config_from_environment
-from portwyrm.persistence import create_repository
+from portwyrm.api import create_app
+from portwyrm.application import ControlPlane
+from portwyrm.operations import LogRotator
 from portwyrm.runtime.coordinator import RuntimeCoordinator
 
 
-def seed_demo_proxy_host(control_plane: PersistentControlPlane) -> None:
+def seed_demo_proxy_host(control_plane: ControlPlane) -> None:
     """Create or repair the opt-in, DNS-free local Docker demonstration route."""
     domain = os.getenv("PORTWYRM_DEMO_HOST", "").strip().lower()
     if not domain:
@@ -63,11 +62,13 @@ def main() -> int:
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    repository = create_repository(repository_config_from_environment())
-    UpgradeManager(repository, default_upgrades()).run()
-    control_plane = PersistentControlPlane(repository)
+    app = create_app()
+    control_plane = app.state.control_plane
     seed_demo_proxy_host(control_plane)
-    RuntimeCoordinator(control_plane, "/data/nginx", validate=True, reload=False).reconcile()
+    runtime = app.state.runtime or RuntimeCoordinator(
+        control_plane, "/data/nginx", validate=True, reload=False
+    )
+    runtime.reconcile()
 
     children = [
         subprocess.Popen(

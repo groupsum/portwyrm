@@ -13,7 +13,7 @@ from .base import ConfigurationError, Resource, canonical_json, clone, resource_
 ConnectFactory = Callable[[], Any]
 
 
-class DBAPITransaction:
+class LegacyDBAPITransaction:
     def __init__(self, connection: Any, vendor: str) -> None:
         self.connection = connection
         self.vendor = vendor
@@ -94,10 +94,10 @@ class DBAPIRepository:
             connection.close()
 
     @contextmanager
-    def transaction(self) -> Iterator[DBAPITransaction]:
+    def transaction(self) -> Iterator[LegacyDBAPITransaction]:
         connection = self.connect_factory()
         try:
-            yield DBAPITransaction(connection, self.vendor)
+            yield LegacyDBAPITransaction(connection, self.vendor)
             connection.commit()
         except BaseException:
             connection.rollback()

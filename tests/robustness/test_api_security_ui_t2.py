@@ -12,8 +12,8 @@ from portwyrm.api import create_app
 from portwyrm.api.compat import COLLECTIONS, create_compat_app
 from portwyrm.persistence import MemoryRepository
 from portwyrm.security import (
+    LegacyTokenStore,
     Principal,
-    TokenStore,
     consume_backup_code,
     generate_backup_codes,
     generate_totp_secret,
@@ -132,7 +132,7 @@ def test_refresh_rotates_session_and_rejects_replay(client: TestClient) -> None:
 
 def test_token_store_expiry_pat_tamper_revocation_and_hash_at_rest() -> None:
     principal = Principal(7, "robot@example.com", is_admin=True)
-    store = TokenStore(session_ttl_seconds=10)
+    store = LegacyTokenStore(session_ttl_seconds=10)
     session, _ = store.issue_session(principal, now=100)
     assert store.verify(session, now=109) == principal
     with pytest.raises(ValueError, match="expired"):

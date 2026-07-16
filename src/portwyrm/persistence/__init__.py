@@ -10,7 +10,7 @@ from .base import (
 )
 from .bundle import BUNDLE_VERSION, export_bundle, import_bundle, preview_import, validate_bundle
 from .dbapi import MySQLRepository, PostgreSQLRepository
-from .factory import create_repository
+from .factory import create_legacy_repository
 from .filesystem import FileBlobStore, FilesystemRepository
 from .hybrid import HybridRepository
 from .memory import MemoryRepository
@@ -31,7 +31,7 @@ __all__ = [
     "Repository",
     "RepositoryProxy",
     "SQLiteRepository",
-    "create_repository",
+    "create_legacy_repository",
     "export_bundle",
     "import_bundle",
     "preview_import",

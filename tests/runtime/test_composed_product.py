@@ -8,7 +8,7 @@ from tigrbl.engine import resolver
 
 from portwyrm import __main__ as cli
 from portwyrm.api import create_app
-from portwyrm.application import PersistentControlPlane
+from portwyrm.application import LegacyPersistentControlPlane
 from portwyrm.cli.commands import remote
 from portwyrm.persistence import SQLiteRepository
 from portwyrm.runtime.coordinator import RuntimeCoordinator
@@ -371,7 +371,7 @@ def _login_with(client: TestClient, identity: str, secret: str) -> dict[str, str
 
 
 def test_routing_mutation_publishes_active_nginx_generation(tmp_path: Path) -> None:
-    service = PersistentControlPlane(SQLiteRepository(tmp_path / "state.sqlite"))
+    service = LegacyPersistentControlPlane(SQLiteRepository(tmp_path / "state.sqlite"))
     coordinator = RuntimeCoordinator(service, tmp_path / "nginx", validate=False, reload=False)
     service.on_change = coordinator.changed
 
@@ -395,7 +395,7 @@ def test_routing_mutation_publishes_active_nginx_generation(tmp_path: Path) -> N
 
 
 def test_identity_membership_renders_write_only_access_credentials(tmp_path: Path) -> None:
-    service = PersistentControlPlane(SQLiteRepository(tmp_path / "identity-acl.sqlite"))
+    service = LegacyPersistentControlPlane(SQLiteRepository(tmp_path / "identity-acl.sqlite"))
     identity = service.create(
         "users",
         {
@@ -430,7 +430,7 @@ def test_identity_membership_renders_write_only_access_credentials(tmp_path: Pat
 
 def test_successful_runtime_applies_persist_versioned_host_snapshots(tmp_path: Path) -> None:
     path = tmp_path / "applied-history.sqlite"
-    service = PersistentControlPlane(SQLiteRepository(path))
+    service = LegacyPersistentControlPlane(SQLiteRepository(path))
     coordinator = RuntimeCoordinator(service, tmp_path / "nginx", validate=False, reload=False)
     service.on_change = coordinator.changed
     created = service.create(
@@ -448,7 +448,7 @@ def test_successful_runtime_applies_persist_versioned_host_snapshots(tmp_path: P
         {**created, "forward_host": "second-upstream", "forward_port": 9090},
     )
 
-    restarted = PersistentControlPlane(SQLiteRepository(path))
+    restarted = LegacyPersistentControlPlane(SQLiteRepository(path))
     versions = [
         event
         for event in restarted.audit_since()

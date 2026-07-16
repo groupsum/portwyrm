@@ -14,7 +14,7 @@ from .memory import MemoryRepository
 from .sqlite import SQLiteRepository
 
 
-def create_repository(config: Mapping[str, Any]) -> Repository:
+def create_legacy_repository(config: Mapping[str, Any]) -> Repository:
     backend = str(config.get("backend", "sqlite")).lower()
     backend = {"postgres": "postgresql", "mariadb": "mysql"}.get(backend, backend)
     data_root = Path(str(config.get("data_root", "/data")))
@@ -31,7 +31,7 @@ def create_repository(config: Mapping[str, Any]) -> Repository:
     if backend == "hybrid":
         metadata_config = dict(config.get("metadata", {}))
         metadata_config.setdefault("data_root", data_root)
-        metadata = create_repository(metadata_config)
+        metadata = create_legacy_repository(metadata_config)
         blobs = FileBlobStore(config.get("blob_root", data_root / "blobs"))
         return HybridRepository(metadata, blobs)
     raise ConfigurationError(f"unknown persistence backend: {backend}")

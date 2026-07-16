@@ -12,7 +12,7 @@ from .control_plane import COLLECTIONS, Actor, ControlPlane
 ChangeHook = Callable[[str], Any]
 
 
-class PersistentControlPlane(ControlPlane):
+class LegacyPersistentControlPlane(ControlPlane):
     """ControlPlane with durable records and post-commit change notification."""
 
     def __init__(self, repository: Repository, *, on_change: ChangeHook | None = None) -> None:

@@ -64,7 +64,7 @@ def _principal_from_record(value: dict[str, Any]) -> Principal:
     )
 
 
-class TokenStore:
+class LegacyTokenStore:
     """Session and PAT registry with optional repository durability."""
 
     def __init__(

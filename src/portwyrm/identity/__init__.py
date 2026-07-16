@@ -11,17 +11,17 @@ from .models import (
     permission_allows,
 )
 from .proxy import IdentityStoreProxy
-from .tokens import TokenStore
+from .tokens import LegacyTokenStore
 
 __all__ = [
     "PERMISSION_ACTIONS",
     "IdentityStoreProxy",
     "KernelTokenStore",
+    "LegacyTokenStore",
     "Permission",
     "PermissionAction",
     "PermissionGrant",
     "PersonalAccessToken",
     "Principal",
-    "TokenStore",
     "permission_allows",
 ]
