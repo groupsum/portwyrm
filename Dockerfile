@@ -8,7 +8,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY . /app
-RUN uv pip install --system --no-cache .
+RUN uv pip install --system --no-cache "pip==26.1.2" .
 
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 RUN mkdir -p /data/acme-challenge /data/nginx /data/logs /etc/letsencrypt/live /var/lib/nginx/cache/public

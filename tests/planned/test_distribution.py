@@ -5,6 +5,7 @@ def test_container_distribution_declares_runtime_and_health_contract() -> None:
     dockerfile = (Path(__file__).parents[2] / "Dockerfile").read_text(encoding="utf-8")
     assert "HEALTHCHECK" in dockerfile
     assert "EXPOSE 80 81 443" in dockerfile
+    assert '"pip==26.1.2"' in dockerfile
     assert 'ENTRYPOINT ["python", "/app/deploy/entrypoint.py"]' in dockerfile
 
 
@@ -33,6 +34,7 @@ def test_container_vulnerability_scan_fails_closed_and_retains_evidence() -> Non
 
     assert "severity: CRITICAL,HIGH" in workflow
     assert 'exit-code: "1"' in workflow
+    assert "limit-severities-for-sarif: true" in workflow
     assert "output: trivy-results.sarif" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
     assert "uses: github/codeql-action/upload-sarif@v3" in workflow
