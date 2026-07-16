@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from tigrbl.factories.engine import pg, sqlitef
 
@@ -26,11 +27,15 @@ from portwyrm.persistence import (
 def engine_for_repository(repository: Repository) -> Any:
     """Translate import-source configuration into a native Tigrbl EngineSpec value."""
     if isinstance(repository, MemoryRepository):
+        namespace = getattr(repository, "_tigrbl_namespace", None)
+        if namespace is None:
+            namespace = uuid4().hex
+            repository._tigrbl_namespace = namespace
         return {
             "kind": "sqlite",
             "async": False,
             "mode": "memory",
-            "instance": id(repository),
+            "instance": namespace,
         }
     if isinstance(repository, SQLiteRepository):
         return sqlitef(str(repository.path), async_=False)

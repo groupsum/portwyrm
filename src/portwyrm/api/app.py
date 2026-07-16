@@ -15,9 +15,9 @@ from tigrbl import TigrblApp
 from portwyrm.api.compat import create_compat_app
 from portwyrm.api.dependencies import create_default_repository
 from portwyrm.api.native import create_native_router
-from portwyrm.application import MFAStore, PersistentControlPlane
+from portwyrm.application import KernelMFAStore, MFAStore, PersistentControlPlane
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
-from portwyrm.identity import TokenStore
+from portwyrm.identity import IdentityStoreProxy, KernelTokenStore, TokenStore
 from portwyrm.operations import HealthService, NginxStatusClient, UpgradeManager, default_upgrades
 from portwyrm.persistence import Repository, RepositoryProxy
 from portwyrm.runtime.coordinator import RuntimeCoordinator
@@ -49,8 +49,9 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
             staging=os.getenv("PORTWYRM_ACME_STAGING", "0").lower() in {"1", "true", "yes"},
         ),
     )
-    mfa_store = MFAStore(live_repository, _load_mfa_key())
-    token_store = TokenStore(repository=live_repository)
+    mfa_key = _load_mfa_key()
+    mfa_store = IdentityStoreProxy(MFAStore(live_repository, mfa_key))
+    token_store = IdentityStoreProxy(TokenStore(repository=live_repository))
     runtime: RuntimeCoordinator | None = None
     if os.getenv("PORTWYRM_NGINX_RUNTIME", "0").lower() in {"1", "true", "yes"}:
         root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
@@ -145,13 +146,12 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
     control_plane.on_change = None
     live_repository.target = authoritative_repository
     control_plane.reload()
-    token_store.rebind_repository(live_repository)
+    token_store.bind(KernelTokenStore(app))
+    mfa_store.bind(KernelMFAStore(app, mfa_key))
     app.state.repository = authoritative_repository
     app.state.legacy_projector = None
 
     control_plane.on_change = runtime.changed if runtime is not None else None
-    token_store.on_change = None
-    mfa_store.on_change = None
 
     return app
 

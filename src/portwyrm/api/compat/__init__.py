@@ -43,6 +43,11 @@ from portwyrm.security import Principal, TokenStore
 Resource = dict[str, Any]
 
 
+async def _identity_call(function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    value = function(*args, **kwargs)
+    return await value if inspect.isawaitable(value) else value
+
+
 class CompatibilityService(Protocol):
     """Application-service port required by the compatibility facade."""
 
@@ -137,7 +142,7 @@ def create_compat_app(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="bearer token required"
             )
         try:
-            principal = await asyncio.to_thread(token_store.verify, token)
+            principal = await _identity_call(token_store.verify, token)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         if "user" not in principal.scopes:
@@ -184,7 +189,7 @@ def create_compat_app(
         else:
             raise HTTPException(status_code=401, detail="MFA challenge token required")
         try:
-            principal = await asyncio.to_thread(token_store.verify, token)
+            principal = await _identity_call(token_store.verify, token)
         except ValueError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
         if principal.scopes != frozenset({"mfa"}):
@@ -240,7 +245,7 @@ def create_compat_app(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
             )
         principal = _as_principal(authenticated, fallback_identity=identity)
-        if mfa is not None and mfa.enabled(principal.user_id):
+        if mfa is not None and await _identity_call(mfa.enabled, principal.user_id):
             mfa_code = payload.get("mfa_code")
             if mfa_code is None:
                 challenge = Principal(
@@ -248,14 +253,18 @@ def create_compat_app(
                     identity=principal.identity,
                     scopes=frozenset({"mfa"}),
                 )
-                token, expires = token_store.issue_session(challenge, ttl_seconds=300)
+                token, expires = await _identity_call(
+                    token_store.issue_session, challenge, ttl_seconds=300
+                )
                 return {"result": {"token": token, "expires": expires, "scope": "mfa"}}
-            if not isinstance(mfa_code, str) or not mfa.verify(principal.user_id, mfa_code):
+            if not isinstance(mfa_code, str) or not await _identity_call(
+                mfa.verify, principal.user_id, mfa_code
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="valid MFA code required",
                 )
-        token, expires = token_store.issue_session(principal)
+        token, expires = await _identity_call(token_store.issue_session, principal)
         await _record_event(service, "authenticated", "users", principal.user_id, principal)
         return {"result": {"token": token, "expires": expires}}
 
@@ -266,25 +275,30 @@ def create_compat_app(
         challenge: Principal = Depends(principal_from_mfa_bearer),
     ) -> Resource:
         code = payload.get("code")
-        if mfa is None or not isinstance(code, str) or not mfa.verify(challenge.user_id, code):
+        if (
+            mfa is None
+            or not isinstance(code, str)
+            or not await _identity_call(mfa.verify, challenge.user_id, code)
+        ):
             raise HTTPException(status_code=401, detail="invalid MFA code")
         challenge_token = request.bearer_token or request.cookies.get("portwyrm_session")
         assert challenge_token is not None
-        token_store.revoke_session(challenge_token)
+        await _identity_call(token_store.revoke_session, challenge_token)
         user = await _service_get(service, "users", challenge.user_id, challenge)
         if user is None:
             raise HTTPException(status_code=401, detail="user is unavailable")
         principal = _as_principal(user, fallback_identity=challenge.identity)
-        token, expires = token_store.issue_session(principal)
+        token, expires = await _identity_call(token_store.issue_session, principal)
         return {"result": {"token": token, "expires": expires, "scope": "user"}}
 
     @app.post("/api/v2/browser/login")
     async def browser_login(payload: dict[str, Any], response: Response) -> Resource:
         result = await login(payload)
         api_token = str(result["result"]["token"])
-        browser_principal = token_store.verify(api_token)
-        token_store.revoke_session(api_token)
-        browser_token, expires = token_store.issue_session(
+        browser_principal = await _identity_call(token_store.verify, api_token)
+        await _identity_call(token_store.revoke_session, api_token)
+        browser_token, expires = await _identity_call(
+            token_store.issue_session,
             browser_principal,
             ttl_seconds=300 if browser_principal.scopes == frozenset({"mfa"}) else None,
         )
@@ -306,9 +320,9 @@ def create_compat_app(
     ) -> Resource:
         result = await complete_mfa_challenge(payload, request=request, challenge=challenge)
         api_token = str(result["result"]["token"])
-        browser_principal = token_store.verify(api_token)
-        token_store.revoke_session(api_token)
-        browser_token, expires = token_store.issue_session(browser_principal)
+        browser_principal = await _identity_call(token_store.verify, api_token)
+        await _identity_call(token_store.revoke_session, api_token)
+        browser_token, expires = await _identity_call(token_store.issue_session, browser_principal)
         _set_browser_cookies(response, browser_token)
         return {"result": {"token": browser_token, "expires": expires, "scope": "user"}}
 
@@ -320,7 +334,7 @@ def create_compat_app(
     ) -> None:
         session_cookie = request.cookies.get("portwyrm_session")
         if session_cookie:
-            token_store.revoke_session(session_cookie)
+            await _identity_call(token_store.revoke_session, session_cookie)
         _expire_browser_cookies(response)
 
     @app.get("/api/tokens")
@@ -331,7 +345,7 @@ def create_compat_app(
         token_value = request.bearer_token
         if token_value is None:
             raise HTTPException(status_code=401, detail="bearer token required")
-        token, expires = token_store.refresh_session(token_value)
+        token, expires = await _identity_call(token_store.refresh_session, token_value)
         return {"token": token, "expires": expires}
 
     @app.delete("/api/tokens", status_code=status.HTTP_204_NO_CONTENT)
@@ -342,7 +356,7 @@ def create_compat_app(
         token_value = request.bearer_token
         if token_value is None:
             raise HTTPException(status_code=401, detail="bearer token required")
-        token_store.revoke_session(token_value)
+        await _identity_call(token_store.revoke_session, token_value)
         await _record_event(service, "session.revoked", "users", _.user_id, _)
 
     @app.get("/api/v2/me")
@@ -352,7 +366,7 @@ def create_compat_app(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
         return {
             **_copy_visible(user, principal),
-            "mfa_enabled": bool(mfa and mfa.enabled(principal.user_id)),
+            "mfa_enabled": bool(mfa and await _identity_call(mfa.enabled, principal.user_id)),
         }
 
     @app.get("/api/v2/system/status")
@@ -367,9 +381,9 @@ def create_compat_app(
     async def enroll_mfa(principal: Principal = Depends(principal_from_bearer)) -> Resource:
         if mfa is None:
             raise HTTPException(status_code=501, detail="MFA unavailable")
-        if mfa.enabled(principal.user_id):
+        if await _identity_call(mfa.enabled, principal.user_id):
             raise HTTPException(status_code=409, detail="MFA is already enabled")
-        result = mfa.begin(principal.user_id)
+        result = await _identity_call(mfa.begin, principal.user_id)
         await _record_event(
             service, "mfa.enrollment.started", "users", principal.user_id, principal
         )
@@ -380,7 +394,11 @@ def create_compat_app(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> None:
         code = payload.get("code")
-        if mfa is None or not isinstance(code, str) or not mfa.confirm(principal.user_id, code):
+        if (
+            mfa is None
+            or not isinstance(code, str)
+            or not await _identity_call(mfa.confirm, principal.user_id, code)
+        ):
             raise HTTPException(status_code=422, detail="invalid enrollment code")
         await _record_event(service, "mfa.enabled", "users", principal.user_id, principal)
 
@@ -389,7 +407,11 @@ def create_compat_app(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> None:
         code = payload.get("code")
-        if mfa is None or not isinstance(code, str) or not mfa.disable(principal.user_id, code):
+        if (
+            mfa is None
+            or not isinstance(code, str)
+            or not await _identity_call(mfa.disable, principal.user_id, code)
+        ):
             raise HTTPException(status_code=422, detail="invalid MFA code")
         await _record_event(service, "mfa.disabled", "users", principal.user_id, principal)
 
@@ -399,7 +421,7 @@ def create_compat_app(
     ) -> Resource:
         code = payload.get("code")
         codes = (
-            mfa.regenerate_backup_codes(principal.user_id, code)
+            await _identity_call(mfa.regenerate_backup_codes, principal.user_id, code)
             if mfa is not None and isinstance(code, str)
             else None
         )
@@ -461,7 +483,7 @@ def create_compat_app(
         if user is None or user.get("is_disabled") or user.get("is_deleted"):
             raise HTTPException(status_code=404, detail="active user not found")
         impersonated = _as_principal(user, fallback_identity=str(user.get("email", user_id)))
-        token, expires = token_store.issue_session(impersonated)
+        token, expires = await _identity_call(token_store.issue_session, impersonated)
         await _record_event(
             service,
             "user.impersonated",
@@ -478,7 +500,7 @@ def create_compat_app(
         principal: Principal = Depends(principal_from_bearer),
     ) -> list[Resource]:
         include_all = _query_bool(request, "include_all")
-        records = token_store.list_pats(principal)
+        records = await _identity_call(token_store.list_pats, principal)
         if not (include_all and principal.is_admin):
             records = [
                 record
@@ -507,9 +529,7 @@ def create_compat_app(
         try:
             token_permissions, token_is_admin = _validate_token_scopes(requested, principal)
         except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
-            ) from exc
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         stored_scopes = requested if requested == {"user"} else requested | {"user"}
         pat_principal = Principal(
             user_id=principal.user_id,
@@ -521,12 +541,11 @@ def create_compat_app(
             owner=principal.owner,
         )
         try:
-            record, plaintext = await asyncio.to_thread(
-                lambda: token_store.create_pat(
-                    name=name,
-                    principal=pat_principal,
-                    expires_at=int(expires_at) if expires_at is not None else None,
-                )
+            record, plaintext = await _identity_call(
+                token_store.create_pat,
+                name=name,
+                principal=pat_principal,
+                expires_at=int(expires_at) if expires_at is not None else None,
             )
         except (TypeError, ValueError) as exc:
             raise HTTPException(
@@ -542,21 +561,17 @@ def create_compat_app(
         )
         return {**record.public(), "token": plaintext}
 
-    @app.post(
-        "/api/v2/tokens/{token_id}/rotate", status_code=status.HTTP_201_CREATED
-    )
+    @app.post("/api/v2/tokens/{token_id}/rotate", status_code=status.HTTP_201_CREATED)
     async def rotate_personal_token(
         token_id: str, principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
-        record = _owned_token(token_store, token_id, principal)
+        record = await _owned_token(token_store, token_id, principal)
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
         try:
-            replacement, plaintext = await asyncio.to_thread(token_store.rotate_pat, token_id)
+            replacement, plaintext = await _identity_call(token_store.rotate_pat, token_id)
         except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-            ) from exc
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         await _record_event(
             service,
             "access-token.rotated",
@@ -571,10 +586,10 @@ def create_compat_app(
     async def revoke_personal_token(
         token_id: str, principal: Principal = Depends(principal_from_bearer)
     ) -> None:
-        record = _owned_token(token_store, token_id, principal)
+        record = await _owned_token(token_store, token_id, principal)
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
-        token_store.revoke_pat(token_id)
+        await _identity_call(token_store.revoke_pat, token_id)
         await _record_event(service, "access-token.revoked", "access-tokens", token_id, principal)
 
     @app.get("/api/v2/export")
@@ -1033,8 +1048,8 @@ def _validate_token_scopes(
     return permissions, False
 
 
-def _owned_token(token_store: TokenStore, token_id: str, principal: Principal) -> Any:
-    record = token_store.get_pat(token_id)
+async def _owned_token(token_store: TokenStore, token_id: str, principal: Principal) -> Any:
+    record = await _identity_call(token_store.get_pat, token_id)
     if record is None or (
         not principal.is_admin and str(record.principal.user_id) != str(principal.user_id)
     ):

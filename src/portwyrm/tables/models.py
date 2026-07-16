@@ -141,6 +141,16 @@ class BrowserSession(PortwyrmTable):
     principal_snapshot = Column(JSON, nullable=False)
     expires_at = Column(Integer, nullable=False, index=True)
 
+    @op_ctx(alias="unit_of_work", target="custom", arity="collection")
+    async def unit_of_work(cls, ctx: Any) -> Any:
+        """Execute an internal service callback inside the kernel transaction."""
+        callback = ctx.get("kernel_work")
+        if not callable(callback):
+            raise ValueError("kernel_work callback is required")
+        result = callback(ctx["db"])
+        value = await result if inspect.isawaitable(result) else result
+        return {"kernel_unit_of_work": True, "value": value}
+
 
 class MFAEnrollment(PortwyrmTable):
     __tablename__ = "mfa_enrollments"
