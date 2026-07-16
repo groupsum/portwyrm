@@ -74,9 +74,7 @@ def _force_ssl_lines(ssl: SSLSettings) -> list[str]:
     return [f"  if ({condition}) {{", "    return 301 https://$host$request_uri;", "  }"]
 
 
-def _access_lines(
-    access_list: AccessList | None, password_file: str | None = None
-) -> list[str]:
+def _access_lines(access_list: AccessList | None, password_file: str | None = None) -> list[str]:
     if access_list is None:
         return []
     lines: list[str] = []
@@ -406,9 +404,7 @@ class NginxRenderer:
         password_file: str | None = None,
     ) -> list[str]:
         lines = ["  location / {"]
-        lines.extend(
-            f"    {line}" for line in _access_lines(access_list, password_file)
-        )
+        lines.extend(f"    {line}" for line in _access_lines(access_list, password_file))
         if host.allow_websocket_upgrade:
             lines.extend(
                 [
@@ -440,9 +436,7 @@ class NginxRenderer:
                 f"    proxy_pass {location.forward_scheme.value}://{location.forward_host}:{location.forward_port}{location.forward_path};",
             ]
         )
-        lines.extend(
-            f"    {line}" for line in _access_lines(access_list, password_file)
-        )
+        lines.extend(f"    {line}" for line in _access_lines(access_list, password_file))
         if host.allow_websocket_upgrade:
             lines.extend(
                 [

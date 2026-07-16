@@ -75,8 +75,8 @@ Legend: `P` = direct NPM parity; `E` = requested extension beyond NPM; `C` = com
 | PS-02 | P | MySQL/MariaDB | External DB via `DB_MYSQL_*`; takes precedence over SQLite; optional TLS validation/identity controls. | Same deployment contract and migration tests, including secrets-as-files if compatibility requires it. | [S4] |
 | PS-03 | P | PostgreSQL | External DB via `DB_POSTGRES_*`; custom schema unsupported upstream (`public`). | PostgreSQL parity, transactional migrations, and documented volume/upgrade path. | [S4] |
 | PS-04 | P | Filesystem half | `/data` contains JWT keys, generated configs, logs, htpasswd, custom SSL; `/etc/letsencrypt` contains ACME state/credentials. DB alone is not a complete backup. | Backup/export is consistent across DB + files; restore validates paths, permissions, and referential integrity. | [S4][S8][S12] |
-| PS-05 | E | In-memory | NPM has no in-memory metadata backend. | Add explicit ephemeral backend for tests/demo with clear non-persistence warning and feature-equivalent repository contract. | **Gap**, [S4] |
-| PS-06 | E | File-only | NPM has no file-only metadata store beyond generated/runtime artifacts. | Add atomic, lock-safe, schema-versioned file backend only if demanded; must pass the same repository contract suite. | **Gap**, [S4] |
+| PS-05 | E | In-memory | NPM has no in-memory metadata backend. | Use the ephemeral Tigrbl memory engine for tests/demo with a clear non-persistence warning and the same table-operation contract. | **Gap**, [S4] |
+| PS-06 | E | File-only | NPM has no file-only metadata store beyond generated/runtime artifacts. | Support checksummed export/import snapshots for portability and recovery; do not create a second writable metadata authority. | **Gap**, [S4] |
 | PS-07 | E | Hybrid | NPM’s native hybrid is DB metadata + filesystem runtime material; it does not offer configurable per-domain placement. | Define supported hybrid profiles explicitly; never allow two writable authorities for the same entity. | **Inference/extension**, [S4][S8] |
 | OP-01 | P | Upgrades | Startup runs ordered DB migrations; official upgrade is image pull/recreate; release-specific notes may apply. | Forward-only, idempotent migrations; backup gate; rollback image/data procedure; compatibility across all supported stores. | [S4][S17] |
 | OP-02 | P | Versioning | Health returns semantic version; version-check endpoint queries current release with a short cache. Latest stable alone receives security updates. | Health/readiness/version endpoints and explicit support policy. | [S5][S16] |
@@ -120,7 +120,7 @@ Exact method/path inventory is in [S5]. Compatibility must be driven by recorded
 4. **RBAC matrix:** admin and every `hidden/view/manage × user/all` combination tested through both UI and direct API, including guessed ids.
 5. **Authentication:** bcrypt import, password reset/change, disabled/deleted users, JWT login/refresh/expiry/scope, impersonation, TOTP and one-use backup codes.
 6. **Certificate suite:** custom PEM validation, HTTP-01 and DNS-01 against test ACME, wildcard/RSA/ECDSA, auto/manual renew, download, deletion/in-use, restore after injected failures.
-7. **Persistence contract:** identical repository conformance suite on SQLite and PostgreSQL at minimum; MySQL/MariaDB if claiming exact NPM parity; in-memory/file-only are separate extension profiles.
+7. **Engine contract:** identical table-operation conformance on SQLite and PostgreSQL at minimum; MySQL/MariaDB when its Tigrbl engine package is installed; memory is an ephemeral extension and file-only is a portable artifact profile.
 8. **Crash consistency:** kill processes during DB commit, config write, Nginx test/reload, certificate issue, and migration; target recovers without split authority or unrelated outage.
 9. **Migration fixtures:** sanitized NPM 2.13.x, 2.14.x, and 2.15.1 snapshots for each DB, including custom locations, all host types, 2FA, access lists, certificates, invalid configs, and soft deletes.
 10. **npmctl compatibility:** replay captured current npmctl calls against NPM and replacement; compare status, JSON shape, errors, side effects, and eventual Nginx behavior. No npmctl code change for the compatibility release unless explicitly approved.
@@ -131,7 +131,7 @@ Exact method/path inventory is in [S5]. Compatibility must be driven by recorded
 
 - **NPM compatibility target:** exact API compatibility should be limited to operations actually used by current npmctl plus documented NPM operations; capturing npmctl traffic/contracts is a required downstream handoff.
 - **Access tokens:** requested PAT/service tokens are an extension. Decide whether npmctl migrates to them immediately or retains JWT login/refresh compatibility first.
-- **Persistence promise:** “in-memory, SQLite, PostgreSQL, file-system, hybrid” needs an authority model. Recommended: one metadata repository per deployment; filesystem is blob/runtime state; optional object storage later. Avoid multiple writable metadata authorities.
+- **Persistence promise:** each deployment has one Tigrbl metadata engine. Filesystem/object storage owns certificate and generated-runtime artifacts; “hybrid” never means multiple writable metadata authorities.
 - **MySQL:** the request names SQLite/PostgreSQL, while p100 NPM parity includes MySQL/MariaDB. Dropping it must be an explicit scope exception.
 - **Raw Nginx config:** exact parity permits privileged arbitrary Nginx directives. Decide whether to preserve unrestricted admin-only behavior or add policy/sandbox modes while retaining an escape hatch.
 - **DNS providers:** catalog parity (86 definitions) is not operational proof. Decide the supported/tested provider tier versus best-effort compatibility tier.

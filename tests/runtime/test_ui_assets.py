@@ -4,9 +4,10 @@ import re
 from pathlib import Path
 
 from tigrbl import TigrblApp
+from tigrbl.factories.engine import mem
 
 from portwyrm.api import create_app
-from portwyrm.persistence import MemoryRepository
+from portwyrm.config import PortwyrmSettings
 from portwyrm.uix import mount_uix
 from tests.support import TestClient
 
@@ -60,7 +61,7 @@ def test_data_tables_do_not_reserve_an_actions_header() -> None:
     components = Path(__file__).parents[2] / "frontend" / "src" / "components"
     for filename in ("HostsView.tsx", "UsersView.tsx", "CertificatesView.tsx"):
         source = (components / filename).read_text(encoding="utf-8")
-        assert '>Actions</th>' not in source
+        assert ">Actions</th>" not in source
 
     hosts_source = (components / "HostsView.tsx").read_text(encoding="utf-8")
     for label in ("Owner", "Source", "Target", "Cert", "Access", "Status", "Updated at"):
@@ -76,7 +77,7 @@ def test_root_redirects_to_console() -> None:
 
 
 def test_composed_initialized_application_serves_console() -> None:
-    app = create_app(MemoryRepository())
+    app = create_app(settings=PortwyrmSettings(backend="memory"), engine=mem(async_=False))
     response = TestClient(app).get("/ui/")
     assert response.status_code == 200
     assert '<div id="root"></div>' in response.text

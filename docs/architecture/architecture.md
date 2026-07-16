@@ -1,100 +1,112 @@
 # Architecture
 
 Status: accepted and implemented
+
 Decision date: 2026-07-13
 
-The canonical source and package tree is defined in
-[Repository and package layout](repository-layout.md).
+Updated: 2026-07-15
+
+The canonical source tree is defined in [Repository and package layout](repository-layout.md).
+The complete table inventory and operation ownership are defined in
+[Tigrbl data model](tigrbl-data-model.md).
 
 ```text
-NPM-compatible /api       Native /api/v2       Operator UI
-          \                    |                   /
-                    Tigrbl ASGI control plane
-                              |
-       auth/policy -> commands/queries -> audit/outbox
-                              |
-       domain services + repositories + transactional UoW
-          /                     |                       \
- persistence             certificate service       reconciler
- memory/sql/fs/pg         ACME + SecretStore        render/test/swap
-                                                        |
-                                                      nginx
+NPM/npmctl API             Native API             Operator UIX
+       \                       |                       /
+                 terse Tigrbl app/router composition
+                                |
+       table schemas + builtin CRUD + narrow custom operations
+                                |
+             tigrbl_engine_* session and transaction boundary
+                    /                           \
+        normalized metadata              filesystem artifacts
+     memory/sqlite/postgres/mysql       certs + immutable configs
+                    \                           /
+                  deterministic Nginx reconciler
+                                |
+                              nginx
 ```
 
 ## Boundaries
 
-- `tables` owns the canonical normalized Tigrbl models, engine selection, builtin/custom
-  operations, lifecycle hooks, the one-time importer, and the NPM-shape compatibility adapter.
-- `api/compat` owns profile DTOs, defaults, quirks, and error translation.
-- `api/native` owns jobs, scoped tokens, health, import/export, and capabilities.
-- `domain` owns entities and invariants without HTTP or storage concerns.
-- `application` owns commands, queries, units of work, authorization, and orchestration.
-- `persistence` implements `RepositorySet`, `UnitOfWork`, `BlobStore`,
-  `SecretStore`, `LeaseStore`, `EventJournal`, `Outbox`, and `MigrationStore`.
-- `certificates` owns custom certificates, ACME, renewal, and DNS provider adapters.
-- `runtime` owns deterministic templates, validation, activation, reload, health, rollback,
-  and drift detection.
+- `tables` is the sole metadata authority. Each table owns its columns, exported operation
+  schemas, builtin CRUD profile, narrow custom operations, and lifecycle hooks.
+- `api/compat` owns NPM/npmctl DTO quirks, authorization dependencies, error translation, and
+  projections between normalized rows and the compatibility wire shape.
+- `api/native` owns setup, health, metrics, token, portability, and native product routes.
+- `config` selects public Tigrbl engine factories. Portwyrm does not wrap engine sessions or
+  transactions.
+- `identity` contains reusable security primitives and API identity types; durable identity,
+  credential, PAT, session, MFA, role, permission, and membership state belongs to tables.
+- `certificates` owns ACME/custom-certificate workflows and encrypted/private filesystem material.
+- `runtime` owns deterministic templates, validation, immutable activation, reload, rollback,
+  telemetry, logs, and drift detection.
 
-## Tigrbl migration and compatibility
+There is no Portwyrm kernel, repository, unit of work, DBAPI transaction, SQLite transaction, or
+application-service persistence layer. Downstream code invokes table operations through the
+composed Tigrbl app; Tigrbl and the configured engine own session and transaction semantics.
 
-Tigrbl is the only application framework. Portwyrm does not depend on FastAPI or Starlette.
-Compatibility and native HTTP routes are Tigrbl route operations, and canonical tables bind
-Tigrbl builtin CRUD plus narrowly scoped custom operations and lifecycle hooks.
+## Canonical tables and operations
 
-The authority cutover is implemented. On first startup, the frozen NPM/npmctl collection repository
-is imported transactionally into 25 normalized Tigrbl tables. Once any normalized state exists,
-that importer is never replayed automatically. The original adapter remains import provenance only
-and is removed from the live mutation path.
+Tigrbl builtin CRUD and bulk CRUD are used for ordinary resources. Custom operations exist only
+where an aggregate or security invariant requires one transaction:
 
-After cutover, Tigrbl rows are the sole metadata authority. The NPM shape is materialized at the
-compatibility boundary and mutations are committed back into normalized rows under a serialized
-transaction. This preserves legacy IDs and wire quirks while using distinct rows for principals,
-credentials, permissions, browser-session digests, PAT digests, MFA recovery digests, access-list
-edges, certificate domains, routing sources, upstreams, and immutable configuration revisions.
-Table routers remain unmounted from public paths until their native authorization policy is
-certified; the authenticated NPM/npmctl compatibility API remains the supported external contract.
+- principals: `register`, `authenticate`, `change_password`, `set_password`,
+  `set_authorization`, and `authorization`;
+- PATs: `issue`, `revoke`, `refresh`, `rotate`, and `verify` in addition to CRUD;
+- browser sessions: `issue`, `verify`, and `revoke`;
+- MFA enrollments: `begin`, `enabled`, `confirm`, `verify`, `disable`, and
+  `regenerate_backup_codes`;
+- routing hosts, access lists, and certificates: compatibility aggregate create/update/delete
+  operations that maintain their normalized child and join rows atomically;
+- config generations: CRUD plus `activate`, `clear_active`, `validate`, `reload`, and `reconcile`;
+- audit: append-oriented `record` operation.
+
+The compatibility facade never stores plaintext passwords, PATs, MFA recovery codes, access-list
+credentials, or private keys. Password-like values are write-only; opaque tokens are returned only
+at issue/rotation time.
 
 ## Write and reconciliation model
 
-An authorized command writes desired state and an outbox job in one transaction. The
-reconciler acquires a lease, renders a complete immutable generation, runs `nginx -t`,
-atomically switches the active generation, reloads Nginx, and probes health. Success advances
-`applied_generation`; failure preserves desired state and the last-known-good active
-generation while surfacing a recoverable degraded state.
+An authorized table mutation commits desired state using the configured Tigrbl engine. Routing,
+access, certificate, and setting changes enqueue reconciliation after commit. The reconciler
+renders a complete immutable generation, validates it with `nginx -t`, atomically switches the
+active generation, reloads Nginx, and persists the generation and reconcile result. A failed
+candidate preserves desired state and the last-known-good active generation and records its
+diagnostic.
 
-Generated Nginx configuration is derived state, never authority. Templates are deterministic
-and covered by golden tests. Active files are never edited in place.
+Generated Nginx configuration is derived state, never metadata authority. Templates are
+deterministic and covered by golden tests. Active files are never edited in place.
 
-## Persistence modes
+## Storage profiles
 
-| Mode | Canonical state | Limits |
-|---|---|---|
-| Memory | isolated in-memory Tigrbl engine and temporary blobs | process-local; tests/demos only |
-| SQLite | normalized Tigrbl tables in one WAL database | default single node; one mutation writer |
-| PostgreSQL | SQL metadata, row locks, advisory lease, transactional outbox | HA control plane |
-| Filesystem | versioned snapshots plus a normalized SQLite table sidecar | single writer only |
-| Hybrid | SQLite/PostgreSQL metadata plus filesystem/object blobs | recommended production form |
+| Profile | Metadata engine | Artifact storage | Limits |
+|---|---|---|---|
+| Memory | `tigrbl_engine_mem` | temporary directory | process-local tests/demos |
+| SQLite | `tigrbl_engine_sqlite` | durable filesystem | default single-node deployment |
+| PostgreSQL | `tigrbl_engine_postgres` | durable filesystem/object mount | multi-node control plane |
+| MySQL/MariaDB | `tigrbl_engine_mysql` | durable filesystem/object mount | available when the engine package is installed |
 
-Every durable mode supports a backend-neutral, versioned export bundle with entities,
-relationships, audit cursor, checksums, and encrypted secret references. Cross-backend moves
-use export, validate, dry-run import, and reconcile.
+“Filesystem-only” is an import/export and disaster-recovery artifact profile, not a second live
+metadata implementation. “Hybrid” means one Tigrbl database authority plus filesystem/object
+certificate and generated-config artifacts. Every durable profile supports a backend-neutral,
+checksummed export bundle and dry-run import.
 
 ## Security model
 
 - Argon2id passwords; legacy bcrypt verifies once and upgrades on login.
-- Compatibility JWTs are short-lived. Native personal/service tokens are opaque, scoped,
+- Compatibility sessions are short-lived. Native personal/service tokens are opaque, scoped,
   revocable, hashed at rest, and shown once.
 - UI sessions use secure HttpOnly SameSite cookies and CSRF protection.
-- TOTP secrets are encrypted; backup codes are individually hashed.
-- Admin bypass and NPM family `manage/view/hidden` plus `visibility=all/user` are preserved.
+- TOTP secrets are encrypted; backup codes are individually hashed and one-use.
+- Roles, permissions, role grants, direct grants/denials, and ACL membership are normalized rows.
 - Access-list policy is data-plane authorization and remains distinct from operator RBAC.
-- Secret, token, credential, and private-key values are always redacted from audit records.
-- Advanced Nginx configuration requires an explicit privileged capability and audit event.
+- Secret, token, credential, and private-key values are redacted from compatibility metadata and
+  audit records.
 
 ## Container topology
 
-One immutable OCI image contains the Python application, built UI assets, Nginx, ACME tools,
-and a minimal signal-forwarding supervisor. It exposes `80`, `443`, and compatibility
-admin port `81`; state and certificate material use separate durable mounts. The release
-publishes amd64/arm64 images, Compose examples for every persistence mode, SBOM, provenance,
-vulnerability results, and signatures to GHCR and Docker Hub.
+One immutable OCI image contains the Python application, UIX assets, Nginx, ACME tools, and a
+minimal signal-forwarding supervisor. It exposes `80`, `443`, and compatibility admin port `81`;
+database state and certificate material use separate durable mounts. Releases target amd64/arm64
+and include Compose profiles, SBOM, provenance, vulnerability results, and signatures.

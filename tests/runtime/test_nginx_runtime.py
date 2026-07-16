@@ -97,9 +97,7 @@ def test_proxy_render_combines_multiple_access_lists_into_host_policy() -> None:
         access_list_ids=[9, 8],
     )
 
-    rendered = NginxRenderer().render(
-        proxy_hosts=[host], access_lists=[second, first]
-    )
+    rendered = NginxRenderer().render(proxy_hosts=[host], access_lists=[second, first])
     config = rendered.files["http/proxy-2.conf"]
 
     assert "auth_basic_user_file /data/access/proxy-host-2" in config

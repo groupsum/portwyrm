@@ -7,10 +7,11 @@ services:
         condition: service_healthy
     environment:
       PORTWYRM_DB_BACKEND: mysql
-      PORTWYRM_MYSQL_HOST: mysql
-      PORTWYRM_MYSQL_DATABASE: portwyrm
-      PORTWYRM_MYSQL_USER: portwyrm
-      PORTWYRM_MYSQL_PASSWORD: ${PORTWYRM_MYSQL_PASSWORD:?set PORTWYRM_MYSQL_PASSWORD}
+      PORTWYRM_DATABASE_HOST: mysql
+      PORTWYRM_DATABASE_PORT: 3306
+      PORTWYRM_DATABASE_NAME: portwyrm
+      PORTWYRM_DATABASE_USER: portwyrm
+      PORTWYRM_DATABASE_PASSWORD: ${PORTWYRM_MYSQL_PASSWORD:?set PORTWYRM_MYSQL_PASSWORD}
     ports:
       - "80:80"
       - "81:81"

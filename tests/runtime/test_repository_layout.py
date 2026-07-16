@@ -11,15 +11,14 @@ CAPABILITY_PACKAGES = (
     "api",
     "api.compat",
     "api.native",
-    "application",
     "certificates",
     "cli",
+    "config",
     "domain",
     "identity",
     "migration",
-    "operations",
-    "persistence",
     "runtime",
+    "tables",
     "uix",
 )
 
@@ -35,6 +34,8 @@ def test_capability_packages_are_explicit_and_importable() -> None:
 def test_legacy_root_modules_and_ui_collision_are_absent() -> None:
     for relative_path in ("service.py", "persistent.py", "mfa.py", "ui.py", "ui"):
         assert not (PACKAGE_ROOT / relative_path).exists(), relative_path
+    for removed_package in ("application", "operations", "persistence"):
+        assert not (PACKAGE_ROOT / removed_package).exists(), removed_package
 
 
 def test_uix_assets_are_owned_and_packaged_by_uix() -> None:

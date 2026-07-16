@@ -11,6 +11,7 @@ from .acme import (
 )
 from .manager import (
     CertbotIssuer,
+    CertificateConflict,
     CertificateManager,
     CertificateMaterialStore,
     CertificateRequest,
@@ -18,12 +19,14 @@ from .manager import (
 )
 from .pem import CertificateInfo, CustomCertificateBundle, OpenSSLPEMValidator, PEMValidationError
 from .providers import DEFAULT_PROVIDER_CATALOG, DNSProvider, DNSProviderCatalog
+from .table_manager import TableCertificateManager
 
 __all__ = [
     "DEFAULT_PROVIDER_CATALOG",
     "ACMEClient",
     "ACMEOrder",
     "CertbotIssuer",
+    "CertificateConflict",
     "CertificateInfo",
     "CertificateLifecycle",
     "CertificateManager",
@@ -39,4 +42,5 @@ __all__ = [
     "Issuer",
     "OpenSSLPEMValidator",
     "PEMValidationError",
+    "TableCertificateManager",
 ]

@@ -9,11 +9,12 @@ partial MVP completion.
 
 ## Status
 
-The frozen S0-S5 runtime scope is implemented on the release-candidate branch: composed Python
+The frozen S0-S5 runtime scope is under active implementation on `master`: composed Python
 CLI/API/UIX, deterministic Nginx protocols, durable identity and MFA, certificate lifecycle,
-portable stores, NPM migration, and npmctl-compatible plan/apply/drift/audit behavior. External
-ACME, multi-architecture publication, and formal SSOT certification remain fail-closed release
-gates; implementation does not imply a published `1.0.0`.
+portable state, NPM migration, and npmctl-compatible plan/apply/drift/audit behavior have executable
+coverage. External ACME, live PostgreSQL/MySQL restart conformance, multi-architecture publication,
+and formal SSOT certification remain fail-closed release gates; implementation does not imply a
+published `1.0.0`.
 
 ## Development
 
@@ -55,7 +56,9 @@ build, install, deploy, or operate Portwyrm.
 - Preserve IDs and npmctl owner metadata during import and round trips.
 - Compile deterministic Nginx generations, validate them, activate atomically, and retain a
   last-known-good rollback target.
-- Support memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid persistence
+- Use Tigrbl engines for memory, SQLite, and PostgreSQL metadata. MySQL/MariaDB requires the
+  separately published synchronous `tigrbl_engine_mysql` plugin; filesystem/object
+  storage holds certificate and immutable generated-config artifacts
   with explicit consistency and high-availability boundaries.
 
 ## Deliberate boundaries

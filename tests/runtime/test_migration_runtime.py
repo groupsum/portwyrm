@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
+import json
 import sqlite3
 from pathlib import Path
 
 import bcrypt
+from tigrbl import TigrblApp
+from tigrbl.factories.engine import sqlitef
 
-from portwyrm.migration import import_npm, preflight_npm, preflight_npm_sqlite
-from portwyrm.persistence import MemoryRepository
+from portwyrm.api.compat.resources import TableResources
+from portwyrm.migration import preflight_npm, preflight_npm_sqlite
+from portwyrm.tables import PORTWYRM_TABLES
 
 
 def test_npm_preflight_preserves_ids_metadata_and_quarantines_invalid_references() -> None:
@@ -31,19 +37,6 @@ def test_npm_preflight_preserves_ids_metadata_and_quarantines_invalid_references
     proxy = report.records["proxy_hosts"][0]
     assert proxy["id"] == 7
     assert proxy["meta"]["managed_by"] == "npmctl"
-
-    target = MemoryRepository()
-    preview = import_npm(target, report)
-    assert preview.created == 3
-    assert preview.dry_run is True
-    with target.transaction() as tx:
-        assert tx.collections() == ()
-
-    result = import_npm(target, report, dry_run=False)
-    assert result.created == 3
-    with target.transaction() as tx:
-        assert tx.get("proxy_hosts", 7)["meta"]["resource_id"] == "proxy.app"
-        assert tx.get("certificates", 161)["id"] == 161
 
 
 def test_read_only_sqlite_preflight(tmp_path: Path) -> None:
@@ -82,3 +75,78 @@ def test_npm_related_identity_and_access_list_tables_are_assembled() -> None:
     assert report.records["users"][0]["permissions"]["proxy_hosts"] == "manage"
     assert report.records["access_lists"][0]["items"][0]["username"] == "alice"
     assert report.records["access_lists"][0]["clients"][0]["directive"] == "allow"
+
+
+def test_legacy_sqlite_records_upgrade_is_idempotent_and_preserves_ids(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.sqlite"
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE records (collection TEXT, resource_id TEXT, payload TEXT, "
+        "PRIMARY KEY (collection, resource_id))"
+    )
+    records = [
+        (
+            "access_lists",
+            "7",
+            {
+                "id": 7,
+                "name": "private",
+                "clients": [{"address": "10.0.0.0/8", "directive": "allow"}],
+            },
+        ),
+        (
+            "certificates",
+            "9",
+            {
+                "id": 9,
+                "nice_name": "edge",
+                "provider": "custom",
+                "domain_names": ["edge.example.test"],
+            },
+        ),
+        (
+            "proxy_hosts",
+            "12",
+            {
+                "id": 12,
+                "domain_names": ["app.example.test"],
+                "forward_scheme": "http",
+                "forward_host": "app",
+                "forward_port": 8080,
+                "access_list_id": 7,
+                "certificate_id": 9,
+            },
+        ),
+    ]
+    connection.executemany(
+        "INSERT INTO records(collection, resource_id, payload) VALUES (?, ?, ?)",
+        [
+            (collection, resource_id, json.dumps(payload))
+            for collection, resource_id, payload in records
+        ],
+    )
+    connection.commit()
+    connection.close()
+
+    async def run() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        first = await app.core.SchemaMigrationStore.apply({})
+        second = await app.core.SchemaMigrationStore.apply({})
+        assert first["applied"] is True
+        assert second["applied"] is False
+        assert second["required"] is False
+        resources = TableResources(app)
+        host = await resources.get_resource("proxy_hosts", 12)
+        assert host is not None
+        assert host["domain_names"] == ["app.example.test"]
+        assert host["forward_host"] == "app"
+        assert host["access_list_ids"] == [7]
+        certificate = await resources.get_resource("certificates", 9)
+        assert certificate is not None
+        assert certificate["domain_names"] == ["edge.example.test"]
+
+    asyncio.run(run())

@@ -1,0 +1,96 @@
+"""TOTP and one-use recovery-code primitives."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import secrets
+import struct
+import time
+
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError
+
+_BACKUP_CODE_HASHER = PasswordHasher(
+    time_cost=2, memory_cost=19_456, parallelism=1, hash_len=32, salt_len=16
+)
+
+
+def generate_totp_secret(*, bytes_count: int = 20) -> str:
+    if bytes_count < 16:
+        raise ValueError("TOTP secrets must contain at least 128 bits")
+    return base64.b32encode(secrets.token_bytes(bytes_count)).decode("ascii").rstrip("=")
+
+
+def totp_code(
+    secret: str,
+    *,
+    at: int | float | None = None,
+    period: int = 30,
+    digits: int = 6,
+) -> str:
+    if period < 1 or digits not in {6, 7, 8}:
+        raise ValueError("invalid TOTP parameters")
+    counter = int((time.time() if at is None else float(at)) // period)
+    digest = hmac.new(_decode_base32(secret), struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    binary = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFF_FFFF
+    return str(binary % (10**digits)).zfill(digits)
+
+
+def verify_totp(
+    secret: str,
+    code: str,
+    *,
+    at: int | float | None = None,
+    window: int = 1,
+    period: int = 30,
+    digits: int = 6,
+) -> bool:
+    if window < 0 or not code.isdigit() or len(code) != digits:
+        return False
+    moment = time.time() if at is None else float(at)
+    return any(
+        hmac.compare_digest(
+            totp_code(secret, at=moment + offset * period, period=period, digits=digits), code
+        )
+        for offset in range(-window, window + 1)
+    )
+
+
+def generate_backup_codes(*, count: int = 8) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if count < 1:
+        raise ValueError("backup code count must be positive")
+    codes = tuple(secrets.token_hex(5) for _ in range(count))
+    return codes, tuple(_BACKUP_CODE_HASHER.hash(code) for code in codes)
+
+
+def consume_backup_code(code: str, hashes: list[str]) -> bool:
+    for index, stored in enumerate(hashes):
+        try:
+            verified = _BACKUP_CODE_HASHER.verify(stored, code)
+        except VerificationError:
+            verified = False
+        if verified:
+            del hashes[index]
+            return True
+    return False
+
+
+def _decode_base32(secret: str) -> bytes:
+    normalized = "".join(secret.upper().split())
+    padding = "=" * ((8 - len(normalized) % 8) % 8)
+    try:
+        return base64.b32decode(normalized + padding, casefold=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ValueError("invalid base32 TOTP secret") from exc
+
+
+__all__ = [
+    "consume_backup_code",
+    "generate_backup_codes",
+    "generate_totp_secret",
+    "totp_code",
+    "verify_totp",
+]

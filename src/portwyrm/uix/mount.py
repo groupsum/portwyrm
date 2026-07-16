@@ -8,6 +8,7 @@ from tigrbl import FileResponse, RedirectResponse, TigrblApp
 def mount_uix(app: TigrblApp) -> None:
     """Mount packaged static assets and a stable console entry point."""
     root = files("portwyrm.uix").joinpath("static")
+
     @app.get("/", include_in_schema=False)
     async def root_redirect() -> RedirectResponse:
         return RedirectResponse("/ui/")

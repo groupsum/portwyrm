@@ -11,7 +11,6 @@ import secrets
 import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
-from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal, Protocol, cast
@@ -26,17 +25,19 @@ from tigrbl import (
 )
 from tigrbl_typing.status.mappings import status
 
+from portwyrm.api.compat.resources import TableResources
 from portwyrm.api.compat.transport import CompatibilityTigrblApp
+from portwyrm.api.mfa import TableMFA
 from portwyrm.api.middleware import ControlPlaneHTTPMiddleware
+from portwyrm.api.portability import TablePortability
+from portwyrm.api.security import TableIdentity
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
-    CertificateManager,
     CertificateRequest,
     ChallengeType,
     CustomCertificateBundle,
 )
-from portwyrm.migration import import_npm, preflight_npm
-from portwyrm.persistence import Repository, export_bundle, import_bundle, preview_import
+from portwyrm.migration import preflight_npm
 from portwyrm.security import Principal
 
 Resource = dict[str, Any]
@@ -50,19 +51,19 @@ async def _identity_call(function: Callable[..., Any], *args: Any, **kwargs: Any
 class CompatibilityService(Protocol):
     """Application-service port required by the compatibility facade."""
 
-    def list_resources(self, collection: str) -> list[Resource]: ...
+    async def list_resources(self, collection: str) -> list[Resource]: ...
 
-    def get_resource(self, collection: str, resource_id: int | str) -> Resource | None: ...
+    async def get_resource(self, collection: str, resource_id: int | str) -> Resource | None: ...
 
-    def create_resource(self, collection: str, payload: Resource) -> Resource: ...
+    async def create_resource(self, collection: str, payload: Resource) -> Resource: ...
 
-    def update_resource(
+    async def update_resource(
         self, collection: str, resource_id: int | str, payload: Resource
     ) -> Resource | None: ...
 
-    def delete_resource(self, collection: str, resource_id: int | str) -> bool: ...
+    async def delete_resource(self, collection: str, resource_id: int | str) -> bool: ...
 
-    def list_audit(self, since: str | None = None) -> list[Resource]: ...
+    async def list_audit(self, since: str | None = None) -> list[Resource]: ...
 
 
 class TokenService(Protocol):
@@ -108,23 +109,20 @@ TOGGLE_COLLECTIONS = {"proxy_hosts", "redirection_hosts", "dead_hosts", "streams
 
 
 def create_compat_app(
-    service: CompatibilityService,
+    service: CompatibilityService | None = None,
     *,
     tokens: TokenService | None = None,
     version: str = "0.1.0a0",
     authenticator: Any | None = None,
-    certificates: CertificateManager | None = None,
+    certificates: Any | None = None,
+    certificate_factory: Callable[[TigrblApp, CompatibilityService], Any] | None = None,
     lifespan: Any | None = None,
-    repository: Repository | None = None,
+    portability: TablePortability | None = None,
+    backend: str = "unknown",
     mfa: MFAService | None = None,
     system_status: Callable[[], Mapping[str, Any]] | None = None,
     engine: Any | None = None,
 ) -> TigrblApp:
-    if tokens is None:
-        from portwyrm.identity import LegacyTokenStore
-
-        tokens = LegacyTokenStore()
-    token_store = tokens
     app = CompatibilityTigrblApp(
         title="Portwyrm NPM compatibility API",
         version="2.10.4",
@@ -132,10 +130,15 @@ def create_compat_app(
         mount_system=False,
         engine=engine,
     )
+    service = service or TableResources(app)
+    if certificates is None and certificate_factory is not None:
+        certificates = certificate_factory(app, service)
+    portability = portability or TablePortability(cast(TableResources, service), backend)
+    token_store = tokens or TableIdentity(app)
+    mfa = mfa or TableMFA(app)
     app.state.control_plane = service
     app.state.token_store = token_store
     app.state.certificate_manager = certificates
-    app.state.repository = repository
     app.add_middleware(ControlPlaneHTTPMiddleware)
     origins = [
         item.strip() for item in os.getenv("PORTWYRM_CORS_ORIGINS", "").split(",") if item.strip()
@@ -614,9 +617,7 @@ def create_compat_app(
     @app.get("/api/v2/export")
     async def export_state(principal: Principal = Depends(principal_from_bearer)) -> Resource:
         _require_admin(principal)
-        if repository is None:
-            raise HTTPException(status_code=501, detail="state export unavailable")
-        return export_bundle(repository)
+        return await portability.export()
 
     @app.post("/api/v2/import/preview")
     async def preview_state_import(
@@ -626,9 +627,7 @@ def create_compat_app(
     ) -> Resource:
         replace = _query_bool(request, "replace")
         _require_admin(principal)
-        if repository is None:
-            raise HTTPException(status_code=501, detail="state import unavailable")
-        return preview_import(repository, payload, replace=replace)
+        return await portability.preview(payload, replace=replace)
 
     @app.post("/api/v2/import")
     async def apply_state_import(
@@ -638,9 +637,7 @@ def create_compat_app(
     ) -> Resource:
         replace = _query_bool(request, "replace")
         _require_admin(principal)
-        if repository is None:
-            raise HTTPException(status_code=501, detail="state import unavailable")
-        result = import_bundle(repository, payload, replace=replace)
+        result = await portability.import_(payload, replace=replace)
         await _reload_after_import(service)
         return result
 
@@ -663,13 +660,11 @@ def create_compat_app(
         replace = _query_bool(request, "replace")
         dry_run = _query_bool(request, "dry_run", default=True)
         _require_admin(principal)
-        if repository is None:
-            raise HTTPException(status_code=501, detail="NPM import unavailable")
         source = payload.get("source")
         if not isinstance(source, Mapping):
             raise HTTPException(status_code=422, detail="source must be an NPM table mapping")
         report = preflight_npm(source, source_kind="api")
-        result = asdict(import_npm(repository, report, dry_run=dry_run, replace=replace))
+        result = await _apply_npm_report(service, report, dry_run=dry_run, replace=replace)
         if not dry_run:
             await _reload_after_import(service)
         return result
@@ -712,8 +707,10 @@ def create_compat_app(
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="create")
         manager = _require_certificate_manager(certificates)
-        return manager.upload(
-            _certificate_bundle(payload), nice_name=str(payload.get("nice_name", ""))
+        return await _identity_call(
+            manager.upload,
+            _certificate_bundle(payload),
+            nice_name=str(payload.get("nice_name", "")),
         )
 
     @app.post("/api/nginx/certificates/{certificate_id}/upload")
@@ -724,7 +721,8 @@ def create_compat_app(
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="update")
         manager = _require_certificate_manager(certificates)
-        return manager.upload(
+        return await _identity_call(
+            manager.upload,
             _certificate_bundle(payload),
             nice_name=str(payload.get("nice_name", "")),
             certificate_id=certificate_id,
@@ -764,10 +762,12 @@ def create_compat_app(
                         for key, value in normalized_credentials.items():
                             handle.write(f"{key} = {value}\n")
                     os.chmod(name, 0o600)
-                    return manager.request(request, credentials_file=Path(name))
+                    return await _identity_call(
+                        manager.request, request, credentials_file=Path(name)
+                    )
                 finally:
                     Path(name).unlink(missing_ok=True)
-            return manager.request(request)
+            return await _identity_call(manager.request, request)
         except (RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -779,7 +779,11 @@ def create_compat_app(
     ) -> Resource:
         force = _query_bool(request, "force")
         _authorize(principal, "certificates", admin_only=False, action="update")
-        return _require_certificate_manager(certificates).renew(certificate_id, force=force)
+        return await _identity_call(
+            _require_certificate_manager(certificates).renew,
+            certificate_id,
+            force=force,
+        )
 
     @app.get("/api/nginx/certificates/{certificate_id}/download")
     async def download_certificate(
@@ -788,7 +792,9 @@ def create_compat_app(
     ) -> Response:
         _authorize(principal, "certificates", admin_only=False, action="read")
         try:
-            content = _require_certificate_manager(certificates).download(certificate_id)
+            content = await _identity_call(
+                _require_certificate_manager(certificates).download, certificate_id
+            )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return Response(
@@ -812,7 +818,7 @@ def create_compat_app(
             if not deleted:
                 raise HTTPException(status_code=404, detail="resource not found")
             return True
-        certificates.delete(certificate_id)
+        await _identity_call(certificates.delete, certificate_id)
         return True
 
     _register_resource_routes(app, service, principal_from_bearer)
@@ -1144,7 +1150,7 @@ def _valid_resource(resource: Mapping[str, Any], collection: str) -> Resource:
     return item
 
 
-def _require_certificate_manager(value: CertificateManager | None) -> CertificateManager:
+def _require_certificate_manager(value: Any | None) -> Any:
     if value is None:
         raise HTTPException(status_code=501, detail="certificate management unavailable")
     return value
@@ -1365,6 +1371,44 @@ async def _service_audit(service: CompatibilityService, since: str | None) -> li
     if method := getattr(service, "list_audit", None):
         return await _maybe_await(method(since))
     return await _call_service(cast(Any, service).audit_since, since)
+
+
+async def _apply_npm_report(
+    service: CompatibilityService,
+    report: Any,
+    *,
+    dry_run: bool,
+    replace: bool,
+) -> Resource:
+    created = replaced = unchanged = conflicts = 0
+    unsupported = {"_credentials", "audit_log"}
+    for collection, records in report.records.items():
+        if collection in unsupported:
+            conflicts += len(records)
+            continue
+        for resource in records:
+            existing = await _maybe_await(service.get_resource(collection, resource["id"]))
+            if existing == resource:
+                unchanged += 1
+            elif existing is not None and not replace:
+                conflicts += 1
+            else:
+                created += existing is None
+                replaced += existing is not None
+                if not dry_run:
+                    if existing is None:
+                        await _maybe_await(service.create_resource(collection, resource))
+                    else:
+                        await _maybe_await(
+                            service.update_resource(collection, resource["id"], resource)
+                        )
+    return {
+        "created": created,
+        "replaced": replaced,
+        "unchanged": unchanged,
+        "quarantined": len(report.quarantine) + conflicts,
+        "dry_run": dry_run,
+    }
 
 
 async def _call_service[T](method: Any, *args: Any, **kwargs: Any) -> T:

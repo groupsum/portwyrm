@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from portwyrm.api import create_app
-from portwyrm.application import ControlPlane
-from portwyrm.operations import LogRotator
-from portwyrm.runtime.coordinator import RuntimeCoordinator
+from portwyrm.api.compat.resources import TableResources
+from portwyrm.config import PortwyrmSettings
+from portwyrm.runtime.logs import LogRotator
 
 
-def seed_demo_proxy_host(control_plane: ControlPlane) -> None:
+async def seed_demo_proxy_host(resources: TableResources) -> None:
     """Create or repair the opt-in, DNS-free local Docker demonstration route."""
     domain = os.getenv("PORTWYRM_DEMO_HOST", "").strip().lower()
     if not domain:
@@ -42,15 +44,26 @@ def seed_demo_proxy_host(control_plane: ControlPlane) -> None:
     existing = next(
         (
             row
-            for row in control_plane.list("proxy-hosts")
+            for row in await resources.list_resources("proxy_hosts")
             if row.get("meta", {}).get("managed_by") == "portwyrm-demo"
         ),
         None,
     )
     if existing is None:
-        control_plane.create("proxy-hosts", payload)
+        await resources.create_resource("proxy_hosts", payload)
     else:
-        control_plane.update("proxy-hosts", existing["id"], payload)
+        await resources.update_resource("proxy_hosts", existing["id"], payload)
+
+
+async def prepare_runtime() -> None:
+    """Create the initial immutable generation before Nginx starts."""
+
+    settings = PortwyrmSettings.from_environment()
+    app = create_app(settings=replace(settings, nginx_reload=False))
+    resources = app.state.control_plane
+    await seed_demo_proxy_host(resources)
+    if app.state.runtime is not None:
+        await app.state.runtime.reconcile()
 
 
 def main() -> int:
@@ -62,13 +75,7 @@ def main() -> int:
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    app = create_app()
-    control_plane = app.state.control_plane
-    seed_demo_proxy_host(control_plane)
-    runtime = app.state.runtime or RuntimeCoordinator(
-        control_plane, "/data/nginx", validate=True, reload=False
-    )
-    runtime.reconcile()
+    asyncio.run(prepare_runtime())
 
     children = [
         subprocess.Popen(

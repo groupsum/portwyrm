@@ -9,8 +9,6 @@ from typing import Any
 
 from tigrbl import JSONResponse, Middleware, Request
 
-from portwyrm.application import ControlPlaneError
-
 ASGIReceive = Callable[[], Awaitable[dict[str, Any]]]
 ASGISend = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -42,9 +40,9 @@ class ControlPlaneHTTPMiddleware(Middleware):
                 or not header_csrf
                 or not hmac.compare_digest(cookie_csrf, header_csrf)
             ):
-                await JSONResponse(
-                    {"detail": "CSRF validation failed"}, status_code=403
-                )(scope, receive, send)
+                await JSONResponse({"detail": "CSRF validation failed"}, status_code=403)(
+                    scope, receive, send
+                )
                 return
 
         async def secured_send(message: dict[str, Any]) -> None:
@@ -56,9 +54,7 @@ class ControlPlaneHTTPMiddleware(Middleware):
                         continue
                     for cookie in value.split(b", portwyrm_"):
                         normalized = (
-                            cookie
-                            if cookie.startswith(b"portwyrm_")
-                            else b"portwyrm_" + cookie
+                            cookie if cookie.startswith(b"portwyrm_") else b"portwyrm_" + cookie
                         )
                         headers.append((key, normalized))
                 headers.extend(
@@ -76,9 +72,4 @@ class ControlPlaneHTTPMiddleware(Middleware):
                 message = {**message, "headers": headers}
             await send(message)
 
-        try:
-            await self.app(scope, receive, secured_send)
-        except ControlPlaneError as exc:
-            await JSONResponse({"detail": str(exc)}, status_code=exc.status_code)(
-                scope, receive, secured_send
-            )
+        await self.app(scope, receive, secured_send)

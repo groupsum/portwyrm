@@ -4,7 +4,7 @@ from io import BytesIO
 
 import pytest
 
-from portwyrm.operations import NginxStatusClient, parse_stub_status
+from portwyrm.runtime.telemetry import NginxStatusClient, parse_stub_status
 
 STATUS = """Active connections: 12
 server accepts handled requests

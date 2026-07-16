@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import zipfile
 from datetime import UTC, datetime, timedelta
@@ -10,6 +11,7 @@ import pytest
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
     ACMEOrder,
+    CertificateConflict,
     CertificateLifecycle,
     CertificateManager,
     CertificateMaterialStore,
@@ -20,6 +22,7 @@ from portwyrm.certificates import (
     IssuedCertificate,
     OpenSSLPEMValidator,
     PEMValidationError,
+    TableCertificateManager,
 )
 
 CERTIFICATE = """-----BEGIN CERTIFICATE-----
@@ -175,10 +178,40 @@ class FakeIssuer:
         )
 
 
-def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_path: Path) -> None:
-    from portwyrm.application import ControlPlane
+class CertificateService:
+    def __init__(self) -> None:
+        self.rows = {
+            collection: {}
+            for collection in (
+                "certificates",
+                "proxy-hosts",
+                "redirection-hosts",
+                "dead-hosts",
+                "streams",
+            )
+        }
 
-    service = ControlPlane()
+    def create(self, collection, payload):
+        row = {**payload, "id": len(self.rows[collection]) + 1}
+        self.rows[collection][row["id"]] = row
+        return dict(row)
+
+    def get(self, collection, resource_id):
+        return dict(self.rows[collection][resource_id])
+
+    def list(self, collection):
+        return [dict(row) for row in self.rows[collection].values()]
+
+    def update(self, collection, resource_id, payload):
+        self.rows[collection][resource_id].update(payload)
+        return self.get(collection, resource_id)
+
+    def delete(self, collection, resource_id):
+        del self.rows[collection][resource_id]
+
+
+def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_path: Path) -> None:
+    service = CertificateService()
     manager = CertificateManager(
         service,
         CertificateMaterialStore(tmp_path / "live"),
@@ -213,9 +246,7 @@ def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_p
 
 
 def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_path: Path) -> None:
-    from portwyrm.application import Conflict, ControlPlane
-
-    service = ControlPlane()
+    service = CertificateService()
     manager = CertificateManager(
         service,
         CertificateMaterialStore(tmp_path / "live"),
@@ -234,7 +265,7 @@ def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_pa
             "certificate_id": certificate["id"],
         },
     )
-    with pytest.raises(Conflict, match="still assigned"):
+    with pytest.raises(CertificateConflict, match="still assigned"):
         manager.delete(certificate["id"])
 
 
@@ -243,3 +274,76 @@ def test_certificate_material_store_rejects_unsafe_ids(tmp_path: Path, unsafe_id
     store = CertificateMaterialStore(tmp_path / "live")
     with pytest.raises(ValueError, match="positive integer"):
         store.archive(unsafe_id)  # type: ignore[arg-type]
+
+
+def test_table_certificate_manager_persists_metadata_and_write_only_material(
+    tmp_path: Path,
+) -> None:
+    class Resources:
+        def __init__(self) -> None:
+            self.rows: dict[int, dict[str, object]] = {}
+
+        async def create_resource(self, _collection, payload):
+            row = {**payload, "id": len(self.rows) + 1}
+            self.rows[row["id"]] = row
+            return dict(row)
+
+        async def get_resource(self, _collection, resource_id):
+            return dict(self.rows[resource_id])
+
+        async def list_resources(self, _collection):
+            return list(self.rows.values()) if _collection == "certificates" else []
+
+        async def update_resource(self, _collection, resource_id, payload):
+            self.rows[resource_id].update(payload)
+            return dict(self.rows[resource_id])
+
+        async def delete_resource(self, _collection, resource_id):
+            return self.rows.pop(resource_id, None) is not None
+
+    resources = Resources()
+    manager = TableCertificateManager(
+        resources,  # type: ignore[arg-type]
+        CertificateMaterialStore(tmp_path / "live"),
+        validator=OpenSSLPEMValidator(runner=fake_openssl),
+    )
+
+    async def exercise() -> None:
+        record = await manager.upload(
+            CustomCertificateBundle(CERTIFICATE, PRIVATE_KEY, CERTIFICATE),
+            nice_name="Table-backed",
+        )
+        assert record["provider"] == "other"
+        assert "private_key" not in record
+        assert set(record["domain_names"]) == {"app.example.com", "www.example.com"}
+        archive = await manager.download(record["id"])
+        assert archive.startswith(b"PK")
+        assert PRIVATE_KEY in (tmp_path / "live" / f"npm-{record['id']}" / "privkey.pem").read_text(
+            encoding="utf-8"
+        )
+
+    asyncio.run(exercise())
+
+
+def test_table_certificate_delete_restores_material_when_metadata_delete_fails(
+    tmp_path: Path,
+) -> None:
+    class FailingResources:
+        async def list_resources(self, _collection):
+            return []
+
+        async def delete_resource(self, _collection, _resource_id):
+            raise RuntimeError("database unavailable")
+
+    store = CertificateMaterialStore(tmp_path / "live")
+    target = store._directory(1)
+    target.mkdir()
+    (target / "privkey.pem").write_text("secret", encoding="utf-8")
+    manager = TableCertificateManager(FailingResources(), store)  # type: ignore[arg-type]
+
+    async def exercise() -> None:
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            await manager.delete(1)
+
+    asyncio.run(exercise())
+    assert (target / "privkey.pem").read_text(encoding="utf-8") == "secret"

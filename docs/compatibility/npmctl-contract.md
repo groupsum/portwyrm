@@ -84,7 +84,8 @@ Verified 2026-07-15 against the current sibling `groupsum/npmctl` CLI and the lo
 | `drift` | `ok=true`, `drift_count=0` |
 | `audit-log` | Authentication, create, and applied-generation events returned |
 
-The same image also passed container restart persistence using only its `/data` volume: the
+The SQLite image also passed container restart persistence using only its `/data` volume: the
 Tigrbl-owned administrator credential and proxy host survived without bootstrap environment
-variables, and `/ui/` remained available. PostgreSQL 17 and MySQL 8.4 live transaction,
-rollback, import, and restart conformance passed against disposable local containers.
+variables, and `/ui/` remained available. PostgreSQL and MySQL restart claims remain gated on
+live disposable-container evidence for the current Tigrbl table implementation. The MySQL gate
+also requires publication and installation of `tigrbl_engine_mysql`.

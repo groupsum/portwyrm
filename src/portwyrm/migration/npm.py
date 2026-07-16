@@ -11,8 +11,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from portwyrm.persistence import Repository
-
 MIGRATION_VERSION = "portwyrm.npm-import.v1"
 
 TABLE_COLLECTIONS = {
@@ -74,15 +72,6 @@ class PreflightReport:
         if include_records:
             result["records"] = self.records
         return result
-
-
-@dataclass(frozen=True)
-class ImportResult:
-    created: int
-    replaced: int
-    unchanged: int
-    quarantined: int
-    dry_run: bool
 
 
 def _decode_row(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -253,46 +242,3 @@ def _quarantine_broken_references(report: PreflightReport) -> None:
             else:
                 accepted.append(resource)
         report.records[collection] = accepted
-
-
-def import_npm(
-    repository: Repository,
-    report: PreflightReport,
-    *,
-    dry_run: bool = True,
-    replace: bool = False,
-) -> ImportResult:
-    created = replaced = unchanged = conflicts = 0
-    with repository.transaction() as tx:
-        for collection in _ordered_collections(report.records):
-            for resource in report.records[collection]:
-                existing = tx.get(collection, resource["id"])
-                if existing == resource:
-                    unchanged += 1
-                elif existing is not None and not replace:
-                    conflicts += 1
-                else:
-                    if existing is None:
-                        created += 1
-                    else:
-                        replaced += 1
-                    if not dry_run:
-                        tx.upsert(collection, resource)
-    return ImportResult(created, replaced, unchanged, len(report.quarantine) + conflicts, dry_run)
-
-
-def _ordered_collections(records: Mapping[str, object]) -> list[str]:
-    preferred = [
-        "users",
-        "_credentials",
-        "certificates",
-        "access_lists",
-        "proxy_hosts",
-        "redirection_hosts",
-        "dead_hosts",
-        "streams",
-        "settings",
-        "audit_log",
-    ]
-    known = [name for name in preferred if name in records]
-    return [*known, *sorted(set(records) - set(known))]

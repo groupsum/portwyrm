@@ -7,8 +7,9 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from tigrbl import HTTPException, Request, Response, TigrblApp, TigrblRouter
-from tigrbl.factories.app import defineAppSpec
+from tigrbl import HTTPException, Request, Response
+from tigrbl.factories.app import deriveApp
+from tigrbl.factories.router import deriveRouter
 
 
 async def _resolve_dependency(dependency: Callable[..., Any], request: Request) -> Any:
@@ -139,29 +140,27 @@ class _CompatibilityRouteMixin:
         return decorator
 
 
-class CompatibilityTigrblRouter(_CompatibilityRouteMixin, TigrblRouter):
+PortwyrmRouter = deriveRouter(name="portwyrm-router")
+
+
+class CompatibilityTigrblRouter(_CompatibilityRouteMixin, PortwyrmRouter):
     """Tigrbl router for the frozen compatibility surface."""
 
 
-class PortwyrmAppSpec(
-    defineAppSpec(
-        title="Portwyrm",
-        description="Self-hosted reverse-proxy control plane",
-        version="0.1.0a0",
-        execution_backend="auto",
-    )
-):
-    """Declarative application defaults collected by the Tigrbl kernel."""
+PortwyrmApp = deriveApp(
+    title="Portwyrm",
+    description="Self-hosted reverse-proxy control plane",
+    version="0.1.0a0",
+    execution_backend="auto",
+)
 
 
-class CompatibilityTigrblApp(_CompatibilityRouteMixin, PortwyrmAppSpec, TigrblApp):
+class CompatibilityTigrblApp(_CompatibilityRouteMixin, PortwyrmApp):
     """Tigrbl app that binds the frozen npmctl facade during migration."""
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         async def core(core_scope: dict[str, Any], core_receive: Any, core_send: Any) -> None:
-            await super(CompatibilityTigrblApp, self).__call__(
-                core_scope, core_receive, core_send
-            )
+            await super(CompatibilityTigrblApp, self).__call__(core_scope, core_receive, core_send)
 
         wrapped: Any = core
         for middleware_class, options in reversed(self._middlewares):

@@ -14,8 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from portwyrm.application import Conflict, ControlPlane, NotFound
-
 from .acme import ChallengeType, IssuedCertificate
 from .pem import CustomCertificateBundle, OpenSSLPEMValidator
 
@@ -31,6 +29,10 @@ class Issuer(Protocol):
         provider: str | None = None,
         credentials_file: Path | None = None,
     ) -> IssuedCertificate: ...
+
+
+class CertificateConflict(ValueError):
+    """Certificate metadata conflicts with an assigned routing resource."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +106,27 @@ class CertificateMaterialStore:
             return False
         shutil.rmtree(target)  # lgtm [py/path-injection]
         return True
+
+    def detach(self, certificate_id: int) -> Path | None:
+        """Atomically quarantine material so a metadata delete can be compensated."""
+
+        target = self._directory(certificate_id)
+        if not target.exists():
+            return None
+        quarantine = self._directory(
+            certificate_id, prefix=".npm-", suffix=f"-delete-{uuid.uuid4().hex}"
+        )
+        os.replace(target, quarantine)
+        return quarantine
+
+    def rollback_detach(self, certificate_id: int, quarantine: Path | None) -> None:
+        if quarantine is not None and quarantine.exists():
+            os.replace(quarantine, self._directory(certificate_id))
+
+    @staticmethod
+    def commit_detach(quarantine: Path | None) -> None:
+        if quarantine is not None and quarantine.exists():
+            shutil.rmtree(quarantine)
 
     def archive(self, certificate_id: int) -> bytes:
         target = self._directory(certificate_id)
@@ -201,7 +224,7 @@ class CertificateManager:
 
     def __init__(
         self,
-        service: ControlPlane,
+        service: Any,
         store: CertificateMaterialStore,
         *,
         validator: OpenSSLPEMValidator | None = None,
@@ -280,7 +303,7 @@ class CertificateManager:
     def renew(self, certificate_id: int, *, force: bool = False) -> dict[str, Any]:
         record = self.service.get("certificates", certificate_id)
         if record.get("provider") != "letsencrypt":
-            raise Conflict("only ACME certificates can be renewed")
+            raise CertificateConflict("only ACME certificates can be renewed")
         expires = datetime.fromisoformat(str(record["expires_on"]))
         if not force and expires > datetime.now(UTC).replace(microsecond=0):
             from .acme import CertificateLifecycle
@@ -338,10 +361,10 @@ class CertificateManager:
                 int(row.get("certificate_id") or 0) == certificate_id
                 for row in self.service.list(collection)
             ):
-                raise Conflict("certificate is still assigned to an active resource")
+                raise CertificateConflict("certificate is still assigned to an active resource")
         try:
             self.service.delete("certificates", certificate_id)
-        except NotFound:
+        except (KeyError, LookupError):
             raise
         self.store.delete(certificate_id)
 
