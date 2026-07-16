@@ -8,7 +8,6 @@ from tigrbl import HTTPException
 
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.api.security import TableIdentity
-from portwyrm.identity.models import PersonalAccessToken, Principal
 from portwyrm.tables import PORTWYRM_TABLES, PATRecord, SecurityPrincipal
 
 
@@ -35,11 +34,9 @@ class _PrincipalOps:
         }
 
 
-def test_legacy_identity_models_are_table_schema_exports() -> None:
-    assert Principal is SecurityPrincipal
-    assert PersonalAccessToken is PATRecord
-    assert Principal.__qualname__.endswith("PrincipalStore.SecurityPrincipal")
-    assert PersonalAccessToken.__qualname__.endswith("PATStore.TokenRecord")
+def test_identity_models_are_canonical_table_schemas() -> None:
+    assert SecurityPrincipal.__qualname__.endswith("PrincipalStore.SecurityPrincipal")
+    assert PATRecord.__qualname__.endswith("PATStore.TokenRecord")
     assert {table.__name__ for table in PORTWYRM_TABLES} >= {"PrincipalStore", "PATStore"}
 
 
