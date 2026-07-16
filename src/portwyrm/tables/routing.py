@@ -324,9 +324,9 @@ class RoutingHostStore(ManagedPortwyrmTable):
     hsts_subdomains = acol(Boolean, nullable=False, default=False)
     http2_enabled = acol(Boolean, nullable=False, default=False)
     trust_forwarded_proto = acol(Boolean, nullable=False, default=False)
-    websocket_enabled = acol(Boolean, nullable=False, default=True)
+    websocket_enabled = acol(Boolean, nullable=False, default=False)
     cache_enabled = acol(Boolean, nullable=False, default=False)
-    block_exploits = acol(Boolean, nullable=False, default=True)
+    block_exploits = acol(Boolean, nullable=False, default=False)
     redirect_target = acol(String(1024), nullable=True)
     redirect_scheme = acol(String(16), nullable=True)
     redirect_code = acol(Integer, nullable=True)
@@ -494,9 +494,9 @@ class RoutingHostStore(ManagedPortwyrmTable):
             "http2_enabled": bool(payload.get("http2_support", False)),
             "trust_forwarded_proto": force_ssl
             and bool(payload.get("trust_forwarded_proto", False)),
-            "websocket_enabled": bool(payload.get("allow_websocket_upgrade", True)),
+            "websocket_enabled": bool(payload.get("allow_websocket_upgrade", False)),
             "cache_enabled": bool(payload.get("caching_enabled", False)),
-            "block_exploits": bool(payload.get("block_exploits", True)),
+            "block_exploits": bool(payload.get("block_exploits", False)),
             "redirect_target": payload.get("forward_domain_name"),
             "redirect_scheme": payload.get("forward_scheme"),
             "redirect_code": payload.get("forward_http_code"),

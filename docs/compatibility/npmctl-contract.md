@@ -71,8 +71,8 @@ ownership is conflict-safe. Adoption and pruning remain explicit and owner-scope
 
 ## Authoritative-Tigrbl certification
 
-Verified 2026-07-15 against the current sibling `groupsum/npmctl` CLI and the locally built
-`portwyrm:tigrbl-authoritative` OCI image:
+Verified 2026-07-16 against the current sibling `groupsum/npmctl` CLI and a fresh local image
+built from the lifecycle-hook refactor as `portwyrm:npmctl-current`:
 
 | npmctl command | Result |
 |---|---|
@@ -83,6 +83,13 @@ Verified 2026-07-15 against the current sibling `groupsum/npmctl` CLI and the lo
 | `adopt` | Already-converged no-op, no conflicts |
 | `drift` | `ok=true`, `drift_count=0` |
 | `audit-log` | Authentication, create, and applied-generation events returned |
+
+The sibling repository's complete opt-in real-NPM suite also passed against that image:
+`9 passed`. It covers authentication/health, access-list round trips, custom certificate
+records and proxy references, complete proxy-field readback and update, strict adoption,
+foreign-owner conflict safety, cleanup, and deletion. This replay found and closed two gaps:
+post-commit Nginx failure no longer misreports an already-durable CRUD mutation as failed, and
+omitted proxy WebSocket/block-exploit flags now use NPM-compatible false defaults.
 
 The SQLite image also passed container restart persistence using only its `/data` volume: the
 Tigrbl-owned administrator credential and proxy host survived without bootstrap environment

@@ -169,6 +169,8 @@ def test_compatibility_transport_and_direct_core_share_canonical_state(tmp_path:
         assert direct["domain_names"] == created["domain_names"]
         assert direct["forward_host"] == created["forward_host"]
         assert direct["forward_port"] == created["forward_port"]
+        assert created["allow_websocket_upgrade"] is False
+        assert created["block_exploits"] is False
 
         updated = await app.core.RoutingHostStore.update(
             {"id": created["id"], "forward_port": 8181}
@@ -244,6 +246,33 @@ def test_global_hooks_redact_secrets_and_reconcile_once_per_mutation(tmp_path: P
             registration = next(event for event in events if event["action"] == "register")
             assert registration["details"]["password"] == "[redacted]"
             assert runtime.collections == ["proxy_hosts", "proxy_hosts"]
+        finally:
+            configure_lifecycle_runtime(lambda: None)
+
+    asyncio.run(run())
+
+
+def test_post_commit_reconcile_failure_does_not_fail_durable_crud(tmp_path: Path) -> None:
+    class FailingRuntime:
+        async def changed(self, _collection: str) -> None:
+            raise RuntimeError("nginx candidate rejected")
+
+    async def run() -> None:
+        configure_lifecycle_runtime(lambda: FailingRuntime())
+        try:
+            app = await _app(tmp_path / "post-commit.sqlite")
+            created = await app.core.RoutingHostStore.create(
+                {
+                    "kind": "proxy",
+                    "domain_names": ["post-commit.example.test"],
+                    "forward_scheme": "http",
+                    "forward_host": "backend",
+                    "forward_port": 8080,
+                    "target_kind": "dns",
+                }
+            )
+            persisted = await app.core.RoutingHostStore.read({"id": created["id"]})
+            assert persisted["domain_names"] == ["post-commit.example.test"]
         finally:
             configure_lifecycle_runtime(lambda: None)
 

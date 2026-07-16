@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -11,6 +12,8 @@ from portwyrm.errors import AuthorizationError, OwnershipError
 from portwyrm.identity.permissions import permission_allows
 
 from .audit import AuditEventStore
+
+logger = logging.getLogger(__name__)
 
 
 def _no_runtime() -> None:
@@ -350,7 +353,13 @@ async def reconcile_committed_change(ctx: dict[str, Any]) -> None:
         runtime = _runtime_provider()
     if runtime is not None:
         collection = _RECONCILE_COLLECTION.get(table_name, _object_type(ctx))
-        await runtime.changed(collection)
+        try:
+            await runtime.changed(collection)
+        except Exception:
+            # The kernel has already committed the resource mutation. The runtime
+            # controller persists its failed reconcile attempt, so transport must
+            # not report the durable write as rolled back.
+            logger.exception("post-commit reconciliation failed for %s", collection)
 
 
 def configure_lifecycle_runtime(provider: Callable[[], Any]) -> None:
