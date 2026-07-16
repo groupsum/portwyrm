@@ -140,8 +140,8 @@ Exact method/path inventory is in [S5]. Compatibility must be driven by recorded
 - **Access tokens:** requested PAT/service tokens are an extension. Decide whether npmctl migrates to them immediately or retains JWT login/refresh compatibility first.
 - **Persistence promise:** each deployment has one Tigrbl metadata engine. Filesystem/object storage owns certificate and generated-runtime artifacts; “hybrid” never means multiple writable metadata authorities.
 - **MySQL:** the request names SQLite/PostgreSQL, while p100 NPM parity includes MySQL/MariaDB. Dropping it must be an explicit scope exception.
-- **Raw Nginx config:** exact parity permits privileged arbitrary Nginx directives. Decide whether to preserve unrestricted admin-only behavior or add policy/sandbox modes while retaining an escape hatch.
-- **DNS providers:** catalog parity (86 definitions) is not operational proof. Decide the supported/tested provider tier versus best-effort compatibility tier.
+- **Raw Nginx config:** Portwyrm preserves the parity escape hatch for authenticated administrators only. Non-admin collection editors cannot create, replace, update, or validate non-empty `advanced_config`; accepted text remains subject to last-known-good Nginx validation and reconciliation.
+- **DNS providers:** the compatibility catalog remains frozen at 86 definitions, but each entry reports `installed`, `installed_version`, and `support_tier`. Catalog-only entries fail before Certbot execution with the required package name. Installed providers remain `installed-unqualified` until a real DNS-01 issuance test promotes them.
 - **Licensing:** upstream is MIT, but a clean replacement should still retain provenance for copied code/assets and avoid confusing product identity/trademarks. [S1][S18]
 
 ## Primary sources

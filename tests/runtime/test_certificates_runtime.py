@@ -4,6 +4,7 @@ import asyncio
 import subprocess
 import zipfile
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from portwyrm.certificates import (
     OpenSSLPEMValidator,
     PEMValidationError,
     TableCertificateManager,
+    provider_status,
 )
 
 CERTIFICATE = """-----BEGIN CERTIFICATE-----
@@ -162,6 +164,23 @@ def test_frozen_provider_catalog_has_86_unique_entries_and_validates_known_field
         DEFAULT_PROVIDER_CATALOG.validate_credentials("cloudflare", {})
     DEFAULT_PROVIDER_CATALOG.validate_credentials(
         "cloudflare", {"dns_cloudflare_api_token": "redacted"}
+    )
+
+
+def test_dns_provider_status_distinguishes_catalog_from_executable_support() -> None:
+    provider = DEFAULT_PROVIDER_CATALOG.get("cloudflare")
+
+    missing = provider_status(
+        provider,
+        distribution_version=lambda _name: (_ for _ in ()).throw(PackageNotFoundError),
+    )
+    installed = provider_status(provider, distribution_version=lambda _name: "9.9.9")
+
+    assert (missing.installed, missing.support_tier) == (False, "catalog")
+    assert (installed.installed, installed.version, installed.support_tier) == (
+        True,
+        "9.9.9",
+        "installed-unqualified",
     )
 
 

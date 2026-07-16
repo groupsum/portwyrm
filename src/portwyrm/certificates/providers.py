@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from typing import Protocol
 
 
@@ -13,6 +14,31 @@ class DNSProvider:
     name: str
     package_name: str
     credential_fields: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DNSProviderStatus:
+    installed: bool
+    version: str | None
+    support_tier: str
+
+
+def provider_status(
+    provider: DNSProvider,
+    *,
+    distribution_version=version,
+) -> DNSProviderStatus:
+    """Describe executable support without confusing catalog presence with installation."""
+
+    try:
+        installed_version = distribution_version(provider.package_name)
+    except PackageNotFoundError:
+        return DNSProviderStatus(installed=False, version=None, support_tier="catalog")
+    return DNSProviderStatus(
+        installed=True,
+        version=str(installed_version),
+        support_tier="installed-unqualified",
+    )
 
 
 class DNSProviderExecutor(Protocol):

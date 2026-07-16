@@ -75,14 +75,27 @@ def test_canonical_crud_persists_and_global_audit_is_atomic(tmp_path) -> None:
             "visibility": "all",
         }
         assert (
-            await app.core.RoutingHostStore.read(
-                {"id": host["id"]}, ctx={"principal": viewer}
-            )
+            await app.core.RoutingHostStore.read({"id": host["id"]}, ctx={"principal": viewer})
         )["id"] == host["id"]
         with pytest.raises(HTTPException, match="permission denied"):
-            await app.core.RoutingHostStore.enable(
-                {"id": host["id"]}, ctx={"principal": viewer}
+            await app.core.RoutingHostStore.enable({"id": host["id"]}, ctx={"principal": viewer})
+
+        editor = {
+            "is_admin": False,
+            "permissions": {"proxy_hosts": "manage"},
+            "visibility": "all",
+        }
+        with pytest.raises(HTTPException, match="advanced Nginx configuration requires"):
+            await app.core.RoutingHostStore.update(
+                {"id": host["id"], "advanced_config": "return 418;"},
+                ctx={"principal": editor},
             )
+        administrator = {"is_admin": True}
+        configured = await app.core.RoutingHostStore.update(
+            {"id": host["id"], "advanced_config": "client_max_body_size 32m;"},
+            ctx={"principal": administrator},
+        )
+        assert configured["advanced_config"] == "client_max_body_size 32m;"
 
         events = await app.core.AuditEventStore.list({})
         assert [(event["action"], event["actor_principal_id"]) for event in events] == [
@@ -90,6 +103,7 @@ def test_canonical_crud_persists_and_global_audit_is_atomic(tmp_path) -> None:
             ("updated", None),
             ("created", None),
             ("disabled", None),
+            ("updated", None),
         ]
 
         with pytest.raises(HTTPException, match="FOREIGN KEY constraint failed"):
@@ -191,9 +205,7 @@ def test_compatibility_transport_and_direct_core_share_canonical_state(tmp_path:
             {"id": access_list["id"], "name": "Platform operators"}
         )
         assert changed_access_list["items"] == [{"username": "operator"}]
-        assert changed_access_list["clients"] == [
-            {"address": "10.0.0.0/8", "directive": "allow"}
-        ]
+        assert changed_access_list["clients"] == [{"address": "10.0.0.0/8", "directive": "allow"}]
 
         certificate = await app.core.CertificateStore.create(
             {

@@ -48,3 +48,23 @@ instance, and verifies stable IDs, aggregate references, and npmctl ownership me
 tampering is rejected. Identities and secret-bearing filesystem material are deliberately
 excluded; this is configuration portability evidence, not the still-open encrypted full-backup
 claim.
+
+## Certificate and privileged configuration evidence
+
+The focused certificate and lifecycle suite passes 22 tests covering custom material,
+ACME orchestration and cleanup, provider credential boundaries, canonical CRUD hooks,
+global auditing, and administrator-only raw Nginx configuration. The 86-entry DNS provider
+catalog no longer implies executable support: the compatibility endpoint reports package
+installation and support tier, while DNS-01 fails before invoking Certbot when the selected
+plugin is absent.
+
+Raw host and location Nginx directives are an administrator-only parity escape hatch.
+Non-admin editors with otherwise sufficient host permissions are rejected by the global
+table hook. Administrator changes still use canonical CRUD and the post-commit reconciler;
+an invalid candidate leaves the durable desired state visible while the runtime retains its
+last-known-good generation and diagnostic attempt.
+
+Live ACME staging issuance, renewal, and DNS-01 issuance remain credentialed external tests:
+they require a controlled public domain and provider account. Simulated success, failure,
+cleanup, wildcard admission, renewal-window, and material-publication behavior is covered,
+but is not described as live issuance evidence.

@@ -134,6 +134,7 @@ async def protect_model_descriptors(ctx: dict[str, Any]) -> None:
 
     ctx["persist"] = False
 
+
 def _alias(ctx: Mapping[str, Any]) -> str:
     value = ctx.get("op") or ctx.get("alias") or ctx.get("target") or ""
     return str(getattr(value, "alias", value)).casefold()
@@ -244,6 +245,32 @@ async def enforce_authorization(ctx: dict[str, Any]) -> None:
         raise AuthorizationError("permission denied")
 
 
+def _contains_advanced_config(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(
+            (key == "advanced_config" and bool(str(item).strip()))
+            or _contains_advanced_config(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_advanced_config(item) for item in value)
+    return False
+
+
+async def enforce_raw_nginx_policy(ctx: dict[str, Any]) -> None:
+    """Reserve arbitrary Nginx directives for authenticated administrators."""
+
+    if _alias(ctx) not in {"create", "update", "replace", "validate"}:
+        return
+    if _table_name(ctx) not in {"routing_hosts", "routing_locations"}:
+        return
+    principal = ctx.get("principal") or ctx.get("actor")
+    if principal is None or _principal_value(ctx, "is_admin"):
+        return
+    if _contains_advanced_config(ctx.get("payload")):
+        raise AuthorizationError("advanced Nginx configuration requires an administrator")
+
+
 def _visible_to(result: Any, ctx: Mapping[str, Any]) -> bool:
     if _principal_value(ctx, "is_admin") or _principal_value(ctx, "visibility") == "all":
         return True
@@ -304,9 +331,7 @@ def _object_type(ctx: Mapping[str, Any]) -> str:
         return str(temp["object_type"])
     result = ctx.get("result")
     payload = ctx.get("payload")
-    kind = (
-        result.get("kind") if isinstance(result, Mapping) else getattr(result, "kind", None)
-    )
+    kind = result.get("kind") if isinstance(result, Mapping) else getattr(result, "kind", None)
     if kind is None and isinstance(payload, Mapping):
         kind = payload.get("kind")
     return {
@@ -377,6 +402,7 @@ def global_hooks() -> dict[str, dict[str, list[Callable[..., Any]]]]:
             "PRE_HANDLER": [
                 protect_model_descriptors,
                 enforce_authorization,
+                enforce_raw_nginx_policy,
                 enforce_ownership,
             ],
             "POST_HANDLER": [enforce_visibility],

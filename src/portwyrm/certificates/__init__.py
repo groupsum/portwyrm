@@ -17,7 +17,13 @@ from .manager import (
     Issuer,
 )
 from .pem import CertificateInfo, CustomCertificateBundle, OpenSSLPEMValidator, PEMValidationError
-from .providers import DEFAULT_PROVIDER_CATALOG, DNSProvider, DNSProviderCatalog
+from .providers import (
+    DEFAULT_PROVIDER_CATALOG,
+    DNSProvider,
+    DNSProviderCatalog,
+    DNSProviderStatus,
+    provider_status,
+)
 from .table_manager import TableCertificateManager
 
 __all__ = [
@@ -36,9 +42,11 @@ __all__ = [
     "CustomCertificateBundle",
     "DNSProvider",
     "DNSProviderCatalog",
+    "DNSProviderStatus",
     "IssuedCertificate",
     "Issuer",
     "OpenSSLPEMValidator",
     "PEMValidationError",
     "TableCertificateManager",
+    "provider_status",
 ]

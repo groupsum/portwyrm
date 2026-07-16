@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from .acme import ChallengeType, IssuedCertificate
 from .pem import CustomCertificateBundle, OpenSSLPEMValidator
+from .providers import DEFAULT_PROVIDER_CATALOG, provider_status
 
 
 class Issuer(Protocol):
@@ -198,6 +199,13 @@ class CertbotIssuer:
             else:
                 if not provider or credentials_file is None:
                     raise ValueError("DNS-01 requires a provider and credentials file")
+                dns_provider = DEFAULT_PROVIDER_CATALOG.get(provider)
+                status = provider_status(dns_provider)
+                if not status.installed:
+                    raise RuntimeError(
+                        f"DNS provider {provider!r} is catalogued but unavailable; "
+                        f"install {dns_provider.package_name} before requesting a certificate"
+                    )
                 command.extend(
                     [f"--dns-{provider}", f"--dns-{provider}-credentials", str(credentials_file)]
                 )

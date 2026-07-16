@@ -44,7 +44,7 @@ from portwyrm.api.security import (
     TableSecurityDependencies,
     permissions_from_scopes,
 )
-from portwyrm.certificates import DEFAULT_PROVIDER_CATALOG
+from portwyrm.certificates import DEFAULT_PROVIDER_CATALOG, provider_status
 from portwyrm.migration import preflight_npm
 from portwyrm.security import Principal
 from portwyrm.tables import CertificateStore
@@ -525,15 +525,21 @@ def create_compat_app(
         principal: Principal = Depends(principal_from_bearer),
     ) -> list[Resource]:
         _authorize(principal, "certificates", admin_only=False, action="read")
-        return [
-            {
-                "id": provider.id,
-                "name": provider.name,
-                "package_name": provider.package_name,
-                "credential_fields": list(provider.credential_fields),
-            }
-            for provider in DEFAULT_PROVIDER_CATALOG
-        ]
+        providers = []
+        for provider in DEFAULT_PROVIDER_CATALOG:
+            status = provider_status(provider)
+            providers.append(
+                {
+                    "id": provider.id,
+                    "name": provider.name,
+                    "package_name": provider.package_name,
+                    "credential_fields": list(provider.credential_fields),
+                    "installed": status.installed,
+                    "installed_version": status.version,
+                    "support_tier": status.support_tier,
+                }
+            )
+        return providers
 
     @app.post("/api/nginx/certificates/validate")
     async def validate_certificate(
@@ -549,9 +555,7 @@ def create_compat_app(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="create")
-        return await app.core.CertificateStore.upload(
-            payload, ctx={"principal": _actor(principal)}
-        )
+        return await app.core.CertificateStore.upload(payload, ctx={"principal": _actor(principal)})
 
     @app.post("/api/nginx/certificates/{certificate_id}/upload")
     async def replace_certificate(
@@ -1195,9 +1199,7 @@ async def _service_toggle(
 ) -> Resource | None:
     if method := getattr(service, "set_enabled", None):
         kwargs = {"actor": _actor(principal)} if isinstance(service, TableResources) else {}
-        return await _maybe_await(
-            method(collection, resource_id, enabled=enabled, **kwargs)
-        )
+        return await _maybe_await(method(collection, resource_id, enabled=enabled, **kwargs))
     control_plane = cast(Any, service)
     operation = control_plane.enable if enabled else control_plane.disable
     try:
