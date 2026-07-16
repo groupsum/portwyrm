@@ -13,7 +13,6 @@ from portwyrm.certificates import (
     ACMEOrder,
     CertificateConflict,
     CertificateLifecycle,
-    CertificateManager,
     CertificateMaterialStore,
     CertificateRequest,
     Challenge,
@@ -184,89 +183,92 @@ class CertificateService:
             collection: {}
             for collection in (
                 "certificates",
-                "proxy-hosts",
-                "redirection-hosts",
-                "dead-hosts",
+                "proxy_hosts",
+                "redirection_hosts",
+                "dead_hosts",
                 "streams",
             )
         }
 
-    def create(self, collection, payload):
+    async def create_resource(self, collection, payload):
         row = {**payload, "id": len(self.rows[collection]) + 1}
         self.rows[collection][row["id"]] = row
         return dict(row)
 
-    def get(self, collection, resource_id):
+    async def get_resource(self, collection, resource_id):
         return dict(self.rows[collection][resource_id])
 
-    def list(self, collection):
+    async def list_resources(self, collection):
         return [dict(row) for row in self.rows[collection].values()]
 
-    def update(self, collection, resource_id, payload):
+    async def update_resource(self, collection, resource_id, payload):
         self.rows[collection][resource_id].update(payload)
-        return self.get(collection, resource_id)
+        return dict(self.rows[collection][resource_id])
 
-    def delete(self, collection, resource_id):
-        del self.rows[collection][resource_id]
+    async def delete_resource(self, collection, resource_id):
+        return self.rows[collection].pop(resource_id, None) is not None
 
 
 def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_path: Path) -> None:
     service = CertificateService()
-    manager = CertificateManager(
+    manager = TableCertificateManager(
         service,
         CertificateMaterialStore(tmp_path / "live"),
         validator=OpenSSLPEMValidator(runner=fake_openssl),
         issuer=FakeIssuer(),
     )
-    custom = manager.upload(
-        CustomCertificateBundle(CERTIFICATE, PRIVATE_KEY, CERTIFICATE), nice_name="Custom"
-    )
-    custom_root = tmp_path / "live" / f"npm-{custom['id']}"
-    assert (custom_root / "fullchain.pem").read_text(encoding="utf-8").count(
-        "BEGIN CERTIFICATE"
-    ) == 2
-    assert "private_key" not in custom
 
-    acme = manager.request(
-        CertificateRequest(
-            "Automatic",
-            ("app.example.com",),
-            "admin@example.test",
-            ChallengeType.HTTP_01,
+    async def exercise() -> None:
+        custom = await manager.upload(
+            CustomCertificateBundle(CERTIFICATE, PRIVATE_KEY, CERTIFICATE), nice_name="Custom"
         )
-    )
-    assert acme["provider"] == "letsencrypt"
-    assert (tmp_path / "live" / f"npm-{acme['id']}" / "privkey.pem").is_file()
+        custom_root = tmp_path / "live" / f"npm-{custom['id']}"
+        assert (custom_root / "fullchain.pem").read_text(encoding="utf-8").count(
+            "BEGIN CERTIFICATE"
+        ) == 2
+        assert "private_key" not in custom
+        acme = await manager.request(
+            CertificateRequest(
+                "Automatic", ("app.example.com",), "admin@example.test", ChallengeType.HTTP_01
+            )
+        )
+        assert acme["provider"] == "letsencrypt"
+        assert (tmp_path / "live" / f"npm-{acme['id']}" / "privkey.pem").is_file()
+        archive_path = tmp_path / "certificate.zip"
+        archive_path.write_bytes(await manager.download(custom["id"]))
+        with zipfile.ZipFile(archive_path) as archive:
+            assert {"fullchain.pem", "privkey.pem"} <= set(archive.namelist())
+            assert PRIVATE_KEY in archive.read("privkey.pem").decode()
 
-    archive_path = tmp_path / "certificate.zip"
-    archive_path.write_bytes(manager.download(custom["id"]))
-    with zipfile.ZipFile(archive_path) as archive:
-        assert {"fullchain.pem", "privkey.pem"} <= set(archive.namelist())
-        assert PRIVATE_KEY in archive.read("privkey.pem").decode()
+    asyncio.run(exercise())
 
 
 def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_path: Path) -> None:
     service = CertificateService()
-    manager = CertificateManager(
+    manager = TableCertificateManager(
         service,
         CertificateMaterialStore(tmp_path / "live"),
         validator=OpenSSLPEMValidator(runner=fake_openssl),
     )
-    certificate = manager.upload(
-        CustomCertificateBundle(CERTIFICATE, PRIVATE_KEY), nice_name="Assigned"
-    )
-    service.create(
-        "proxy-hosts",
-        {
-            "domain_names": ["secure.example.com"],
-            "forward_scheme": "http",
-            "forward_host": "app",
-            "forward_port": 8080,
-            "certificate_id": certificate["id"],
-        },
-    )
-    with pytest.raises(CertificateConflict, match="still assigned"):
-        manager.delete(certificate["id"])
+
+    async def exercise() -> None:
+        certificate = await manager.upload(
+            CustomCertificateBundle(CERTIFICATE, PRIVATE_KEY), nice_name="Assigned"
+        )
+        await service.create_resource(
+            "proxy_hosts",
+            {
+                "domain_names": ["secure.example.com"],
+                "forward_scheme": "http",
+                "forward_host": "app",
+                "forward_port": 8080,
+                "certificate_id": certificate["id"],
+            },
+        )
+        with pytest.raises(CertificateConflict, match="still assigned"):
+            await manager.delete(certificate["id"])
+
+    asyncio.run(exercise())
 
 
 @pytest.mark.parametrize("unsafe_id", [0, -1, True, "../../outside"])

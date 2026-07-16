@@ -12,7 +12,6 @@ from .acme import (
 from .manager import (
     CertbotIssuer,
     CertificateConflict,
-    CertificateManager,
     CertificateMaterialStore,
     CertificateRequest,
     Issuer,
@@ -29,7 +28,6 @@ __all__ = [
     "CertificateConflict",
     "CertificateInfo",
     "CertificateLifecycle",
-    "CertificateManager",
     "CertificateMaterialStore",
     "CertificateRequest",
     "Challenge",
