@@ -195,3 +195,58 @@ def test_existing_normalized_sqlite_gets_routing_columns_and_migration_record(
     assert {"http2_enabled", "trust_forwarded_proto"} <= host_columns
     assert "certificate_id" in stream_columns
     assert migration_count == 1
+
+
+def test_partial_legacy_upgrade_skips_already_normalized_resource_ids(tmp_path: Path) -> None:
+    path = tmp_path / "partial.sqlite"
+
+    async def seed_normalized() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        resources = TableResources(app)
+        host = await resources.create_resource(
+            "proxy_hosts",
+            {
+                "domain_names": ["demo.portwyrm.localhost"],
+                "forward_scheme": "http",
+                "forward_host": "127.0.0.1",
+                "forward_port": 81,
+            },
+        )
+        assert host["id"] == 1
+
+    asyncio.run(seed_normalized())
+    payload = {
+        "id": 1,
+        "domain_names": ["demo.portwyrm.localhost"],
+        "forward_scheme": "http",
+        "forward_host": "127.0.0.1",
+        "forward_port": 81,
+    }
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE records (collection TEXT, resource_id TEXT, payload TEXT, "
+        "PRIMARY KEY (collection, resource_id))"
+    )
+    connection.execute(
+        "INSERT INTO records(collection, resource_id, payload) VALUES (?, ?, ?)",
+        ("proxy_hosts", "1", json.dumps(payload)),
+    )
+    connection.commit()
+    connection.close()
+
+    async def upgrade() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        applied = await app.core.SchemaMigrationStore.apply({})
+        assert applied["applied"] is True
+        resources = TableResources(app)
+        assert len(await resources.list_resources("proxy_hosts")) == 1
+
+    asyncio.run(upgrade())

@@ -273,6 +273,22 @@ class SchemaMigrationStore(PortwyrmTable, defineTableSpec(ops=("read", "list")))
         from .settings import SettingStore
 
         resource_id = int(payload["id"]) if str(payload.get("id", "")).isdigit() else None
+        target_table = {
+            "access_lists": AccessListStore,
+            "certificates": CertificateStore,
+            "dead_hosts": RoutingHostStore,
+            "proxy_hosts": RoutingHostStore,
+            "redirection_hosts": RoutingHostStore,
+            "settings": SettingStore,
+            "streams": StreamRouteStore,
+            "users": PrincipalStore,
+        }.get(collection)
+        if (
+            resource_id is not None
+            and target_table is not None
+            and await _await(db.get(target_table, resource_id)) is not None
+        ):
+            return
         if collection in {"proxy_hosts", "redirection_hosts", "dead_hosts"}:
             payload["kind"] = {
                 "proxy_hosts": "proxy",
