@@ -93,6 +93,7 @@ omitted proxy WebSocket/block-exploit flags now use NPM-compatible false default
 
 The SQLite image also passed container restart persistence using only its `/data` volume: the
 Tigrbl-owned administrator credential and proxy host survived without bootstrap environment
-variables, and `/ui/` remained available. PostgreSQL and MySQL restart claims remain gated on
-live disposable-container evidence for the current Tigrbl table implementation. The MySQL gate
-also requires publication and installation of `tigrbl_engine_mysql`.
+variables, and `/ui/` remained available. A live disposable PostgreSQL 17 instance separately
+proved that Tigrbl-owned identity and proxy-host state survive application reconstruction. The
+MySQL gate still requires publication and installation of `tigrbl_engine_mysql` before equivalent
+restart evidence can be produced.

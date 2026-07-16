@@ -11,6 +11,8 @@ permissions:
   packages: write
   id-token: write
   attestations: write
+  artifact-metadata: write
+  security-events: write
 
 jobs:
   databases:
@@ -54,6 +56,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -65,13 +69,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta
         with:
           images: ghcr.io/groupsum/portwyrm
           tags: |
             type=ref,event=branch
             type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha
       - uses: docker/build-push-action@v6
         id: push
@@ -88,6 +95,36 @@ jobs:
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
         run: cosign sign --yes "ghcr.io/groupsum/portwyrm@${DIGEST}"
+      - name: Attest immutable GHCR provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/groupsum/portwyrm
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  verify-published:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: sigstore/cosign-installer@v3
+      - name: Pull the public immutable image without registry credentials
+        env:
+          IMAGE: ghcr.io/groupsum/portwyrm@${{ needs.build.outputs.digest }}
+        run: docker pull "$IMAGE"
+      - name: Verify the keyless image signature
+        env:
+          IMAGE: ghcr.io/groupsum/portwyrm@${{ needs.build.outputs.digest }}
+        run: >-
+          cosign verify "$IMAGE"
+          --certificate-identity-regexp '^https://github.com/groupsum/portwyrm/.github/workflows/container.yml@refs/(heads/master|tags/v.*)$'
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - name: Verify GitHub build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ghcr.io/groupsum/portwyrm@${{ needs.build.outputs.digest }}
+        run: gh attestation verify "oci://$IMAGE" --repo groupsum/portwyrm
 
   vulnerability-scan:
     runs-on: ubuntu-latest
@@ -97,7 +134,19 @@ jobs:
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: portwyrm:scan
-          format: table
+          format: sarif
+          output: trivy-results.sarif
           exit-code: "1"
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+      - name: Retain the vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+      - name: Publish the vulnerability report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
