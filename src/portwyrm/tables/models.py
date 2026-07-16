@@ -147,7 +147,11 @@ class BrowserSession(PortwyrmTable):
         callback = ctx.get("kernel_work")
         if not callable(callback):
             raise ValueError("kernel_work callback is required")
-        result = callback(ctx["db"])
+        # The kernel's PhaseDb facade deliberately exposes commit/rollback as
+        # awaitable phase operations. Application work receives the underlying
+        # provider session while the kernel retains transaction ownership.
+        phase_db = ctx["db"]
+        result = callback(getattr(phase_db, "raw", phase_db))
         value = await result if inspect.isawaitable(result) else result
         return {"kernel_unit_of_work": True, "value": value}
 

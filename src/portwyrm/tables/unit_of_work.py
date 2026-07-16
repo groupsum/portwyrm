@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypeVar
 
 from .models import BrowserSession
@@ -37,3 +39,12 @@ class KernelUnitOfWork:
         if not isinstance(result, dict) or result.get("kernel_unit_of_work") is not True:
             raise RuntimeError("Tigrbl kernel returned an invalid unit-of-work result")
         return holder["value"]
+
+    def run_sync(self, work: Work[T]) -> T:
+        """Run from legacy synchronous call sites without bypassing the kernel."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run(work))
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="portwyrm-kernel") as pool:
+            return pool.submit(asyncio.run, self.run(work)).result()

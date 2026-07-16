@@ -15,7 +15,13 @@ from tigrbl import TigrblApp
 from portwyrm.api.compat import create_compat_app
 from portwyrm.api.dependencies import create_default_repository
 from portwyrm.api.native import create_native_router
-from portwyrm.application import KernelMFAStore, MFAStore, PersistentControlPlane
+from portwyrm.application import (
+    ApplicationServiceProxy,
+    KernelControlPlane,
+    KernelMFAStore,
+    MFAStore,
+    PersistentControlPlane,
+)
 from portwyrm.certificates import CertbotIssuer, CertificateManager, CertificateMaterialStore
 from portwyrm.identity import IdentityStoreProxy, KernelTokenStore, TokenStore
 from portwyrm.operations import HealthService, NginxStatusClient, UpgradeManager, default_upgrades
@@ -36,7 +42,7 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
     repository = repository or create_default_repository()
     UpgradeManager(repository, default_upgrades()).run()
     live_repository = RepositoryProxy(repository)
-    control_plane = PersistentControlPlane(live_repository)
+    control_plane = ApplicationServiceProxy(PersistentControlPlane(live_repository))
     certificate_root = Path(
         os.getenv("PORTWYRM_CERTIFICATE_ROOT", str(Path.cwd() / ".portwyrm" / "certificates"))
     )
@@ -57,8 +63,6 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
         root = os.getenv("PORTWYRM_NGINX_ROOT", "/data/nginx")
         runtime = RuntimeCoordinator(control_plane, root)
         control_plane.on_change = runtime.changed
-    if email and password and not control_plane.list("users"):
-        control_plane.bootstrap_admin(email, password)
 
     async def renewal_loop() -> None:
         interval = max(300, int(os.getenv("PORTWYRM_CERTIFICATE_RENEW_INTERVAL", "43200")))
@@ -143,9 +147,10 @@ def create_app(repository: Repository | None = None) -> TigrblApp:
     # and write is projected from normalized Tigrbl rows. The original adapter
     # remains available only as import provenance and is no longer on the live
     # mutation path.
-    control_plane.on_change = None
     live_repository.target = authoritative_repository
-    control_plane.reload()
+    control_plane.bind(KernelControlPlane(app))
+    if email and password and not control_plane.list("users"):
+        control_plane.bootstrap_admin(email, password)
     token_store.bind(KernelTokenStore(app))
     mfa_store.bind(KernelMFAStore(app, mfa_key))
     app.state.repository = authoritative_repository
