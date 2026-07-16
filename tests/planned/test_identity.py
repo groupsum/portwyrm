@@ -15,9 +15,7 @@ def _operations(table: type) -> set[str]:
 
 def test_identity_tables_expose_password_mfa_and_pat_lifecycles() -> None:
     assert {"register", "resolve", "update_identity"} <= _operations(PrincipalStore)
-    assert {"authenticate", "change_password", "set_password"} <= _operations(
-        CredentialStore
-    )
+    assert {"authenticate", "change_password", "set_password"} <= _operations(CredentialStore)
     assert {"begin", "confirm", "verify", "disable"} <= _operations(MFAEnrollmentStore)
     assert _operations(PATStore) == {
         "read",

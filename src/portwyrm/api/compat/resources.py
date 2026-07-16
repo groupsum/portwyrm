@@ -77,9 +77,7 @@ class TableResources:
 
     async def list_resources(self, collection: str) -> list[Resource]:
         if collection in _HOST_KIND:
-            return await self.app.core.RoutingHostStore.list(
-                {"kind": _HOST_KIND[collection]}
-            )
+            return await self.app.core.RoutingHostStore.list({"kind": _HOST_KIND[collection]})
         if collection in {"access_lists", "certificates"}:
             return await getattr(self.app.core, self._table_name(collection)).list({})
         else:

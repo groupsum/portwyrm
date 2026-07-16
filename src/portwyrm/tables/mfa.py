@@ -66,9 +66,7 @@ class MFAEnrollmentStore(PortwyrmTable):
         )
         ctx["db"].add(row)
         for digest in hashes:
-            ctx["db"].add(
-                MFARecoveryCodeStore(principal_id=principal_id, code_digest=digest)
-            )
+            ctx["db"].add(MFARecoveryCodeStore(principal_id=principal_id, code_digest=digest))
         return {"secret": secret, "backup_codes": list(codes)}
 
     @op_ctx(alias="enabled", target="custom", arity="collection")
@@ -138,9 +136,7 @@ class MFAEnrollmentStore(PortwyrmTable):
         )
         codes, hashes = generate_backup_codes()
         for digest in hashes:
-            ctx["db"].add(
-                MFARecoveryCodeStore(principal_id=row.principal_id, code_digest=digest)
-            )
+            ctx["db"].add(MFARecoveryCodeStore(principal_id=row.principal_id, code_digest=digest))
         return {"backup_codes": list(codes)}
 
     @staticmethod

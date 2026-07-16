@@ -140,9 +140,7 @@ class TableIdentity:
         result = await self.app.core.PATStore.revoke({"token_prefix": token_id})
         return bool(result["revoked"])
 
-    async def rotate_pat(
-        self, token_id: str, *, now: int | None = None
-    ) -> tuple[PATRecord, str]:
+    async def rotate_pat(self, token_id: str, *, now: int | None = None) -> tuple[PATRecord, str]:
         del now
         existing = await self.get_pat(token_id)
         if existing is None:
@@ -150,9 +148,7 @@ class TableIdentity:
         result = await self.app.core.PATStore.rotate({"token_prefix": token_id})
         return self._pat(result, existing.principal), str(result["token"])
 
-    async def _principal_by_id(
-        self, principal_id: int, scopes: list[str]
-    ) -> SecurityPrincipal:
+    async def _principal_by_id(self, principal_id: int, scopes: list[str]) -> SecurityPrincipal:
         payload = await self.app.core.PrincipalStore.resolve(
             {"principal_id": principal_id, "scopes": scopes}
         )

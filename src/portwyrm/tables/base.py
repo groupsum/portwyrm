@@ -72,9 +72,7 @@ MANAGED_PROFILE: Final = rest_profile(
     "create", "read", "update", "replace", "delete", "list", kind="portwyrm_managed"
 )
 READ_ONLY_PROFILE: Final = rest_profile("read", "list", kind="portwyrm_read_only")
-APPEND_ONLY_PROFILE: Final = rest_profile(
-    "create", "read", "list", kind="portwyrm_append_only"
-)
+APPEND_ONLY_PROFILE: Final = rest_profile("create", "read", "list", kind="portwyrm_append_only")
 NO_CRUD_PROFILE: Final = TableProfileSpec(
     kind="portwyrm_operations_only",
     role="concrete",

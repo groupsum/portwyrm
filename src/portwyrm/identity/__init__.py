@@ -27,6 +27,7 @@ def __getattr__(name: str) -> object:
         return PATRecord
     raise AttributeError(name)
 
+
 __all__ = [
     "PERMISSION_ACTIONS",
     "Permission",

@@ -6,9 +6,9 @@ from pathlib import Path
 
 from tigrbl.factories.engine import sqlitef
 
-from deploy.entrypoint import seed_demo_proxy_host
 from portwyrm.api import create_app
 from portwyrm.config import PortwyrmSettings
+from portwyrm.runtime.bootstrap import seed_demo_proxy_host
 from tests.support import TestClient
 
 _SHARED_CLIENT: TestClient | None = None
@@ -68,19 +68,13 @@ def test_setup_login_and_proxy_host_crud_use_composed_tigrbl_app() -> None:
     listed = client.get("/api/nginx/proxy-hosts", headers=headers)
     assert listed.status_code == 200 and listed.json()[0]["id"] == host["id"]
 
-    disabled = client.post(
-        f"/api/nginx/proxy-hosts/{host['id']}/disable", headers=headers
-    )
+    disabled = client.post(f"/api/nginx/proxy-hosts/{host['id']}/disable", headers=headers)
     assert disabled.status_code == 200
     assert bool(disabled.json()["enabled"]) is False
-    persisted_disabled = client.get(
-        f"/api/nginx/proxy-hosts/{host['id']}", headers=headers
-    )
+    persisted_disabled = client.get(f"/api/nginx/proxy-hosts/{host['id']}", headers=headers)
     assert bool(persisted_disabled.json()["enabled"]) is False
 
-    enabled = client.post(
-        f"/api/nginx/proxy-hosts/{host['id']}/enable", headers=headers
-    )
+    enabled = client.post(f"/api/nginx/proxy-hosts/{host['id']}/enable", headers=headers)
     assert enabled.status_code == 200
     assert bool(enabled.json()["enabled"]) is True
 

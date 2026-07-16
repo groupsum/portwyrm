@@ -72,9 +72,7 @@ class CredentialStore(PortwyrmTable):
             )
             credential = credential_result.scalar_one_or_none()
         digest = credential.password_hash if credential is not None else "invalid"
-        valid = await asyncio.to_thread(
-            verify_secret, digest, str(payload.get("password") or "")
-        )
+        valid = await asyncio.to_thread(verify_secret, digest, str(payload.get("password") or ""))
         if (
             principal is None
             or credential is None

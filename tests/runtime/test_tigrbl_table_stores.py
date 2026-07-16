@@ -73,9 +73,7 @@ def test_custom_schema_exports_are_owned_by_tables() -> None:
     assert ReconcileResult.__qualname__.endswith("ReconcileStore.ReconcileResult")
     assert RuntimeAccessList is not None
     assert RoutingHostStore.RuntimeHost.__qualname__.endswith("RoutingHostStore.RuntimeHost")
-    assert StreamRouteStore.RuntimeStream.__qualname__.endswith(
-        "StreamRouteStore.RuntimeStream"
-    )
+    assert StreamRouteStore.RuntimeStream.__qualname__.endswith("StreamRouteStore.RuntimeStream")
 
 
 def test_routing_tables_expose_runtime_and_validation_operations() -> None:

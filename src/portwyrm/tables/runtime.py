@@ -135,9 +135,7 @@ class GenerationStore(PortwyrmTable):
         table = cls.__table__
         row = (
             await _await(
-                ctx["db"].execute(
-                    select(cls).where(table.c.generation == rendered["generation"])
-                )
+                ctx["db"].execute(select(cls).where(table.c.generation == rendered["generation"]))
             )
         ).scalar_one_or_none()
         if row is None:
@@ -165,9 +163,7 @@ class GenerationStore(PortwyrmTable):
         payload = dict(ctx.get("payload") or {})
         generation = str(payload["generation"])
         row = (
-            await _await(
-                ctx["db"].execute(select(cls).where(cls.generation == generation))
-            )
+            await _await(ctx["db"].execute(select(cls).where(cls.generation == generation)))
         ).scalar_one_or_none()
         values = {
             "previous_generation": payload.get("previous_generation"),
@@ -227,9 +223,7 @@ class GenerationStore(PortwyrmTable):
     @classmethod
     async def _generation_files(cls, db: Any, generation: str) -> dict[str, Any]:
         row = (
-            await _await(
-                db.execute(select(cls).where(cls.__table__.c.generation == generation))
-            )
+            await _await(db.execute(select(cls).where(cls.__table__.c.generation == generation)))
         ).scalar_one_or_none()
         if row is None:
             raise ValueError(f"generation does not exist: {generation}")

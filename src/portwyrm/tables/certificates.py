@@ -119,9 +119,7 @@ class CertificateStore(ManagedPortwyrmTable):
                 for key, value in normalized.items():
                     handle.write(f"{key} = {value}\n")
             os.chmod(name, 0o600)
-            return await cls._require_workflow().request(
-                request, credentials_file=Path(name)
-            )
+            return await cls._require_workflow().request(request, credentials_file=Path(name))
         finally:
             Path(name).unlink(missing_ok=True)
 
