@@ -71,6 +71,11 @@ def test_data_tables_do_not_reserve_an_actions_header() -> None:
     for label in ("Owner", "Source", "Target", "Cert", "Access", "Status", "Updated at"):
         assert label in hosts_source
 
+    audit_source = (components / "AuditView.tsx").read_text(encoding="utf-8")
+    assert ">Summary</th>" not in audit_source
+    assert audit_source.index(">Resource</th>") < audit_source.index(">Action</th>")
+    assert "colSpan={6}" in audit_source
+
 
 def test_root_redirects_to_console() -> None:
     app = TigrblApp(mount_system=False)

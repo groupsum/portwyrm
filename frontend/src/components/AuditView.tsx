@@ -135,17 +135,16 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
             <tr>
               <th scope="col" className="px-6 py-4">Time</th>
               <th scope="col" className="px-6 py-4">Actor</th>
-              <th scope="col" className="px-6 py-4">Action</th>
               <th scope="col" className="px-6 py-4">Resource</th>
+              <th scope="col" className="px-6 py-4">Action</th>
               <th scope="col" className="px-6 py-4">Outcome</th>
-              <th scope="col" className="px-6 py-4">Summary</th>
               <th scope="col" className="px-6 py-4 text-right">Details</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
             {filteredLogs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
+                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 dark:text-zinc-500 font-semibold">
                   No immutable audit records found matching parameters.
                 </td>
               </tr>
@@ -173,14 +172,14 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
                       {log.actor}
                     </td>
 
-                    {/* Action */}
-                    <td className="px-6 py-4.5 font-extrabold text-xs text-slate-900 dark:text-zinc-100">
-                      {log.action}
-                    </td>
-
                     {/* Resource */}
                     <td className="px-6 py-4.5 font-bold font-mono text-xs text-slate-700 dark:text-zinc-300">
                       {log.resource}
+                    </td>
+
+                    {/* Action */}
+                    <td className="px-6 py-4.5 font-extrabold text-xs text-slate-900 dark:text-zinc-100">
+                      {log.action}
                     </td>
 
                     {/* Outcome */}
@@ -188,11 +187,6 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
                       <span className={`inline-block px-2.5 py-0.5 text-[10px] border font-bold rounded-md uppercase tracking-wide ${outcomeStyle}`}>
                         {log.outcome}
                       </span>
-                    </td>
-
-                    {/* Summary */}
-                    <td className="px-6 py-4.5 max-w-sm text-slate-600 dark:text-zinc-300 text-xs font-semibold">
-                      {log.summary}
                     </td>
 
                     {/* Expand payload details */}
