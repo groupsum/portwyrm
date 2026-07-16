@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import ipaddress
 import re
@@ -140,8 +141,7 @@ def _target(value: str, kind: TargetKind, name: str = "target") -> str:
             len(normalized) > 253
             or any(not label or len(label) > 63 for label in labels)
             or any(
-                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) is None
-                for label in labels
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) is None for label in labels
             )
         ):
             raise DomainValidationError(f"{name} must be a valid DNS hostname")
@@ -297,6 +297,13 @@ class RoutingHostStore(ManagedPortwyrmTable):
     @schema_ctx(alias="runtime_list", kind="out")
     class RuntimeHostList(BaseModel):
         items: list[RoutingHostStore.RuntimeHost] = Field(default_factory=list)
+
+    @schema_ctx(alias="preview", kind="out")
+    class PreviewResult(BaseModel):
+        path: str
+        config: str
+        digest: str
+        warnings: list[str] = Field(default_factory=list)
 
     kind = Column(String(32), nullable=False, index=True)
     owner_principal_id = Column(Integer, ForeignKey("principals.id"), nullable=True, index=True)
@@ -718,9 +725,56 @@ class RoutingHostStore(ManagedPortwyrmTable):
         }
 
     @op_ctx(alias="preview", target="custom", arity="member")
-    def preview(cls, ctx: Any) -> dict[str, Any]:
-        callback = getattr(getattr(getattr(ctx, "app", None), "state", None), "preview_host", None)
-        return callback(ctx) if callable(callback) else {"status": "preview-unavailable"}
+    async def preview(cls, ctx: Any) -> dict[str, Any]:
+        from portwyrm.runtime.nginx import NginxRenderer
+        from portwyrm.runtime.nginx_primitives import merge_access_lists
+        from portwyrm.tables.access import AccessListStore
+
+        host_id = int((ctx.get("payload") or {})["id"])
+        row = await _await(ctx["db"].get(cls, host_id))
+        if row is None:
+            raise ValueError("routing host not found")
+        host = cls.RuntimeHost.model_validate(await cls._runtime_projection(ctx["db"], row))
+        selected_ids = host.access_list_ids or (
+            (host.access_list_id,) if host.access_list_id else ()
+        )
+        access_rows = []
+        if selected_ids:
+            access_rows = list(
+                (
+                    await _await(
+                        ctx["db"].execute(
+                            select(AccessListStore).where(AccessListStore.id.in_(selected_ids))
+                        )
+                    )
+                ).scalars()
+            )
+        access_lists = [
+            AccessListStore._runtime_projection(
+                access_row,
+                await AccessListStore._project(ctx["db"], access_row, include_hashes=True),
+            )
+            for access_row in access_rows
+        ]
+        effective_access = merge_access_lists(access_lists)
+        password_file = f"proxy-host-{host.id}" if len(access_lists) > 1 else None
+        renderer = NginxRenderer()
+        if host.kind == HostKind.PROXY:
+            path = f"http/proxy-{host.id}.conf"
+            config = renderer.render_proxy(host, effective_access, password_file)
+        elif host.kind == HostKind.REDIRECT:
+            path = f"http/redirection-{host.id}.conf"
+            config = renderer.render_redirection(host)
+        else:
+            path = f"http/dead-{host.id}.conf"
+            config = renderer.render_dead(host)
+        missing = sorted(set(selected_ids) - {access.id for access in access_lists})
+        return {
+            "path": path,
+            "config": config,
+            "digest": hashlib.sha256(config.encode()).hexdigest(),
+            "warnings": [f"access list {item} was not found" for item in missing],
+        }
 
 
 class RoutingSourceStore(ManagedPortwyrmTable):

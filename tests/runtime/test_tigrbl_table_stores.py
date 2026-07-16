@@ -294,7 +294,16 @@ def test_generation_activation_and_clear_active_are_durable_table_ops() -> None:
 
 def test_generation_store_exposes_requested_custom_operations() -> None:
     aliases = set(GenerationStore.ops.by_alias)
-    assert {"activate", "clear_active", "validate", "reload", "reconcile"} <= aliases
+    assert {
+        "activate",
+        "clear_active",
+        "diff",
+        "reconcile",
+        "reload",
+        "render",
+        "stage",
+        "validate",
+    } <= aliases
 
 
 async def _lease_and_active_generation_invariants() -> None:

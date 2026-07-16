@@ -33,7 +33,15 @@ from .routing import (
     TargetKind,
     canonical_domains,
 )
-from .runtime import GenerationStore, LeaseStore, ReconcileResult, ReconcileStore
+from .runtime import (
+    GenerationDiffResult,
+    GenerationRenderResult,
+    GenerationStageResult,
+    GenerationStore,
+    LeaseStore,
+    ReconcileResult,
+    ReconcileStore,
+)
 from .settings import SettingStore
 from .tokens import PATIssueRequest, PATIssueResult, PATRecord, PATStore, PATVerification
 
@@ -49,6 +57,9 @@ __all__ = [
     "CredentialStore",
     "DeadHost",
     "ForwardScheme",
+    "GenerationDiffResult",
+    "GenerationRenderResult",
+    "GenerationStageResult",
     "GenerationStore",
     "HostConfigRevisionStore",
     "HostInventory",

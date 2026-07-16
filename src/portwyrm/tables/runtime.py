@@ -59,9 +59,154 @@ class GenerationStore(ManagedPortwyrmTable):
         cleared: bool
         previous_generation: str | None
 
-    @schema_ctx(alias="reconcile", kind="in")
-    class ReconcileRequest(BaseModel):
+    @schema_ctx(alias="render", kind="out")
+    class RenderResult(BaseModel):
+        generation: str
+        digest: str
         files: dict[str, str]
+
+    @schema_ctx(alias="stage", kind="out")
+    class StageResult(BaseModel):
+        generation: str
+        digest: str
+        created: bool
+        state: str = "staged"
+
+    @schema_ctx(alias="diff", kind="in")
+    class DiffRequest(BaseModel):
+        base_generation: str | None = None
+        target_generation: str | None = None
+
+    @schema_ctx(alias="diff", kind="out")
+    class DiffResult(BaseModel):
+        base_generation: str | None
+        target_generation: str
+        files: list[dict[str, str]]
+
+    @schema_ctx(alias="validate", kind="in")
+    class ValidateRequest(BaseModel):
+        generation: str
+
+    @schema_ctx(alias="validate", kind="out")
+    class ValidateResult(BaseModel):
+        generation: str
+        valid: bool
+
+    @schema_ctx(alias="reload", kind="in")
+    class ReloadRequest(BaseModel):
+        generation: str | None = None
+
+    @schema_ctx(alias="reload", kind="out")
+    class ReloadResult(BaseModel):
+        generation: str
+        reloaded: bool
+
+    @schema_ctx(alias="reconcile", kind="out")
+    class ReconcileResult(BaseModel):
+        generation: str
+        previous_generation: str | None
+        changed: bool
+        applied: bool
+        diagnostic: str | None = None
+
+    @classmethod
+    def _controller(cls) -> Any:
+        if cls._runtime_controller is None:
+            raise RuntimeError("generation runtime is not configured")
+        return cls._runtime_controller
+
+    @classmethod
+    async def _render(cls) -> dict[str, Any]:
+        rendered = await _await(cls._controller().render())
+        files = dict(rendered.files)
+        generation = cls._controller().reconciler.store.generation_id(files)
+        return {"generation": generation, "digest": rendered.digest, "files": files}
+
+    @op_ctx(alias="render", target="custom", arity="collection")
+    async def render(cls, ctx: Any) -> dict[str, Any]:
+        del ctx
+        return await cls._render()
+
+    @op_ctx(alias="stage", target="custom", arity="collection")
+    async def stage(cls, ctx: Any) -> dict[str, Any]:
+        rendered = await cls._render()
+        staged = await _await(cls._controller().stage(rendered["files"]))
+        table = cls.__table__
+        row = (
+            await _await(
+                ctx["db"].execute(
+                    select(cls).where(table.c.generation == rendered["generation"])
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = cls(
+                generation=rendered["generation"],
+                files=rendered["files"],
+                state="staged",
+                is_active=False,
+            )
+            ctx["db"].add(row)
+        elif not row.is_active:
+            row.files = rendered["files"]
+            row.state = "staged"
+        return {
+            "generation": rendered["generation"],
+            "digest": rendered["digest"],
+            "created": bool(staged["created"]),
+            "state": "active" if row.is_active else "staged",
+        }
+
+    @op_ctx(alias="diff", target="custom", arity="collection")
+    async def diff(cls, ctx: Any) -> dict[str, Any]:
+        payload = dict(ctx.get("payload") or {})
+        target_name = str(payload.get("target_generation") or "")
+        if target_name:
+            target = await cls._generation_files(ctx["db"], target_name)
+            target_files = target["files"]
+        else:
+            target = await cls._render()
+            target_name = target["generation"]
+            target_files = target["files"]
+
+        base_name = str(payload.get("base_generation") or "")
+        if base_name:
+            base_files = (await cls._generation_files(ctx["db"], base_name))["files"]
+        else:
+            active = (
+                await _await(
+                    ctx["db"].execute(
+                        select(cls).where(cls.__table__.c.is_active.is_(True)).limit(1)
+                    )
+                )
+            ).scalar_one_or_none()
+            base_name = active.generation if active is not None else ""
+            base_files = dict(active.files or {}) if active is not None else {}
+        changes = [
+            {
+                "path": path,
+                "before": str(base_files.get(path, "")),
+                "after": str(target_files.get(path, "")),
+            }
+            for path in sorted(set(base_files) | set(target_files))
+            if base_files.get(path) != target_files.get(path)
+        ]
+        return {
+            "base_generation": base_name or None,
+            "target_generation": target_name,
+            "files": changes,
+        }
+
+    @classmethod
+    async def _generation_files(cls, db: Any, generation: str) -> dict[str, Any]:
+        row = (
+            await _await(
+                db.execute(select(cls).where(cls.__table__.c.generation == generation))
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise ValueError(f"generation does not exist: {generation}")
+        return {"generation": row.generation, "files": dict(row.files or {})}
 
     @op_ctx(alias="activate", target="custom", arity="collection")
     async def activate(cls, ctx: Any) -> dict[str, Any]:
@@ -132,26 +277,25 @@ class GenerationStore(ManagedPortwyrmTable):
 
     @op_ctx(alias="validate", target="custom", arity="collection")
     async def validate(cls, ctx: Any) -> dict[str, Any]:
-        if cls._runtime_controller is None:
-            raise RuntimeError("generation validator is not configured")
-        result = cls._runtime_controller.validate(dict(ctx.get("payload") or {}))
+        result = cls._controller().validate(dict(ctx.get("payload") or {}))
         return await _await(result)
 
     @op_ctx(alias="reload", target="custom", arity="collection")
     async def reload(cls, ctx: Any) -> dict[str, Any]:
-        if cls._runtime_controller is None:
-            raise RuntimeError("generation reloader is not configured")
-        result = cls._runtime_controller.reload(dict(ctx.get("payload") or {}))
+        result = cls._controller().reload(dict(ctx.get("payload") or {}))
         return await _await(result)
 
     @op_ctx(alias="reconcile", target="custom", arity="collection")
     async def reconcile(cls, ctx: Any) -> dict[str, Any]:
-        if cls._runtime_controller is None:
-            raise RuntimeError("generation reconciler is not configured")
-        result = cls._runtime_controller.reconcile_files(
-            dict((ctx.get("payload") or {}).get("files") or {})
-        )
-        return await _await(result)
+        del ctx
+        result = await _await(cls._controller().reconcile())
+        return {
+            "generation": result.generation,
+            "previous_generation": result.previous_generation,
+            "changed": result.changed,
+            "applied": result.applied,
+            "diagnostic": result.diagnostic,
+        }
 
 
 class ReconcileStore(ManagedPortwyrmTable):
@@ -242,5 +386,16 @@ class LeaseStore(ManagedPortwyrmTable):
 
 
 ReconcileResult = ReconcileStore.ReconcileResult
+GenerationRenderResult = GenerationStore.RenderResult
+GenerationStageResult = GenerationStore.StageResult
+GenerationDiffResult = GenerationStore.DiffResult
 
-__all__ = ["GenerationStore", "LeaseStore", "ReconcileResult", "ReconcileStore"]
+__all__ = [
+    "GenerationDiffResult",
+    "GenerationRenderResult",
+    "GenerationStageResult",
+    "GenerationStore",
+    "LeaseStore",
+    "ReconcileResult",
+    "ReconcileStore",
+]

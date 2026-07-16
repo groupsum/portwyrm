@@ -102,20 +102,21 @@ def test_runtime_changes_persist_and_publish_immutable_generation(tmp_path: Path
     resources = app.state.control_plane
 
     async def exercise() -> None:
-        await resources.create_resource(
+        access_list = await resources.create_resource(
             "access_lists",
             {
                 "name": "private",
                 "items": [{"username": "operator", "password": "write-only-secret"}],
             },
         )
-        await resources.create_resource(
+        host = await resources.create_resource(
             "proxy_hosts",
             {
                 "domain_names": ["runtime.example.test"],
                 "forward_scheme": "http",
                 "forward_host": "upstream",
                 "forward_port": 8080,
+                "access_list_id": access_list["id"],
                 "enabled": 1,
             },
         )
@@ -124,6 +125,34 @@ def test_runtime_changes_persist_and_publish_immutable_generation(tmp_path: Path
         assert len(generations) >= 1
         assert sum(bool(row["is_active"]) for row in generations) == 1
         assert any(row["applied"] for row in attempts)
+
+        rendered = await app.core.GenerationStore.render({})
+        assert rendered["generation"] == app.state.runtime.active_generation
+        assert rendered["digest"].startswith(rendered["generation"])
+        assert "http/proxy-1.conf" in rendered["files"]
+
+        staged = await app.core.GenerationStore.stage({})
+        assert staged["generation"] == rendered["generation"]
+        assert staged["state"] == "active"
+        assert await app.core.GenerationStore.validate(
+            {"generation": staged["generation"]}
+        ) == {"generation": staged["generation"], "valid": True}
+
+        difference = await app.core.GenerationStore.diff({})
+        assert difference == {
+            "base_generation": rendered["generation"],
+            "target_generation": rendered["generation"],
+            "files": [],
+        }
+        preview = await app.core.RoutingHostStore.preview({"id": host["id"]})
+        assert preview["path"] == f"http/proxy-{host['id']}.conf"
+        assert "auth_basic_user_file" in preview["config"]
+        assert "write-only-secret" not in preview["config"]
+        assert "$2" not in preview["config"]
+
+        reconciled = await app.core.GenerationStore.reconcile({})
+        assert reconciled["generation"] == rendered["generation"]
+        assert reconciled["changed"] is False
 
     asyncio.run(exercise())
     active = (tmp_path / "nginx" / "ACTIVE").read_text(encoding="utf-8").strip()

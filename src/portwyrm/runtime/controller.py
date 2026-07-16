@@ -11,7 +11,7 @@ from portwyrm.api.compat.resources import TableResources
 from portwyrm.tables.access import RuntimeAccessList
 from portwyrm.tables.routing import RoutingHostStore, StreamRouteStore
 
-from .nginx import NginxRenderer
+from .nginx import NginxRenderer, RenderedConfiguration
 from .publisher import build_reconciler
 from .reconcile import ReconcileResult
 
@@ -54,24 +54,29 @@ class TableRuntimeController:
         return await self.reconcile()
 
     async def reconcile(self) -> ReconcileResult:
+        rendered = await self.render()
+        return await self.reconcile_files(dict(rendered.files))
+
+    async def render(self) -> RenderedConfiguration:
+        """Compile the canonical table state without filesystem or Nginx side effects."""
         hosts = await self.resources.app.core.RoutingHostStore.runtime_list({})
         streams = await self.resources.app.core.StreamRouteStore.runtime_list({})
         access_lists = await self.resources.app.core.AccessListStore.runtime_list({})
-        runtime_hosts = [
-            RoutingHostStore.RuntimeHost.model_validate(row) for row in hosts["items"]
-        ]
-        rendered = NginxRenderer().render(
+        runtime_hosts = [RoutingHostStore.RuntimeHost.model_validate(row) for row in hosts["items"]]
+        return NginxRenderer().render(
             proxy_hosts=[host for host in runtime_hosts if host.kind == "proxy"],
             redirection_hosts=[host for host in runtime_hosts if host.kind == "redirect"],
             dead_hosts=[host for host in runtime_hosts if host.kind == "dead"],
             streams=[
                 StreamRouteStore.RuntimeStream.model_validate(row) for row in streams["items"]
             ],
-            access_lists=[
-                RuntimeAccessList.model_validate(row) for row in access_lists["items"]
-            ],
+            access_lists=[RuntimeAccessList.model_validate(row) for row in access_lists["items"]],
         )
-        return await self.reconcile_files(rendered.files)
+
+    async def stage(self, files: dict[str, str]) -> dict[str, Any]:
+        generation = self.reconciler.store.generation_id(files)
+        _path, created = await asyncio.to_thread(self.reconciler.store.stage, generation, files)
+        return {"generation": generation, "created": created}
 
     async def reconcile_files(self, files: dict[str, str]) -> ReconcileResult:
         async with self._lock:
@@ -105,15 +110,10 @@ class TableRuntimeController:
                 )
 
     async def validate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        files = dict(payload.get("files") or {})
         generation = str(payload.get("generation") or "")
-        if files:
-            generation = self.reconciler.store.generation_id(files)
-            path, _created = await asyncio.to_thread(self.reconciler.store.stage, generation, files)
-        else:
-            path = self.reconciler.store.generations / generation
-            if not generation or not path.is_dir():
-                raise ValueError("generation or files are required")
+        path = self.reconciler.store.generations / generation
+        if not generation or not path.is_dir():
+            raise ValueError("staged generation does not exist")
         await asyncio.to_thread(self.reconciler.validator, path)
         return {"generation": generation, "valid": True}
 
