@@ -165,11 +165,11 @@ async def _principal_lifecycle() -> None:
         }
     )
     assert registered["email"] == "admin@example.com"
-    principal = await app.core.PrincipalStore.authenticate(
+    principal = await app.core.CredentialStore.authenticate(
         {"email": "ADMIN@example.com", "password": "correct horse battery staple"}
     )
     assert principal["principal_id"] == registered["id"]
-    changed = await app.core.PrincipalStore.change_password(
+    changed = await app.core.CredentialStore.change_password(
         {
             "principal_id": registered["id"],
             "old_password": "correct horse battery staple",

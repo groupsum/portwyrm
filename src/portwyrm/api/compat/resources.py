@@ -42,7 +42,7 @@ class TableResources:
 
     async def authenticate(self, identity: str, secret: str) -> Principal | None:
         try:
-            payload = await self.app.core.PrincipalStore.authenticate(
+            payload = await self.app.core.CredentialStore.authenticate(
                 {"email": identity, "password": secret}
             )
         except ValueError:
@@ -197,7 +197,7 @@ class TableResources:
     async def change_password(
         self, principal_id: int | str, old_password: str, new_password: str
     ) -> dict[str, Any]:
-        return await self.app.core.PrincipalStore.change_password(
+        return await self.app.core.CredentialStore.change_password(
             {
                 "principal_id": int(principal_id),
                 "old_password": old_password,
@@ -206,7 +206,7 @@ class TableResources:
         )
 
     async def set_password(self, principal_id: int | str, new_password: str) -> dict[str, Any]:
-        return await self.app.core.PrincipalStore.set_password(
+        return await self.app.core.CredentialStore.set_password(
             {"principal_id": int(principal_id), "new_password": new_password}
         )
 
