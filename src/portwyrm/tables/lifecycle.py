@@ -62,6 +62,8 @@ _MUTATIONS = {
     "acquire",
     "release",
 }
+_OWNERSHIP_MUTATIONS = _MUTATIONS | {"probe"}
+_AUDIT_EXCLUDED_TABLES = {"audit_events", "runtime_leases"}
 _ACTION = {
     "create": "created",
     "update": "updated",
@@ -118,6 +120,9 @@ _ACTION_BY_ALIAS = {
     "enable": "update",
     "disable": "update",
     "delete": "delete",
+    "health_read": "read",
+    "health_list": "read",
+    "probe": "update",
 }
 
 
@@ -181,7 +186,7 @@ async def enforce_ownership(ctx: dict[str, Any]) -> None:
     """Assign row ownership and reject foreign mutation at the table boundary."""
 
     alias = _alias(ctx)
-    if alias not in _MUTATIONS:
+    if alias not in _OWNERSHIP_MUTATIONS:
         return
     model = ctx.get("model")
     payload = ctx.get("payload")
@@ -287,9 +292,15 @@ def _visible_to(result: Any, ctx: Mapping[str, Any]) -> bool:
 async def enforce_visibility(ctx: dict[str, Any]) -> None:
     """Apply the same owner visibility policy to every carrier."""
 
-    if _alias(ctx) not in {"read", "list"} or ctx.get("principal") is None:
+    if (
+        _alias(ctx) not in {"read", "list", "health_read", "health_list"}
+        or ctx.get("principal") is None
+    ):
         return
     result = ctx.get("result")
+    if isinstance(result, Mapping) and isinstance(result.get("items"), list):
+        result["items"] = [item for item in result["items"] if _visible_to(item, ctx)]
+        return
     if isinstance(result, list):
         ctx["result"] = [item for item in result if _visible_to(item, ctx)]
     elif result is not None and not _visible_to(result, ctx):
@@ -348,10 +359,57 @@ async def audit_mutation(ctx: dict[str, Any]) -> None:
 
     alias = _alias(ctx)
     table_name = _table_name(ctx)
-    if alias not in _MUTATIONS or table_name == AuditEventStore.__tablename__:
-        return
     temp = ctx.setdefault("temp", {})
     if temp.get("portwyrm_audit_staged"):
+        return
+    if alias == "probe" and table_name == "routing_hosts":
+        result = ctx.get("result")
+        if hasattr(result, "model_dump"):
+            result = result.model_dump(mode="python")
+        if not isinstance(result, Mapping):
+            return
+        from portwyrm.kernel_support import select
+
+        from .health import ProxyHostHealthObservationStore
+
+        observations = list(
+            (
+                await _await(
+                    ctx["db"].execute(
+                        select(ProxyHostHealthObservationStore)
+                        .where(ProxyHostHealthObservationStore.routing_host_id == int(result["id"]))
+                        .order_by(
+                            ProxyHostHealthObservationStore.checked_at.desc(),
+                            ProxyHostHealthObservationStore.id.desc(),
+                        )
+                        .limit(2)
+                    )
+                )
+            ).scalars()
+        )
+        if len(observations) < 2:
+            return
+        current = str(observations[0].status)
+        previous = str(observations[1].status)
+        if previous not in {"online", "offline"} or current == previous:
+            return
+        temp["portwyrm_audit_staged"] = True
+        ctx["db"].add(
+            AuditEventStore(
+                actor_principal_id=_principal_id(ctx),
+                action="proxy_host.health.changed",
+                object_type="proxy_hosts",
+                object_id=str(result["id"]),
+                details={
+                    "from": previous,
+                    "to": current,
+                    "phase": result.get("phase"),
+                    "error_code": result.get("error_code"),
+                },
+            )
+        )
+        return
+    if alias not in _MUTATIONS or table_name in _AUDIT_EXCLUDED_TABLES:
         return
     temp["portwyrm_audit_staged"] = True
     ctx["db"].add(
@@ -404,6 +462,21 @@ async def remove_consumed_bootstrap_credentials(ctx: dict[str, Any]) -> None:
         logger.exception("failed to remove consumed bootstrap credential file")
 
 
+async def schedule_committed_health_probe(ctx: dict[str, Any]) -> None:
+    """Wake the scheduler after a committed proxy-host configuration change."""
+
+    if _table_name(ctx) != "routing_hosts" or _alias(ctx) not in {
+        "create",
+        "update",
+        "replace",
+        "enable",
+    }:
+        return
+    scheduler = getattr(getattr(ctx.get("app"), "state", None), "health_scheduler", None)
+    if scheduler is not None:
+        scheduler.wake()
+
+
 def configure_lifecycle_runtime(provider: Callable[[], Any]) -> None:
     """Bind the active runtime controller used by the global post-commit hook."""
 
@@ -424,7 +497,11 @@ def global_hooks() -> dict[str, dict[str, list[Callable[..., Any]]]]:
             ],
             "POST_HANDLER": [enforce_visibility],
             "PRE_COMMIT": [audit_mutation],
-            "POST_COMMIT": [reconcile_committed_change, remove_consumed_bootstrap_credentials],
+            "POST_COMMIT": [
+                reconcile_committed_change,
+                schedule_committed_health_probe,
+                remove_consumed_bootstrap_credentials,
+            ],
         }
     }
 

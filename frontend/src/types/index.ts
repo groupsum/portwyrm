@@ -1,12 +1,20 @@
 export type HostType = 'proxy' | 'redirect' | '404' | 'stream';
 
+export type AdministrativeState = 'enabled' | 'disabled';
+export type DeploymentState = 'pending' | 'applying' | 'applied' | 'failed' | 'drifted' | 'rolled_back';
+export type ReachabilityState = 'unknown' | 'probing' | 'online' | 'offline' | 'stale';
+
 export type HostStatus =
   | 'online'
+  | 'offline'
+  | 'probing'
+  | 'stale'
   | 'applying'
   | 'pending'
   | 'disabled'
   | 'degraded'
   | 'failed'
+  | 'rolled_back'
   | 'rolledback'
   | 'drifted'
   | 'unknown';
@@ -25,6 +33,14 @@ export interface Host {
   accessListIds: string[];
   accessListName: string;
   status: HostStatus;
+  administrativeState: AdministrativeState;
+  deploymentState: DeploymentState;
+  reachabilityState: ReachabilityState;
+  checkedAt: number | null;
+  latencyMs: number | null;
+  httpStatus: number | null;
+  probePhase: string | null;
+  probeError: string | null;
   created: string; // ISO String
   modified: string; // ISO String
   websocket: boolean;

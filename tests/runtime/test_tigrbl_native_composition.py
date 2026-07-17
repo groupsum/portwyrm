@@ -11,7 +11,8 @@ def test_app_and_router_are_derived_from_public_tigrbl_factories() -> None:
     assert issubclass(CompatibilityTigrblApp, PortwyrmApp)
     assert issubclass(PortwyrmApp, TigrblApp)
     assert PortwyrmRouter.__name__ == "RouterWithSpec"
-    assert len(PORTWYRM_TABLES) == 31
+    assert len(PORTWYRM_TABLES) == 32
+    assert any(table.__tablename__ == "proxy_host_health_observations" for table in PORTWYRM_TABLES)
 
 
 def test_deployment_profiles_are_tigrbl_engine_specs(tmp_path: Path) -> None:

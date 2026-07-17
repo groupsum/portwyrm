@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Host, HostType, HostStatus, Certificate, AccessList, HostConfigVersion, User } from '../types';
+import { Host, HostType, Certificate, AccessList, HostConfigVersion, User } from '../types';
 import { formatDate } from '../utils/formatting';
 import {
   Search,
@@ -30,6 +30,7 @@ import { can, hostPermissionResource } from '../utils/permissions';
 import { useFeedback } from './Feedback';
 import { generateNginxConfig } from '../utils/nginxConfig';
 import CodeBlock, { SideBySideCodeDiff } from './CodeBlock';
+import HostStatusBadges from './HostStatusBadges';
 
 interface HostsViewProps {
   hosts: Host[];
@@ -41,6 +42,7 @@ interface HostsViewProps {
   onEditHost: (host: Host) => void;
   onDeleteHost: (id: string) => void;
   onToggleHostStatus: (id: string) => void;
+  onProbeHost: (id: string) => void;
 
   // Certificates integration props
   defaultSubTab?: 'hosts' | 'certificates';
@@ -61,6 +63,7 @@ export default function HostsView({
   onEditHost,
   onDeleteHost,
   onToggleHostStatus,
+  onProbeHost,
 
   defaultSubTab = 'hosts',
   onAddCert,
@@ -365,28 +368,6 @@ ${customDirectives}
     return config;
   };
 
-  // Status Badge Component
-  const HostStatusBadge = ({ status }: { status: HostStatus }) => {
-    const config = {
-      online: { bg: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20', dot: 'bg-emerald-500', text: 'Online' },
-      applying: { bg: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20', dot: 'bg-amber-500 animate-spin', text: 'Applying' },
-      pending: { bg: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-500/20', dot: 'bg-indigo-500', text: 'Pending' },
-      disabled: { bg: 'bg-slate-500/10 text-slate-700 dark:text-zinc-400 border-slate-500/20', dot: 'bg-slate-400', text: 'Disabled' },
-      degraded: { bg: 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20', dot: 'bg-rose-500 animate-pulse', text: 'Degraded' },
-      failed: { bg: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20', dot: 'bg-red-500', text: 'Failed' },
-      rolledback: { bg: 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20', dot: 'bg-orange-500 animate-pulse', text: 'Rolled Back' },
-      drifted: { bg: 'bg-red-500/15 text-red-800 dark:text-red-400 border-red-500/30', dot: 'bg-red-500', text: 'Drifted' },
-      unknown: { bg: 'bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-500/20', dot: 'bg-gray-400', text: 'Unknown' },
-    }[status] || { bg: 'bg-gray-500/10 text-gray-700 border-gray-500/20', dot: 'bg-gray-400', text: 'Unknown' };
-
-    return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${config.bg}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`}></span>
-        <span>{config.text}</span>
-      </span>
-    );
-  };
-
   return (
     <div className="space-y-6" id="hosts-workspace-container">
 
@@ -507,11 +488,16 @@ ${customDirectives}
                 >
                   <option value="all">All States</option>
                   <option value="online">Online</option>
+                  <option value="offline">Offline</option>
+                  <option value="probing">Probing</option>
+                  <option value="stale">Stale</option>
+                  <option value="unknown">Not checked</option>
                   <option value="applying">Applying</option>
+                  <option value="pending">Pending apply</option>
                   <option value="disabled">Disabled</option>
-                  <option value="degraded">Degraded</option>
                   <option value="failed">Failed</option>
-                  <option value="rolledback">Rolled Back</option>
+                  <option value="rolled_back">Rolled Back</option>
+                  <option value="drifted">Drifted</option>
                 </select>
               </div>
 
@@ -677,7 +663,7 @@ ${customDirectives}
                               <div className="flex items-center gap-2">
                                 <button
                                   onClick={() => handleCopyDomains(host.id, host.source)}
-                                  className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                  className="text-slate-600 hover:text-slate-800 dark:text-zinc-300 dark:hover:text-zinc-100 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
                                   title="Copy all domains to clipboard"
                                 >
                                   {copiedHostId === host.id ? (
@@ -733,12 +719,12 @@ ${customDirectives}
 
                           {/* Applied Status */}
                           <td className="px-6 py-4">
-                            <HostStatusBadge status={host.status} />
+                            <HostStatusBadges host={host} />
                           </td>
 
                           {/* Mod date */}
                           <td className="px-6 py-4">
-                            <div className="flex items-center justify-between gap-3 text-xs font-semibold font-mono text-slate-400">
+                            <div className="flex items-center justify-between gap-3 text-xs font-semibold font-mono text-slate-600 dark:text-zinc-300">
                               <span>{formatDate(host.modified)}</span>
                             {(can(currentUser, hostPermissionResource(host.type), 'update') || can(currentUser, hostPermissionResource(host.type), 'delete')) && (
                               <button
@@ -811,7 +797,8 @@ ${customDirectives}
             onClose={() => setOpenActionMenuId(null)}
           >
             {actionHost && <>
-              {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onToggleHostStatus(actionHost.id); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><RefreshCw className="h-4 w-4" />{actionHost.status === 'disabled' ? 'Enable Host' : 'Disable Host'}</button>}
+              {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onToggleHostStatus(actionHost.id); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><RefreshCw className="h-4 w-4" />{actionHost.administrativeState === 'disabled' ? 'Enable Host' : 'Disable Host'}</button>}
+              {actionHost.type === 'proxy' && actionHost.administrativeState === 'enabled' && can(currentUser, 'proxy_hosts', 'update') && <button onClick={() => { setOpenActionMenuId(null); onProbeHost(actionHost.id); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><RefreshCw className="h-4 w-4" />Probe Upstream Now</button>}
               {can(currentUser, hostPermissionResource(actionHost.type), 'update') && <button onClick={() => { setOpenActionMenuId(null); onEditHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Edit3 className="h-4 w-4" />Configure & Edit</button>}
               {can(currentUser, hostPermissionResource(actionHost.type), 'create') && <button onClick={() => { setOpenActionMenuId(null); if (onDuplicateHost) onDuplicateHost(actionHost); else feedback.toast(`Unable to duplicate ${actionHost.source}.`, 'error'); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><Copy className="h-4 w-4" />Duplicate Host</button>}
               <button onClick={() => { setOpenActionMenuId(null); setInspectedConfigHost(actionHost); }} className="hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"><FileCode className="h-4 w-4" />View Applied Config</button>

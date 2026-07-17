@@ -150,6 +150,8 @@ class AccessListStore(ManagedPortwyrmTable):
     async def delete_aggregate_children(cls, ctx: dict[str, Any]) -> None:
         await cls._replace_children(ctx["db"], int(ctx["payload"]["id"]), {})
 
+    HOOKS = (prepare_aggregate, persist_aggregate, project_aggregate, delete_aggregate_children)
+
     @op_ctx(alias="runtime_list", target="custom", arity="collection")
     async def runtime_list(cls, ctx: Any) -> dict[str, Any]:
         """Return the private render projection; never mount this operation publicly."""

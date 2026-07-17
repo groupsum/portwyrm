@@ -51,6 +51,30 @@ test('login and authenticated operator surfaces pass automated WCAG checks', asy
     await page.waitForTimeout(150);
     await assertNoAxeViolations(page, route);
   }
+
+  const csrf = (await page.context().cookies()).find(cookie => cookie.name === 'portwyrm_csrf');
+  expect(csrf).toBeTruthy();
+  const created = await page.request.post('/api/nginx/proxy-hosts', {
+    headers: {'X-CSRF-Token': csrf.value},
+    data: {
+      domain_names: ['health-ui.example.test'],
+      forward_scheme: 'http',
+      forward_host: '127.0.0.1',
+      forward_port: 9,
+      target_kind: 'ip',
+      enabled: 1,
+    },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  await page.goto('/ui/#hosts');
+  await page.reload();
+  await expect(page.getByText('health-ui.example.test')).toBeVisible();
+  await expect(page.getByText('Enabled', {exact: true})).toBeVisible();
+  await expect(page.getByTitle(/Reachability: Not checked/)).toBeVisible();
+  await page.getByRole('button', {name: 'Actions for health-ui.example.test'}).click();
+  await page.getByRole('button', {name: 'Probe Upstream Now'}).click();
+  await expect(page.getByTitle(/Reachability: Offline/)).toBeVisible();
+  await assertNoAxeViolations(page, 'host health states');
 });
 
 test('login controls retain a keyboard-visible focus sequence', async ({ page }) => {

@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Context: partial configuration writes or failed reloads can take every routed service offline. Decision: render complete immutable generations, run nginx -t, atomically select the candidate, reload, verify health, and retain the last-known-good generation. Consequences: desired and applied generations are tracked separately and failures expose retry and rollback. Governs: feat:runtime.nginx-reconciliation, feat:routing.proxy-hosts, feat:routing.streams."
+summary: "Context: Nginx configuration and process health prove that a desired generation can be served, but they do not prove that an individual upstream is reachable. Decision: reconciliation SHALL continue to render, validate, atomically activate, reload, and verify the Nginx runtime; that verification SHALL NOT be interpreted as upstream reachability. Desired state, applied-generation state, and externally observed upstream health are independent dimensions. Consequences: reconciliation may succeed while an enabled host is offline, and status projections and operator diagnostics must retain both facts. Governs: feat:runtime.nginx-reconciliation, feat:routing.proxy-hosts, feat:routing.upstream-health, feat:routing.disabled-host-isolation."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,9 +17,13 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
     at: "2026-07-13T23:15:43Z"
+    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Clarified that successful reconciliation is orthogonal to per-upstream reachability."
+    at: "2026-07-17T15:19:06Z"
 references: []
 body: |-
-  Context: partial configuration writes or failed reloads can take every routed service offline. Decision: render complete immutable generations, run nginx -t, atomically select the candidate, reload, verify health, and retain the last-known-good generation. Consequences: desired and applied generations are tracked separately and failures expose retry and rollback. Governs: feat:runtime.nginx-reconciliation, feat:routing.proxy-hosts, feat:routing.streams.
+  Context: Nginx configuration and process health prove that a desired generation can be served, but they do not prove that an individual upstream is reachable. Decision: reconciliation SHALL continue to render, validate, atomically activate, reload, and verify the Nginx runtime; that verification SHALL NOT be interpreted as upstream reachability. Desired state, applied-generation state, and externally observed upstream health are independent dimensions. Consequences: reconciliation may succeed while an enabled host is offline, and status projections and operator diagnostics must retain both facts. Governs: feat:runtime.nginx-reconciliation, feat:routing.proxy-hosts, feat:routing.upstream-health, feat:routing.disabled-host-isolation.

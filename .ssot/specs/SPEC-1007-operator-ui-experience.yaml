@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements."
+summary: "The control-plane UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Proxy-host rows and details MUST not infer online from enabled. They MUST expose administrative state, deployment state, and observed reachability, support online, offline, stale, unknown, probing, and disabled filtering, show last observation and a concise diagnostic, and preserve the precedence rules in spc:1018. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,13 +17,18 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the normative T1/T2 implementation contract."
     at: "2026-07-13T23:17:21Z"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Required observed proxy-host health states, filters, diagnostics, and accessible presentation."
+    at: "2026-07-17T15:20:08Z"
 references: []
 body: |-
-  The UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements.
+  The control-plane UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Proxy-host rows and details MUST not infer online from enabled. They MUST expose administrative state, deployment state, and observed reachability, support online, offline, stale, unknown, probing, and disabled filtering, show last observation and a concise diagnostic, and preserve the precedence rules in spc:1018. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements.
 spec_kind: "normative"
 adr_ids:
   - "adr:1001"
   - "adr:1004"
+  - "adr:1015"

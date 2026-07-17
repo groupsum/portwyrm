@@ -30,6 +30,14 @@ class PortwyrmSettings:
     nginx_root: Path = Path("/data/nginx")
     nginx_validate: bool = True
     nginx_reload: bool = False
+    host_probes: bool = False
+    host_probe_interval_seconds: int = 30
+    host_probe_freshness_seconds: int = 60
+    host_probe_dns_timeout_seconds: float = 3.0
+    host_probe_connect_timeout_seconds: float = 3.0
+    host_probe_tls_timeout_seconds: float = 5.0
+    host_probe_http_timeout_seconds: float = 5.0
+    host_probe_concurrency: int = 20
 
     @classmethod
     def from_environment(cls) -> PortwyrmSettings:
@@ -58,4 +66,26 @@ class PortwyrmSettings:
             nginx_root=Path(os.getenv("PORTWYRM_NGINX_ROOT", str(root / "nginx"))),
             nginx_validate=_flag("PORTWYRM_NGINX_VALIDATE", True),
             nginx_reload=_flag("PORTWYRM_NGINX_RELOAD"),
+            host_probes=_flag("PORTWYRM_HOST_PROBES"),
+            host_probe_interval_seconds=max(
+                1, int(os.getenv("PORTWYRM_HOST_PROBE_INTERVAL_SECONDS", "30"))
+            ),
+            host_probe_freshness_seconds=max(
+                1, int(os.getenv("PORTWYRM_HOST_PROBE_FRESHNESS_SECONDS", "60"))
+            ),
+            host_probe_dns_timeout_seconds=max(
+                0.1, float(os.getenv("PORTWYRM_HOST_PROBE_DNS_TIMEOUT_SECONDS", "3"))
+            ),
+            host_probe_connect_timeout_seconds=max(
+                0.1, float(os.getenv("PORTWYRM_HOST_PROBE_CONNECT_TIMEOUT_SECONDS", "3"))
+            ),
+            host_probe_tls_timeout_seconds=max(
+                0.1, float(os.getenv("PORTWYRM_HOST_PROBE_TLS_TIMEOUT_SECONDS", "5"))
+            ),
+            host_probe_http_timeout_seconds=max(
+                0.1, float(os.getenv("PORTWYRM_HOST_PROBE_HTTP_TIMEOUT_SECONDS", "5"))
+            ),
+            host_probe_concurrency=max(
+                1, int(os.getenv("PORTWYRM_HOST_PROBE_CONCURRENCY", "20"))
+            ),
         )

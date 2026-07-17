@@ -8,6 +8,10 @@ Implementation note (2026-07-16): managed collections now execute through canoni
 Tigrbl CRUD. Host/stream toggles are update aliases with hooks, aggregate children are lifecycle
 hooks, audit/ownership are router-global hooks, and Nginx reconciliation is post-commit policy.
 Legacy `*_compat` table CRUD and the pre-Tigrbl record-store importer were removed.
+Proxy-host operational state is now split into administrative, Nginx deployment, and upstream
+reachability dimensions. A native Tigrbl probe operation persists observations, the scheduler
+invokes that same operation, and disabled hostnames retain an explicit non-proxying 503 server
+block instead of falling through to the default site.
 Verification is recorded in
 [`artifacts/tigrbl-lifecycle-refactor-2026-07-16.md`](../../artifacts/tigrbl-lifecycle-refactor-2026-07-16.md).
 
@@ -46,6 +50,8 @@ Legend: `P` = direct NPM parity; `E` = requested extension beyond NPM; `C` = com
 | PH-09 | P | Advanced config | Raw Nginx server-level configuration with syntax highlighting; if it contains a `location /` block, generated default location is suppressed. | Preserve exact text; invalid config makes host offline rather than poisoning global Nginx. | [S9][S11] |
 | PH-10 | P | SSL options | Select existing certificate or request new; force SSL, HTTP/2, HSTS, include subdomains. Proxy hosts also have `trust_forwarded_proto` when force SSL is active. Invalid combinations are normalized off. | Field dependency rules and generated redirects/listeners/headers match. | [S2][S11] |
 | PH-11 | P | Safe apply | Nginx config is tested before and after generation; invalid new config records `nginx_online=false` and error text, removes active config, retains `.err` debug artifact, and reloads only valid aggregate config. | Atomic/safe apply under syntax errors, port conflicts, missing certs, and concurrent edits; no unrelated host outage. | [S11] |
+| PH-12 | E | Upstream health | NPM exposes an online/error field but does not define Portwyrm's independent desired, applied, and observed state model. | Report administrative (`enabled`/`disabled`), deployment (`pending`/`applying`/`applied`/`failed`/`drifted`/`rolled_back`), and reachability (`unknown`/`probing`/`online`/`offline`/`stale`) independently. Persist bounded DNS/TCP/TLS/HTTP observations; direct and scheduled probes use the same leased Tigrbl operation; audit only completed health transitions. | **Portwyrm extension**; `tests/runtime/test_proxy_host_health.py`, `tests/robustness/test_proxy_host_health_t2.py`, `frontend/tests/accessibility.spec.mjs` |
+| PH-13 | E | Disabled-host isolation | NPM disablement removes active proxy behavior; Portwyrm additionally requires a deterministic response for the known hostname. | A disabled hostname retains its listeners and returns 503 without `proxy_pass`, upstream traffic, or fallback to the default Portwyrm site; semantic enable/disable aliases remain audited and re-enable restores governed proxying. | **Portwyrm extension**; `tests/runtime/test_disabled_proxy_host.py`, `tests/protocol/test_disabled_proxy_host_data_plane.py` |
 | RH-01 | P | Redirection hosts | CRUD/toggle/ownership/audit; source domains redirect to target domain using `auto` (incoming scheme), `http`, or `https`; preserve-path option. | Browser and raw HTTP tests for query/path preservation and scheme behavior. | [S2][S9] |
 | RH-02 | P | Status codes | UI offers 300, 301, 302, 303, 307, 308; schema accepts integer 300–308. | API preserves accepted codes; UI offers NPM choices; semantics contract-tested. | [S2][S11] |
 | RH-03 | P | Redirect security | Certificate/force SSL/HTTP2/HSTS/subdomains, block exploits, and raw advanced Nginx config. | Same dependency normalization and safe-apply behavior as proxy hosts. | [S2][S9] |

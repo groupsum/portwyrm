@@ -21,12 +21,13 @@ from portwyrm.api.compat.resources import TableResources
 from portwyrm.api.native import create_native_router
 from portwyrm.certificates import CertbotIssuer, CertificateMaterialStore, TableCertificateManager
 from portwyrm.config import PortwyrmSettings, engine_from_settings
-from portwyrm.runtime import TableRuntimeController
+from portwyrm.runtime import ProxyHostHealthScheduler, TableRuntimeController, UpstreamProber
 from portwyrm.runtime.telemetry import NginxStatusClient
 from portwyrm.tables import (
     PORTWYRM_TABLES,
     GenerationStore,
     MFAEnrollmentStore,
+    RoutingHostStore,
 )
 from portwyrm.tables.lifecycle import configure_lifecycle_runtime
 from portwyrm.uix import mount_uix
@@ -41,6 +42,7 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
     configured_engine = engine or engine_from_settings(settings)
     resources: TableResources | None = None
     runtime: TableRuntimeController | None = None
+    health_scheduler: ProxyHostHealthScheduler | None = None
 
     @asynccontextmanager
     async def lifespan(_app: TigrblApp):
@@ -76,7 +78,13 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
                 )
         if runtime is not None:
             await runtime.reconcile()
-        yield
+        if health_scheduler is not None:
+            health_scheduler.start()
+        try:
+            yield
+        finally:
+            if health_scheduler is not None:
+                await health_scheduler.stop()
 
     default_certificate_root = (
         Path(tempfile.mkdtemp(prefix="portwyrm-certificates-"))
@@ -119,6 +127,25 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
         )
     GenerationStore.configure_runtime(runtime)
     app.state.runtime = runtime
+    prober = UpstreamProber(
+        dns_timeout=settings.host_probe_dns_timeout_seconds,
+        connect_timeout=settings.host_probe_connect_timeout_seconds,
+        tls_timeout=settings.host_probe_tls_timeout_seconds,
+        http_timeout=settings.host_probe_http_timeout_seconds,
+    )
+    if settings.host_probes:
+        health_scheduler = ProxyHostHealthScheduler(
+            app,
+            interval_seconds=settings.host_probe_interval_seconds,
+            concurrency=settings.host_probe_concurrency,
+        )
+    app.state.health_scheduler = health_scheduler
+    RoutingHostStore.configure_health_runtime(
+        prober,
+        freshness_seconds=settings.host_probe_freshness_seconds,
+        runtime_provider=lambda: app.state.runtime,
+        app_provider=lambda: app,
+    )
     configure_lifecycle_runtime(lambda: app.state.runtime)
     app.include_router(create_native_router(resources, settings.backend))
     mount_uix(app)

@@ -1,21 +1,25 @@
 """Native setup, observability, and product endpoints."""
 
+# ruff: noqa: B008 - Tigrbl dependencies are declared in function defaults by design.
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Any
 
-from tigrbl import HTTPException, PlainTextResponse
+from tigrbl import Depends, HTTPException, PlainTextResponse
 
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.api.compat.transport import CompatibilityTigrblRouter
+from portwyrm.api.security import TableSecurityDependencies
 
 PortwyrmNativeRouter = CompatibilityTigrblRouter
 
 
 def create_native_router(resources: TableResources, backend: str) -> PortwyrmNativeRouter:
     router = PortwyrmNativeRouter()
+    principal_dependency = TableSecurityDependencies(resources.app.state.token_store).principal
 
     @router.get("/api/setup")
     async def setup_status() -> dict[str, bool]:
@@ -70,6 +74,28 @@ def create_native_router(resources: TableResources, backend: str) -> PortwyrmNat
         return PlainTextResponse(
             "\n".join(lines) + "\n",
             headers={"content-type": "text/plain; version=0.0.4; charset=utf-8"},
+        )
+
+    @router.get("/api/v2/proxy-hosts/status")
+    async def proxy_host_statuses(principal: Any = Depends(principal_dependency)) -> dict[str, Any]:
+        return await resources.app.core.RoutingHostStore.health_list(
+            {}, ctx={"principal": principal}
+        )
+
+    @router.get("/api/v2/proxy-hosts/{resource_id}/status")
+    async def proxy_host_status(
+        resource_id: int, principal: Any = Depends(principal_dependency)
+    ) -> dict[str, Any]:
+        return await resources.app.core.RoutingHostStore.health_read(
+            {"id": resource_id}, ctx={"principal": principal}
+        )
+
+    @router.post("/api/v2/proxy-hosts/{resource_id}/probe")
+    async def probe_proxy_host(
+        resource_id: int, principal: Any = Depends(principal_dependency)
+    ) -> dict[str, Any]:
+        return await resources.app.core.RoutingHostStore.probe(
+            {"id": resource_id}, ctx={"principal": principal}
         )
 
     return router

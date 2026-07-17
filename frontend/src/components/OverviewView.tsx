@@ -64,7 +64,7 @@ export default function OverviewView({
 
   // Failed / Rolled-back Applies
   hosts.forEach(host => {
-    if (host.status === 'rolledback') {
+    if (host.deploymentState === 'rolled_back' || host.deploymentState === 'failed') {
       attentionItems.push({
         id: `rolledback-${host.id}`,
         type: 'failed_apply',
@@ -74,13 +74,13 @@ export default function OverviewView({
         actionText: 'Modify & Re-Apply Config',
         onAction: () => onNavigate('hosts', `search:${host.source}`)
       });
-    } else if (host.status === 'degraded') {
+    } else if (host.reachabilityState === 'offline' || host.reachabilityState === 'stale') {
       attentionItems.push({
         id: `degraded-${host.id}`,
         type: 'degraded_host',
         severity: 'warning',
-        title: `Host Status Degraded: ${host.source}`,
-        description: host.lastError || 'Downtime detected. Upstream web service failed standard TCP diagnostic probes.',
+        title: `Upstream ${host.reachabilityState === 'offline' ? 'Offline' : 'Health Check Stale'}: ${host.source}`,
+        description: host.lastError || (host.checkedAt ? `Last checked ${formatDate(new Date(host.checkedAt * 1000).toISOString())}.` : 'This upstream has not produced a fresh health observation.'),
         actionText: 'Inspect Host Routing',
         onAction: () => onNavigate('hosts', `search:${host.source}`)
       });
@@ -125,7 +125,7 @@ export default function OverviewView({
   // Inventory Aggregates
   const stats = [
     { label: 'HTTP Reverse Proxies', count: hosts.filter(h => h.type === 'proxy').length, link: 'hosts', filter: 'proxy', icon: Globe },
-    { label: 'Active Domain Routing', count: hosts.filter(h => h.status === 'online').length, link: 'hosts', filter: 'all', icon: CheckCircle2 },
+    { label: 'Online Proxy Upstreams', count: hosts.filter(h => h.type === 'proxy' && h.reachabilityState === 'online').length, link: 'hosts', filter: 'all', icon: CheckCircle2 },
     { label: 'Active TLS Certificates', count: certificates.filter(c => c.status === 'valid').length, link: 'hosts', filter: 'certificates', icon: Clock },
     { label: 'Configured Access Policies', count: 2, link: 'access-lists', filter: '', icon: Shield },
   ];

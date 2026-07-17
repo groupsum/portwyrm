@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority."
+summary: "Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority. Successful render, validation, reload, and Nginx process health MUST NOT be represented as proof that an individual upstream is reachable; per-host reachability is governed separately by spc:1018."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,13 +17,18 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the normative T1/T2 implementation contract."
     at: "2026-07-13T23:17:16Z"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Separated Nginx reconciliation success from upstream reachability."
+    at: "2026-07-17T15:20:07Z"
 references: []
 body: |-
-  Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority.
+  Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority. Successful render, validation, reload, and Nginx process health MUST NOT be represented as proof that an individual upstream is reachable; per-host reachability is governed separately by spc:1018.
 spec_kind: "operational"
 adr_ids:
   - "adr:1001"
   - "adr:1003"
+  - "adr:1015"

@@ -8,19 +8,24 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Compatibility profiles SHALL define exact route/method capabilities, raw-array collections, token envelopes, defaults, nullability, integer/boolean coercion, unknown-field preservation, status/error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned."
+summary: "Compatibility profiles SHALL define exact route and method capabilities, raw-array collections, token envelopes, defaults, nullability, integer and boolean coercion, unknown-field preservation, status and error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned. Proxy-host probe operations and observed-health fields SHALL be native extensions unless an individual frozen compatibility profile explicitly includes them; compatibility payloads SHALL not drift implicitly when native health support is added."
 supersedes: []
 superseded_by: []
 status_notes:
   -
-    status: "accepted"
-    note: "Accepted for the Portwyrm p100 boundary."
     at: "2026-07-13T23:16:51Z"
+    note: "Accepted for the Portwyrm p100 boundary."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Classified proxy-host observation as a native extension outside frozen compatibility profiles."
+    at: "2026-07-17T15:20:09Z"
 references: []
 body: |-
-  Compatibility profiles SHALL define exact route/method capabilities, raw-array collections, token envelopes, defaults, nullability, integer/boolean coercion, unknown-field preservation, status/error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned.
+  Compatibility profiles SHALL define exact route and method capabilities, raw-array collections, token envelopes, defaults, nullability, integer and boolean coercion, unknown-field preservation, status and error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned. Proxy-host probe operations and observed-health fields SHALL be native extensions unless an individual frozen compatibility profile explicitly includes them; compatibility payloads SHALL not drift implicitly when native health support is added.
 spec_kind: "normative"
 adr_ids:
   - "adr:1000"
   - "adr:1001"
   - "adr:1009"
+  - "adr:1015"

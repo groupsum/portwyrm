@@ -130,6 +130,8 @@ class CredentialStore(PortwyrmTable):
         if principal is not None:
             principal.must_change_password = True
 
+    HOOKS = (clear_password_change_requirement, require_password_change_after_reset)
+
     @classmethod
     async def _for_principal(cls, db: Any, principal_id: int) -> Any:
         result = await _await(db.execute(select(cls).where(cls.principal_id == principal_id)))

@@ -8,18 +8,23 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access/error logs, rotation/retention/reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics."
+summary: "The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access and error logs, rotation, retention and reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics. An administratively disabled proxy hostname SHALL render an explicit non-proxying server block returning 503 and SHALL never fall through to the default site or retain proxy_pass behavior. Nginx platform and reconciliation health SHALL remain distinct from upstream reachability."
 supersedes: []
 superseded_by: []
 status_notes:
   -
-    status: "accepted"
-    note: "Accepted for the Portwyrm p100 boundary."
     at: "2026-07-13T23:16:54Z"
+    note: "Accepted for the Portwyrm p100 boundary."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Added deterministic disabled-host isolation and separated platform from upstream health."
+    at: "2026-07-17T15:20:09Z"
 references: []
 body: |-
-  The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access/error logs, rotation/retention/reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics.
+  The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access and error logs, rotation, retention and reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics. An administratively disabled proxy hostname SHALL render an explicit non-proxying server block returning 503 and SHALL never fall through to the default site or retain proxy_pass behavior. Nginx platform and reconciliation health SHALL remain distinct from upstream reachability.
 spec_kind: "normative"
 adr_ids:
   - "adr:1003"
   - "adr:1010"
+  - "adr:1015"

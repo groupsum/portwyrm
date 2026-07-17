@@ -104,7 +104,16 @@ function mapHost(row: Json, family: string, users: User[], certs: Certificate[],
     accessListName: selectedAccessLists.length
       ? selectedAccessLists.map(item => item.name).join(', ')
       : (type === 'stream' ? 'Network only' : 'Public'),
-    status: row.enabled ? 'online' : 'disabled', created: row.created_on, modified: row.modified_on,
+    status: row.enabled ? 'unknown' : 'disabled',
+    administrativeState: row.enabled ? 'enabled' : 'disabled',
+    deploymentState: 'pending',
+    reachabilityState: 'unknown',
+    checkedAt: null,
+    latencyMs: null,
+    httpStatus: null,
+    probePhase: null,
+    probeError: null,
+    created: row.created_on, modified: row.modified_on,
     websocket: Boolean(row.allow_websocket_upgrade), caching: Boolean(row.caching_enabled),
     blockExploits: Boolean(row.block_exploits), http2: Boolean(row.http2_support), forwardSsl: row.forward_scheme === 'https',
     lastError: row.last_error || null, activeGeneration: Number(row.generation || 0), forceHttps: Boolean(row.ssl_forced),
@@ -229,11 +238,12 @@ export class PortwyrmStore {
 
   async refresh(): Promise<void> {
     const hostFamilies = ['proxy-hosts', 'redirection-hosts', 'dead-hosts', 'streams'];
-    const [users, certRows, aclRows, auditRows, health, version, ...hostRows] = await Promise.all([
+    const [users, certRows, aclRows, auditRows, proxyHealth, health, version, ...hostRows] = await Promise.all([
       this.currentUser?.role === 'Administrator' ? api('/api/users') : Promise.resolve([]),
       this.currentUser && can(this.currentUser, 'certificates', 'read') ? api('/api/nginx/certificates') : Promise.resolve([]),
       this.currentUser && can(this.currentUser, 'access_lists', 'read') ? api('/api/nginx/access-lists') : Promise.resolve([]),
       this.currentUser?.role === 'Administrator' ? api('/api/audit-log') : Promise.resolve([]),
+      this.currentUser && can(this.currentUser, 'proxy_hosts', 'read') ? api('/api/v2/proxy-hosts/status') : Promise.resolve({items: []}),
       api('/api/v2/system/status'), api('/version'), ...hostFamilies.map(family => {
         const type = hostTypeByFamily[family];
         return this.currentUser && can(this.currentUser, hostPermissionResource(type), 'read') ? api(`/api/nginx/${family}`) : Promise.resolve([]);
@@ -247,6 +257,27 @@ export class PortwyrmStore {
       return {id: String(row.id), name: row.name, ownerName: displayOwner(row, this.users), usersCount: identityIds.length + (row.items || []).length, rulesCount: (row.clients || []).length, policyComposition: row.satisfy_any ? 'satisfy_any' : 'satisfy_all', forwardHeader: Boolean(row.pass_auth), created: row.created_on, modified: row.modified_on, identityIds, users: (row.items || []).map((item: Json) => ({username: item.username, passwordHint: ''})), rules: (row.clients || []).map((item: Json) => ({type: item.directive === 'deny' ? 'deny' : 'allow', subnet: item.address}))};
     });
     this.hosts = hostFamilies.flatMap((family, index) => hostRows[index].map((row: Json) => mapHost(row, family, this.users, this.certificates, this.accessLists)));
+    const proxyStatusById = new Map<string, Json>(
+      (proxyHealth.items || []).map((status: Json) => [String(status.id), status]),
+    );
+    this.hosts = this.hosts.map(host => {
+      if (host.type !== 'proxy') return host;
+      const status = proxyStatusById.get(splitHostId(host.id)[1]);
+      if (!status) return host;
+      return {
+        ...host,
+        status: status.summary_status,
+        administrativeState: status.administrative_state,
+        deploymentState: status.deployment_state,
+        reachabilityState: status.reachability_state,
+        checkedAt: status.checked_at,
+        latencyMs: status.latency_ms,
+        httpStatus: status.http_status,
+        probePhase: status.phase,
+        probeError: status.error_detail || status.error_code,
+        lastError: status.error_detail || status.error_code || host.lastError,
+      };
+    });
     this.auditLogs = auditRows.map((row: Json) => ({id: String(row.id), timestamp: row.created_on, actor: row.actor || row.user_email || 'System', action: row.action || row.event || 'Changed', resource: row.object_type || row.resource_type || 'Resource', outcome: row.outcome === 'failure' ? 'Failure' : row.outcome === 'rolled_back' ? 'Rolled Back' : 'Success', summary: row.summary || row.action || '', details: JSON.stringify(row, null, 2)}));
     const versionCounts = new Map<string, number>();
     this.hostConfigVersions = auditRows.flatMap((row: Json) => {
@@ -291,7 +322,8 @@ export class PortwyrmStore {
   async addHost(data: Partial<Host>, progress: (phase: string) => void): Promise<void> { progress('Validating configuration'); try { await api(`/api/nginx/${hostFamily[data.type || 'proxy']}`, {method: 'POST', body: JSON.stringify(hostPayload(data))}); progress('Reloading Nginx'); await this.refresh(); progress('Complete'); } catch (error) { progress('Rolled back'); throw error; } }
   async updateHost(id: string, data: Partial<Host>, progress: (phase: string) => void): Promise<void> { const [family, resourceId] = splitHostId(id); progress('Validating configuration'); try { await api(`/api/nginx/${family}/${resourceId}`, {method: 'PUT', body: JSON.stringify(hostPayload({...data, type: data.type || this.hosts.find(item => item.id === id)?.type}))}); progress('Reloading Nginx'); await this.refresh(); progress('Complete'); } catch (error) { progress('Rolled back'); throw error; } }
   async deleteHost(id: string): Promise<void> { const [family, resourceId] = splitHostId(id); await api(`/api/nginx/${family}/${resourceId}`, {method: 'DELETE'}); await this.refresh(); }
-  async toggleHostStatus(id: string): Promise<void> { const host = this.hosts.find(item => item.id === id); if (!host) return; const [family, resourceId] = splitHostId(id); await api(`/api/nginx/${family}/${resourceId}`, {method: 'PUT', body: JSON.stringify({...hostPayload(host), enabled: host.status === 'online' ? 0 : 1})}); await this.refresh(); }
+  async toggleHostStatus(id: string): Promise<void> { const host = this.hosts.find(item => item.id === id); if (!host) return; const [family, resourceId] = splitHostId(id); const operation = host.administrativeState === 'disabled' ? 'enable' : 'disable'; await api(`/api/nginx/${family}/${resourceId}/${operation}`, {method: 'POST'}); await this.refresh(); }
+  async probeHost(id: string): Promise<void> { const host = this.hosts.find(item => item.id === id); if (!host || host.type !== 'proxy' || host.administrativeState === 'disabled') return; const [, resourceId] = splitHostId(id); this.hosts = this.hosts.map(item => item.id === id ? {...item, status: 'probing', reachabilityState: 'probing'} : item); this.emit(); await api(`/api/v2/proxy-hosts/${resourceId}/probe`, {method: 'POST'}); await this.refresh(); }
 
   async addCertificate(data: Json): Promise<void> { await api('/api/nginx/certificates/upload', {method: 'POST', body: JSON.stringify({nice_name: data.name, certificate: data.certificate, private_key: data.privateKey, intermediate_certificate: data.intermediateCertificate})}); await this.refresh(); }
   async requestLetsEncrypt(name: string, domains: string[], challengeType: string, progress: (message: string, done: boolean, error?: string) => void): Promise<void> { try { progress('Requesting certificate', false); await api('/api/nginx/certificates/request', {method: 'POST', body: JSON.stringify({nice_name: name, provider: 'letsencrypt', domain_names: domains, challenge_type: challengeType})}); await this.refresh(); progress('Certificate issued', true); } catch (error) { progress('Certificate request failed', true, error instanceof Error ? error.message : 'Request failed'); } }

@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Authenticated system status MUST report live Nginx active, reading, writing, and waiting connection counters from a loopback-only status source and the full content-addressed active configuration generation; unavailable telemetry MUST not be represented as fabricated zero values. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state."
+summary: "The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, proxy-host observation, and degraded-state health. Authenticated system status MUST report live Nginx active, reading, writing, and waiting connection counters from a loopback-only status source and the full content-addressed active configuration generation; unavailable telemetry MUST not be represented as fabricated zero values. Proxy-host observations MUST report freshness, stage, latency, response status when available, and redacted diagnostics according to spc:1018. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Recurring health probes MUST not create mutation-audit noise; activity MUST be emitted only on meaningful health transitions. Reports MUST distinguish desired, validated, applied, and externally observed state."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -21,14 +21,20 @@ status_notes:
     note: "Accepted as the normative T1/T2 implementation contract."
     status: "accepted"
   -
-    status: "accepted"
-    note: "Added authenticated live Nginx telemetry and content-addressed applied-generation semantics."
     at: "2026-07-15T19:01:05Z"
+    note: "Added authenticated live Nginx telemetry and content-addressed applied-generation semantics."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Added proxy-host observations, freshness, diagnostics, and transition-only activity."
+    at: "2026-07-17T15:20:08Z"
 references: []
 body: |-
-  The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, and degraded-state health. Authenticated system status MUST report live Nginx active, reading, writing, and waiting connection counters from a loopback-only status source and the full content-addressed active configuration generation; unavailable telemetry MUST not be represented as fabricated zero values. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Reports MUST distinguish desired, validated, applied, and externally verified state.
+  The product MUST expose NPM-compatible settings and audit endpoints plus native liveness, readiness, database, reconciliation, Nginx, certificate scheduler, proxy-host observation, and degraded-state health. Authenticated system status MUST report live Nginx active, reading, writing, and waiting connection counters from a loopback-only status source and the full content-addressed active configuration generation; unavailable telemetry MUST not be represented as fabricated zero values. Proxy-host observations MUST report freshness, stage, latency, response status when available, and redacted diagnostics according to spc:1018. Audit MUST cover authentication, token, permission, secret, certificate, resource mutation, activation, and rollback events while redacting passwords, bearer tokens, provider credentials, TOTP seeds, and private keys. Recurring health probes MUST not create mutation-audit noise; activity MUST be emitted only on meaningful health transitions. Reports MUST distinguish desired, validated, applied, and externally observed state.
 spec_kind: "operational"
 adr_ids:
   - "adr:1001"
   - "adr:1004"
   - "adr:1005"
+  - "adr:1010"
+  - "adr:1015"

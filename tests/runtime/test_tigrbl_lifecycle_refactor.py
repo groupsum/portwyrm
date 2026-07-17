@@ -11,8 +11,12 @@ from tigrbl.factories.engine import sqlitef
 
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.tables import PORTWYRM_TABLES
+from portwyrm.tables.access import AccessListStore
+from portwyrm.tables.certificates import CertificateStore
+from portwyrm.tables.credentials import CredentialStore
 from portwyrm.tables.lifecycle import configure_lifecycle_runtime, global_hooks
 from portwyrm.tables.mfa import MFARecoveryCodeStore
+from portwyrm.tables.routing import RoutingHostStore, StreamRouteStore
 from portwyrm.tables.settings import SettingStore
 
 
@@ -27,6 +31,34 @@ async def _app(path: Path) -> TigrblApp:
     if inspect.isawaitable(initialized):
         await initialized
     return app
+
+
+def test_inline_lifecycle_hooks_are_declared_for_tigrbl_collection() -> None:
+    hooks = {
+        table.__name__: {getattr(hook, "__func__", hook).__name__ for hook in table.HOOKS}
+        for table in (
+            AccessListStore,
+            CertificateStore,
+            CredentialStore,
+            RoutingHostStore,
+            StreamRouteStore,
+        )
+    }
+    assert hooks["AccessListStore"] == {
+        "prepare_aggregate",
+        "persist_aggregate",
+        "project_aggregate",
+        "delete_aggregate_children",
+    }
+    assert hooks["CertificateStore"] == hooks["AccessListStore"]
+    assert hooks["CredentialStore"] == {
+        "clear_password_change_requirement",
+        "require_password_change_after_reset",
+    }
+    assert {"enable_payload", "disable_payload", "prepare_aggregate", "persist_aggregate"} <= hooks[
+        "RoutingHostStore"
+    ]
+    assert hooks["StreamRouteStore"] == {"enable_payload", "disable_payload"}
 
 
 def test_canonical_crud_persists_and_global_audit_is_atomic(tmp_path) -> None:
@@ -138,6 +170,9 @@ def test_collection_and_internal_operation_surfaces_are_exact(tmp_path: Path) ->
             "preview",
             "runtime_read",
             "runtime_list",
+            "health_read",
+            "health_list",
+            "probe",
         } == set(app.core.RoutingHostStore._model.ops.by_alias)
 
         assert set(app.core.AuditEventStore._model.ops.by_alias) == {

@@ -5,6 +5,7 @@ from tigrbl import TableBase
 from .access import AccessCredentialStore, AccessListStore, AccessPrincipalStore, AccessRuleStore
 from .audit import AuditEventStore
 from .certificates import CertificateChallengeStore, CertificateDomainStore, CertificateStore
+from .health import ProxyHostHealthObservationStore
 from .mfa import MFAEnrollmentStore, MFARecoveryCodeStore
 from .migrations import SchemaMigrationStore
 from .principals import BrowserSessionStore, CredentialStore, PrincipalStore
@@ -52,6 +53,7 @@ PORTWYRM_TABLES: tuple[type[TableBase], ...] = (
     RoutingUpstreamStore,
     RoutingLocationStore,
     RoutingHostAccessListStore,
+    ProxyHostHealthObservationStore,
     StreamRouteStore,
     HostConfigRevisionStore,
     GenerationStore,

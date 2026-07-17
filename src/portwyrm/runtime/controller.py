@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -42,6 +45,7 @@ class TableRuntimeController:
         self.current = self.root / "current"
         self._lock = asyncio.Lock()
         self._holder = uuid4().hex
+        self._applying_host_ids: set[int] = set()
         self.reconciler = build_reconciler(self.root, validate=validate, reload=reload)
 
     @property
@@ -55,7 +59,34 @@ class TableRuntimeController:
 
     async def reconcile(self) -> ReconcileResult:
         rendered = await self.render()
-        return await self.reconcile_files(dict(rendered.files))
+        files = dict(rendered.files)
+        self._applying_host_ids = self._host_ids(files)
+        try:
+            return await self.reconcile_files(files)
+        finally:
+            self._applying_host_ids.clear()
+
+    def is_host_applying(self, host_id: int) -> bool:
+        return host_id in self._applying_host_ids
+
+    @staticmethod
+    def _host_ids(files: dict[str, str]) -> set[int]:
+        return {
+            int(match.group(1))
+            for path in files
+            if (match := re.fullmatch(r"http/(?:proxy|redirection|dead)-(\d+)\.conf", path))
+        }
+
+    def host_revision_drifted(self, revision: Any) -> bool:
+        active = self.reconciler.store.active_path()
+        if active is None:
+            return False
+        for family in ("proxy", "redirection", "dead"):
+            path = active / "http" / f"{family}-{revision.routing_host_id}.conf"
+            if path.is_file():
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                return digest != revision.config_digest
+        return True
 
     async def render(self) -> RenderedConfiguration:
         """Compile the canonical table state without filesystem or Nginx side effects."""
@@ -149,6 +180,21 @@ class TableRuntimeController:
                 "diagnostic": result.diagnostic,
             }
         )
+        applied_at = int(time.time()) if result.applied else None
+        for path, config_text in files.items():
+            match = re.fullmatch(r"http/(?:proxy|redirection|dead)-(\d+)\.conf", path)
+            if match is None:
+                continue
+            await self.resources.app.core.HostConfigRevisionStore.record(
+                {
+                    "routing_host_id": int(match.group(1)),
+                    "generation": generation,
+                    "config_text": config_text,
+                    "config_digest": hashlib.sha256(config_text.encode()).hexdigest(),
+                    "applied": result.applied,
+                    "applied_at": applied_at,
+                }
+            )
 
 
 __all__ = ["TableRuntimeController"]

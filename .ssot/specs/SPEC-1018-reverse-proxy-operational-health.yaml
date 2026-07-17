@@ -1,0 +1,32 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1018"
+number: 1018
+slug: "reverse-proxy-operational-health"
+title: "Reverse-proxy operational health"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Proxy-host operational state MUST preserve three independent dimensions: administrative state enabled or disabled; deployment state pending, applying, applied, failed, drifted, or rolled_back; and reachability state unknown, probing, online, offline, or stale. A derived summary MAY be exposed but MUST use this precedence: disabled; failed, drifted, or rolled_back; pending or applying; then probing, offline, stale, unknown, or online. The independent source fields MUST remain available even when a summary is derived."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted contract for desired, applied, and observed proxy-host status."
+    at: "2026-07-17T15:20:10Z"
+references: []
+body: |-
+  Proxy-host operational state MUST preserve three independent dimensions: administrative state enabled or disabled; deployment state pending, applying, applied, failed, drifted, or rolled_back; and reachability state unknown, probing, online, offline, or stale. A derived summary MAY be exposed but MUST use this precedence: disabled; failed, drifted, or rolled_back; pending or applying; then probing, offline, stale, unknown, or online. The independent source fields MUST remain available even when a summary is derived.
+  
+  A native Tigrbl member probe operation MUST perform the observation for one enabled proxy host. Scheduled checks MUST invoke the same kernel operation. Disabled hosts MUST not be probed. The operation MUST use bounded DNS, connection, TLS, and HTTP phases with configurable defaults of 3 seconds for DNS and connection and 5 seconds for TLS and first response. Any completed HTTP response establishes online reachability regardless of its application status code. DNS, connection, TLS, timeout, and protocol failures establish offline reachability and MUST identify the failed phase. Unknown means no completed observation. Probing means a check is active. A completed observation becomes stale when its expires_at passes; the default freshness window is 60 seconds.
+  
+  Observations MUST be persisted outside desired proxy-host rows in a narrow operational collection containing host_id, status, phase, checked_at, expires_at, latency_ms, optional http_status, stable error_code, and redacted error_detail. External access to that collection MUST be read and list only. Writes MUST occur through the governed probe operation. Probe concurrency MUST be lease-safe across replicas, and restart recovery MUST not fabricate online status.
+  
+  A transition from one completed reachability state to another MUST produce an activity event. Periodic probes with no state transition MUST not produce mutation audit events or duplicate activity. Native reads and lists MUST project the latest authorized observation without changing frozen compatibility profiles. An administratively disabled hostname MUST render a deterministic 503 response with no upstream proxying and no default-site fallthrough.
+spec_kind: "operational"
+adr_ids:
+  - "adr:1003"
+  - "adr:1010"
+  - "adr:1015"

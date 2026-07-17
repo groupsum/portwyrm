@@ -71,6 +71,21 @@ def _render_location(
     return lines
 
 
+def _render_disabled_host(platform: PlatformConfig, host: ProxyHost, family: str) -> str:
+    ssl = host.ssl.normalized()
+    lines = ["server {", *listen(host.domain_names, ssl, platform.ipv6)]
+    lines.extend(ssl_lines(ssl))
+    lines.extend(
+        [
+            f"  access_log /data/logs/{family}-{host.id}_access.log proxy;",
+            f"  error_log /data/logs/{family}-{host.id}_error.log warn;",
+            "  return 503;",
+            "}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
 def render_proxy(
     platform: PlatformConfig,
     host: ProxyHost,
@@ -78,7 +93,7 @@ def render_proxy(
     password_file: str | None = None,
 ) -> str:
     if not host.enabled:
-        return f"# proxy host {host.id} disabled\n"
+        return _render_disabled_host(platform, host, "proxy-host")
     ssl = host.ssl.normalized()
     lines = ["server {", *listen(host.domain_names, ssl, platform.ipv6)]
     lines.extend(ssl_lines(ssl))
@@ -110,7 +125,7 @@ def render_proxy(
 
 def render_redirection(platform: PlatformConfig, host: RedirectionHost) -> str:
     if not host.enabled:
-        return f"# redirection host {host.id} disabled\n"
+        return _render_disabled_host(platform, host, "redirection-host")
     ssl = host.ssl.normalized()
     scheme = "$scheme" if host.forward_scheme == "auto" else str(host.forward_scheme)
     suffix = "$request_uri" if host.preserve_path else ""
@@ -137,7 +152,7 @@ def render_redirection(platform: PlatformConfig, host: RedirectionHost) -> str:
 
 def render_dead(platform: PlatformConfig, host: DeadHost) -> str:
     if not host.enabled:
-        return f"# dead host {host.id} disabled\n"
+        return _render_disabled_host(platform, host, "dead-host")
     ssl = host.ssl.normalized()
     lines = ["server {", *listen(host.domain_names, ssl, platform.ipv6)]
     lines.extend(ssl_lines(ssl))

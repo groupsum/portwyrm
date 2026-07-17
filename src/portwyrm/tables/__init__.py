@@ -9,6 +9,7 @@ from .access import (
 )
 from .audit import AuditEventStore
 from .certificates import CertificateChallengeStore, CertificateStore
+from .health import ProxyHostHealthObservationStore
 from .mfa import MFABeginResult, MFAEnrollmentStore
 from .migrations import SchemaMigrationStore
 from .principals import BrowserSessionStore, CredentialStore, PrincipalStore, SecurityPrincipal
@@ -75,6 +76,7 @@ __all__ = [
     "PermissionStore",
     "PrincipalStore",
     "ProxyHost",
+    "ProxyHostHealthObservationStore",
     "ProxyLocation",
     "ReconcileResult",
     "ReconcileStore",

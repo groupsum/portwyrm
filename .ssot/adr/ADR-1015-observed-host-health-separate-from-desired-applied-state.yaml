@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1015"
+number: 1015
+slug: "observed-host-health-separate-from-desired-applied-state"
+title: "Observed host health is separate from desired and applied state"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: an administrative enabled flag and a successful Nginx reconciliation do not establish whether an upstream can currently serve traffic. Decision: proxy-host state SHALL be represented by independent administrative, deployment, and reachability dimensions. Administrative state is enabled or disabled. Deployment state includes pending, applying, applied, failed, drifted, and rolled_back. Reachability includes unknown, probing, online, offline, and stale. Reachability observations SHALL be stored separately from desired host configuration in a narrow operational table. A Tigrbl member probe operation SHALL perform the network observation; scheduled checks SHALL invoke that same kernel operation. Disabled hosts SHALL not be probed and SHALL render an explicit non-proxy response instead of falling through to a default site. Recurring observations SHALL not create mutation-audit noise; activity SHALL be emitted only for meaningful health transitions. Consequences: APIs and the UI can report enabled-but-offline hosts accurately, reconciliation remains orthogonal to upstream health, and disabled routing is deterministic. Governs: feat:routing.upstream-health, feat:routing.disabled-host-isolation, feat:experience.operator-ui, and feat:operations.settings-audit-health."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted after live online, offline, and disabled proxy-host evaluation."
+    at: "2026-07-17T15:19:07Z"
+references: []
+body: |-
+  Context: an administrative enabled flag and a successful Nginx reconciliation do not establish whether an upstream can currently serve traffic. Decision: proxy-host state SHALL be represented by independent administrative, deployment, and reachability dimensions. Administrative state is enabled or disabled. Deployment state includes pending, applying, applied, failed, drifted, and rolled_back. Reachability includes unknown, probing, online, offline, and stale. Reachability observations SHALL be stored separately from desired host configuration in a narrow operational table. A Tigrbl member probe operation SHALL perform the network observation; scheduled checks SHALL invoke that same kernel operation. Disabled hosts SHALL not be probed and SHALL render an explicit non-proxy response instead of falling through to a default site. Recurring observations SHALL not create mutation-audit noise; activity SHALL be emitted only for meaningful health transitions. Consequences: APIs and the UI can report enabled-but-offline hosts accurately, reconciliation remains orthogonal to upstream health, and disabled routing is deterministic. Governs: feat:routing.upstream-health, feat:routing.disabled-host-isolation, feat:experience.operator-ui, and feat:operations.settings-audit-health.

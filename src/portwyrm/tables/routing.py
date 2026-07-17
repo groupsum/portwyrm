@@ -6,9 +6,11 @@ import hashlib
 import inspect
 import ipaddress
 import re
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from enum import StrEnum
-from typing import Any, Literal, Self
+from typing import Any, ClassVar, Literal, Self
+from uuid import uuid4
 
 from tigrbl import hook_ctx, op_alias, op_ctx, schema_ctx
 from tigrbl.factories.column import IO, F, S
@@ -25,10 +27,17 @@ from tigrbl.types import (
 )
 
 from portwyrm.errors import CollisionError, DomainValidationError
+from portwyrm.health import (
+    AdministrativeState,
+    DeploymentState,
+    ReachabilityState,
+    derive_host_summary,
+)
 from portwyrm.kernel_support import ConfigDict, delete, field_validator, model_validator, select
 
 from .base import APPEND_ONLY_PROFILE, READ_ONLY_PROFILE, ManagedPortwyrmTable, PortwyrmTable, acol
 from .compat import extension_metadata, extensions, iso
+from .health import ProxyHostHealthObservationStore
 
 _HOST_KNOWN = {
     "id",
@@ -160,6 +169,10 @@ async def _await(value: Any) -> Any:
 @op_alias(alias="disable", target="update", arity="member", http_methods=("POST",))
 class RoutingHostStore(ManagedPortwyrmTable):
     __tablename__ = "routing_hosts"
+    _health_prober: ClassVar[Any | None] = None
+    _health_freshness_seconds: ClassVar[int] = 60
+    _health_runtime_provider: ClassVar[Callable[[], Any] | None] = None
+    _health_app_provider: ClassVar[Callable[[], Any] | None] = None
     __table_args__ = (
         CheckConstraint("kind IN ('proxy','redirect','dead')", name="ck_routing_host_kind"),
         CheckConstraint(
@@ -308,6 +321,41 @@ class RoutingHostStore(ManagedPortwyrmTable):
         digest: str
         warnings: list[str] = Field(default_factory=list)
 
+    @schema_ctx(alias="probe", kind="out")
+    @schema_ctx(alias="health_read", kind="out")
+    class HealthStatus(BaseModel):
+        id: int
+        owner_principal_id: int | None = None
+        administrative_state: str
+        deployment_state: str
+        reachability_state: str
+        summary_status: str
+        checked_at: int | None = None
+        expires_at: int | None = None
+        latency_ms: int | None = None
+        http_status: int | None = None
+        phase: str | None = None
+        error_code: str | None = None
+        error_detail: str | None = None
+
+    @schema_ctx(alias="health_list", kind="out")
+    class HealthStatusList(BaseModel):
+        items: list[RoutingHostStore.HealthStatus] = Field(default_factory=list)
+
+    @classmethod
+    def configure_health_runtime(
+        cls,
+        prober: Any | None,
+        *,
+        freshness_seconds: int = 60,
+        runtime_provider: Callable[[], Any] | None = None,
+        app_provider: Callable[[], Any] | None = None,
+    ) -> None:
+        cls._health_prober = prober
+        cls._health_freshness_seconds = max(1, freshness_seconds)
+        cls._health_runtime_provider = runtime_provider
+        cls._health_app_provider = app_provider
+
     kind = acol(String(32), nullable=False, index=True)
     owner_principal_id = acol(Integer, ForeignKey("principals.id"), nullable=True, index=True)
     enabled = acol(
@@ -340,6 +388,161 @@ class RoutingHostStore(ManagedPortwyrmTable):
     @hook_ctx(ops="disable", phase="PRE_HANDLER")
     def disable_payload(cls, ctx: dict[str, Any]) -> None:
         ctx.setdefault("payload", {})["enabled"] = False
+
+    @classmethod
+    async def _latest_observation(cls, db: Any, host_id: int) -> Any | None:
+        result = await _await(
+            db.execute(
+                select(ProxyHostHealthObservationStore)
+                .where(ProxyHostHealthObservationStore.routing_host_id == host_id)
+                .order_by(
+                    ProxyHostHealthObservationStore.checked_at.desc(),
+                    ProxyHostHealthObservationStore.id.desc(),
+                )
+                .limit(1)
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @classmethod
+    async def _deployment_state(cls, db: Any, host_id: int) -> DeploymentState:
+        runtime = cls._health_runtime_provider() if cls._health_runtime_provider else None
+        if runtime is not None and runtime.is_host_applying(host_id):
+            return DeploymentState.APPLYING
+        result = await _await(
+            db.execute(
+                select(HostConfigRevisionStore)
+                .where(HostConfigRevisionStore.routing_host_id == host_id)
+                .order_by(HostConfigRevisionStore.id.desc())
+                .limit(1)
+            )
+        )
+        revision = result.scalar_one_or_none()
+        if revision is None:
+            return DeploymentState.PENDING
+        active_generation = runtime.active_generation if runtime is not None else None
+        if not revision.applied:
+            return DeploymentState.ROLLED_BACK if active_generation else DeploymentState.FAILED
+        if active_generation and revision.generation != active_generation:
+            return DeploymentState.PENDING
+        if runtime is not None and runtime.host_revision_drifted(revision):
+            return DeploymentState.DRIFTED
+        return DeploymentState.APPLIED
+
+    @classmethod
+    async def _health_status(cls, db: Any, row: Any) -> dict[str, Any]:
+        observation = await cls._latest_observation(db, int(row.id))
+        administrative = (
+            AdministrativeState.ENABLED if row.enabled else AdministrativeState.DISABLED
+        )
+        deployment = await cls._deployment_state(db, int(row.id))
+        reachability = ReachabilityState.UNKNOWN
+        if observation is not None:
+            reachability = ReachabilityState(str(observation.status))
+            if observation.expires_at <= int(time.time()):
+                reachability = ReachabilityState.STALE
+        return {
+            "id": int(row.id),
+            "owner_principal_id": row.owner_principal_id,
+            "administrative_state": administrative.value,
+            "deployment_state": deployment.value,
+            "reachability_state": reachability.value,
+            "summary_status": derive_host_summary(administrative, deployment, reachability),
+            "checked_at": observation.checked_at if observation is not None else None,
+            "expires_at": observation.expires_at if observation is not None else None,
+            "latency_ms": observation.latency_ms if observation is not None else None,
+            "http_status": observation.http_status if observation is not None else None,
+            "phase": observation.phase if observation is not None else None,
+            "error_code": observation.error_code if observation is not None else None,
+            "error_detail": observation.error_detail if observation is not None else None,
+        }
+
+    @op_ctx(alias="health_read", target="custom", arity="member", persist="skip")
+    async def health_read(cls, ctx: Any) -> dict[str, Any]:
+        host_id = int((ctx.get("payload") or {})["id"])
+        row = await _await(ctx["db"].get(cls, host_id))
+        if row is None or row.kind != HostKind.PROXY.value:
+            raise LookupError("proxy host not found")
+        return await cls._health_status(ctx["db"], row)
+
+    @op_ctx(alias="health_list", target="custom", arity="collection", persist="skip")
+    async def health_list(cls, ctx: Any) -> dict[str, Any]:
+        rows = list(
+            (
+                await _await(
+                    ctx["db"].execute(
+                        select(cls).where(cls.kind == HostKind.PROXY.value).order_by(cls.id)
+                    )
+                )
+            ).scalars()
+        )
+        return {"items": [await cls._health_status(ctx["db"], row) for row in rows]}
+
+    @op_ctx(alias="probe", target="custom", arity="member")
+    async def probe(cls, ctx: Any) -> dict[str, Any]:
+        if cls._health_prober is None:
+            raise RuntimeError("proxy-host health probing is not configured")
+        host_id = int((ctx.get("payload") or {})["id"])
+        row = await _await(ctx["db"].get(cls, host_id))
+        if row is None or row.kind != HostKind.PROXY.value:
+            raise LookupError("proxy host not found")
+        if not row.enabled:
+            raise ValueError("disabled proxy hosts are not probed")
+        projected = await cls._project(ctx["db"], row)
+        app = cls._health_app_provider() if cls._health_app_provider else None
+        holder = uuid4().hex
+        lease_name = f"proxy-host-probe:{host_id}"
+        if app is not None:
+            lease = await app.core.LeaseStore.acquire(
+                {"name": lease_name, "holder": holder, "ttl_seconds": 30}
+            )
+            if not lease["acquired"]:
+                raise ValueError("proxy host probe is already in progress")
+        try:
+            from portwyrm.runtime.upstream_health import ProbeTarget
+
+            result = await cls._health_prober.probe(
+                ProbeTarget(
+                    host=str(projected["forward_host"]),
+                    port=int(projected["forward_port"]),
+                    scheme=str(projected.get("forward_scheme") or "http"),
+                )
+            )
+        finally:
+            if app is not None:
+                await app.core.LeaseStore.release({"name": lease_name, "holder": holder})
+        expires_at = result.checked_at + cls._health_freshness_seconds
+        deployment = await cls._deployment_state(ctx["db"], host_id)
+        ctx["db"].add(
+            ProxyHostHealthObservationStore(
+                routing_host_id=host_id,
+                status=result.status.value,
+                phase=result.phase.value,
+                checked_at=result.checked_at,
+                expires_at=expires_at,
+                latency_ms=result.latency_ms,
+                http_status=result.http_status,
+                error_code=result.error_code,
+                error_detail=result.error_detail,
+            )
+        )
+        return {
+            "id": host_id,
+            "owner_principal_id": row.owner_principal_id,
+            "administrative_state": AdministrativeState.ENABLED.value,
+            "deployment_state": deployment.value,
+            "reachability_state": result.status.value,
+            "summary_status": derive_host_summary(
+                AdministrativeState.ENABLED, deployment, result.status
+            ),
+            "checked_at": result.checked_at,
+            "expires_at": expires_at,
+            "latency_ms": result.latency_ms,
+            "http_status": result.http_status,
+            "phase": result.phase.value,
+            "error_code": result.error_code,
+            "error_detail": result.error_detail,
+        }
 
     @hook_ctx(ops=("create", "update", "replace"), phase="PRE_HANDLER")
     async def prepare_aggregate(cls, ctx: dict[str, Any]) -> None:
@@ -382,6 +585,15 @@ class RoutingHostStore(ManagedPortwyrmTable):
     @hook_ctx(ops="delete", phase="PRE_HANDLER")
     async def delete_aggregate_children(cls, ctx: dict[str, Any]) -> None:
         await cls._replace_children(ctx["db"], int(ctx["payload"]["id"]), {})
+
+    HOOKS = (
+        enable_payload,
+        disable_payload,
+        prepare_aggregate,
+        persist_aggregate,
+        project_aggregate,
+        delete_aggregate_children,
+    )
 
     @op_ctx(alias="runtime_list", target="custom", arity="collection")
     async def runtime_list(cls, ctx: Any) -> dict[str, Any]:
@@ -847,6 +1059,8 @@ class StreamRouteStore(ManagedPortwyrmTable):
     def disable_payload(cls, ctx: dict[str, Any]) -> None:
         ctx.setdefault("payload", {})["enabled"] = False
 
+    HOOKS = (enable_payload, disable_payload)
+
     @schema_ctx(alias="runtime_read", kind="out")
     class RuntimeStream(BaseModel):
         model_config = ConfigDict(frozen=True, extra="forbid", use_enum_values=True)
@@ -969,6 +1183,30 @@ class HostConfigRevisionStore(PortwyrmTable):
     config_digest = acol(String(64), nullable=False)
     applied = acol(Boolean, nullable=False, default=False)
     applied_at = acol(Integer, nullable=True)
+
+    @op_ctx(alias="record", target="custom", arity="collection")
+    async def record(cls, ctx: Any) -> Any:
+        payload = dict(ctx.get("payload") or {})
+        result = await _await(
+            ctx["db"].execute(
+                select(cls).where(
+                    cls.routing_host_id == int(payload["routing_host_id"]),
+                    cls.generation == str(payload["generation"]),
+                )
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            row = cls(
+                routing_host_id=int(payload["routing_host_id"]),
+                generation=str(payload["generation"]),
+                config_text=str(payload["config_text"]),
+                config_digest=str(payload["config_digest"]),
+                applied=bool(payload.get("applied")),
+                applied_at=payload.get("applied_at"),
+            )
+            ctx["db"].add(row)
+        return row
 
     @op_ctx(alias="compare", target="custom", arity="member")
     def compare(cls, ctx: Any) -> dict[str, Any]:

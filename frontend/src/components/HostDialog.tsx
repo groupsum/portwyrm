@@ -381,7 +381,7 @@ export default function HostDialog({
     const sslRecord = certificates.find(c => c.id === sslId);
     const selectedAccessLists = accessListIds.map(id => accessLists.find(accessList => accessList.id === id)).filter((accessList): accessList is AccessList => Boolean(accessList));
     return {
-      ...(editingHost || {id: 'draft', ownerId: '', ownerName: '', provenance: 'human', status: 'pending', created: '', modified: '', lastError: null, activeGeneration: 0}),
+      ...(editingHost || {id: 'draft', ownerId: '', ownerName: '', provenance: 'human', status: 'pending', administrativeState: 'enabled', deploymentState: 'pending', reachabilityState: 'unknown', checkedAt: null, latencyMs: null, httpStatus: null, probePhase: null, probeError: null, created: '', modified: '', lastError: null, activeGeneration: 0}),
       type: hostType,
       source: hostType === 'stream' ? `${streamProtocol.toUpperCase()} :${sourcePort}` : sourceDomains,
       destination: hostType === '404'

@@ -182,6 +182,8 @@ class CertificateStore(ManagedPortwyrmTable):
             )
         )
 
+    HOOKS = (prepare_aggregate, persist_aggregate, project_aggregate, delete_aggregate_children)
+
     @staticmethod
     def _values(payload: dict[str, Any]) -> dict[str, Any]:
         return {
