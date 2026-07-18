@@ -25,6 +25,17 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert script_match is not None
     assert style_match is not None
 
+    for favicon_path in (
+        "/ui/favicon.ico",
+        "/ui/favicon-16x16.png",
+        "/ui/favicon-32x32.png",
+        "/ui/apple-touch-icon.png",
+    ):
+        assert f'href="{favicon_path}"' in page.text
+        favicon = client.get(favicon_path)
+        assert favicon.status_code == 200
+        assert favicon.headers["content-type"].startswith("image/")
+
     script = client.get(script_match.group(1))
     stylesheet = client.get(style_match.group(1))
     assert script.status_code == 200

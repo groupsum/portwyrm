@@ -12,6 +12,12 @@ def test_container_distribution_declares_runtime_and_health_contract() -> None:
     assert 'ENTRYPOINT ["python", "/app/deploy/entrypoint.py"]' in dockerfile
 
 
+def test_ui_favicons_are_included_in_package_data() -> None:
+    pyproject = (Path(__file__).parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    for pattern in ('"static/*.png"', '"static/*.ico"'):
+        assert pattern in pyproject
+
+
 def test_container_publication_is_multiarch_attested_signed_and_verified() -> None:
     workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "container.yml").read_text(
         encoding="utf-8"
