@@ -50,3 +50,9 @@ def test_distribution_workflow_retains_fail_closed_supply_chain_gates() -> None:
         'exit-code: "1"',
     ):
         assert contract in workflow
+
+
+def test_local_compose_image_is_not_a_published_channel() -> None:
+    compose = (Path(__file__).parents[2] / "compose.yaml").read_text(encoding="utf-8")
+    assert "image: portwyrm:local" in compose
+    assert "ghcr.io/groupsum/portwyrm:edge" not in compose

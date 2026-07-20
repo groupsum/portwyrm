@@ -1,5 +1,18 @@
 FROM python:3.12-slim
 
+ARG OCI_REVISION=unknown
+ARG OCI_VERSION=dev
+ARG OCI_SOURCE=https://github.com/groupsum/portwyrm
+ARG OCI_CREATED=unknown
+
+LABEL org.opencontainers.image.title="Portwyrm" \
+      org.opencontainers.image.description="Nginx Proxy Manager compatible control and data plane" \
+      org.opencontainers.image.source="${OCI_SOURCE}" \
+      org.opencontainers.image.revision="${OCI_REVISION}" \
+      org.opencontainers.image.version="${OCI_VERSION}" \
+      org.opencontainers.image.created="${OCI_CREATED}" \
+      org.opencontainers.image.licenses="MIT"
+
 COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 
 RUN apt-get update \

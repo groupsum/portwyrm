@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Releases MUST publish immutable linux/amd64 and linux/arm64 OCI images with pinned Compose examples for supported deployment modes. Published artifacts MUST include checksums, SBOM, provenance, vulnerability results, and signatures. The 1.0.0 release MUST certify every p100 feature against its linked tests and evidence, pass npmctl end-to-end verification, and complete backup, migration, failed-reload, certificate-renewal, and last-known-good rollback drills."
+summary: "Portwyrm SHALL publish only from a protected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE tag to ghcr.io/groupsum/portwyrm. Human-facing aliases SHALL be normalized semver MAJOR.MINOR.PATCH, MAJOR.MINOR, and MAJOR; stable releases MAY additionally receive latest, while prereleases MUST NOT receive latest or stable aliases. Branch, arbitrary ref, short SHA, and edge tags are not publication channels. The full multi-architecture digest is the deployment identity."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,12 +17,26 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the normative T1/T2 implementation contract."
     at: "2026-07-13T23:17:29Z"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    status: "accepted"
+  -
+    at: "2026-07-20T19:39:38Z"
+    note: "Extended on 2026-07-20 with canonical GHCR naming, immutable digest deployment identity, release-only publication, fail-closed gates, keyless signing, attestation verification, and explicit registry-cleanup controls."
+    status: "accepted"
+  -
+    at: "2026-07-20T19:40:29Z"
+    note: "Extended on 2026-07-20 with canonical GHCR naming, immutable digest deployment identity, release-only publication, fail-closed gates, keyless signing, attestation verification, and explicit registry-cleanup controls."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Extended on 2026-07-20 with canonical GHCR naming, immutable digest deployment identity, release-only publication, fail-closed gates, keyless signing, attestation verification, and explicit registry-cleanup controls."
+    at: "2026-07-20T19:41:17Z"
 references: []
 body: |-
-  Releases MUST publish immutable linux/amd64 and linux/arm64 OCI images with pinned Compose examples for supported deployment modes. Published artifacts MUST include checksums, SBOM, provenance, vulnerability results, and signatures. The 1.0.0 release MUST certify every p100 feature against its linked tests and evidence, pass npmctl end-to-end verification, and complete backup, migration, failed-reload, certificate-renewal, and last-known-good rollback drills.
+  Portwyrm SHALL publish only from a protected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE tag to ghcr.io/groupsum/portwyrm. Human-facing aliases SHALL be normalized semver MAJOR.MINOR.PATCH, MAJOR.MINOR, and MAJOR; stable releases MAY additionally receive latest, while prereleases MUST NOT receive latest or stable aliases. Branch, arbitrary ref, short SHA, and edge tags are not publication channels. The full multi-architecture digest is the deployment identity.
+  
+  Pull requests MUST build and scan without publishing, signing, attesting, or writing to GHCR. Before publication, database persistence, protocol, and vulnerability gates MUST pass. Published linux/amd64 and linux/arm64 images MUST carry OCI source, revision, version, and creation metadata, an SBOM, maximally detailed build provenance, and a keyless Sigstore/Cosign signature. Promotion MUST be followed by anonymous pull, signature verification, and GitHub provenance-attestation verification. Rollback MUST pin a previously verified digest and MUST NOT rewrite or retag a release. Legacy and untagged manifests require an explicit inventory and owner-scoped cleanup operation.
 spec_kind: "governance"
 adr_ids:
   - "adr:1007"

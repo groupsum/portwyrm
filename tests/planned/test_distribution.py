@@ -10,6 +10,8 @@ def test_container_distribution_declares_runtime_and_health_contract() -> None:
     assert "PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE=/data/bootstrap-admin.json" in dockerfile
     assert "PORTWYRM_INITIAL_ADMIN_PASSWORD=" not in dockerfile
     assert 'ENTRYPOINT ["python", "/app/deploy/entrypoint.py"]' in dockerfile
+    assert 'org.opencontainers.image.source=' in dockerfile
+    assert 'org.opencontainers.image.revision=' in dockerfile
 
 
 def test_ui_favicons_are_included_in_package_data() -> None:
@@ -27,7 +29,11 @@ def test_container_publication_is_multiarch_attested_signed_and_verified() -> No
     assert "provenance: mode=max" in workflow
     assert "sbom: true" in workflow
     assert "type=semver,pattern={{version}}" in workflow
-    assert "type=raw,value=latest,enable={{is_default_branch}}" in workflow
+    assert 'tags: ["v*"]' in workflow
+    assert "type=raw,value=latest,enable=" in workflow
+    assert "type=ref,event=branch" not in workflow
+    assert "type=sha" not in workflow
+    assert "needs: [databases, protocols, vulnerability-scan]" in workflow
     assert "cosign sign --yes" in workflow
     assert "uses: actions/attest@v4" in workflow
     assert "push-to-registry: true" in workflow

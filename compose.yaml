@@ -1,7 +1,7 @@
 services:
   portwyrm:
     build: .
-    image: ghcr.io/groupsum/portwyrm:edge
+    image: portwyrm:local
     restart: unless-stopped
     environment:
       PORTWYRM_DB_BACKEND: sqlite
