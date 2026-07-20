@@ -9,7 +9,11 @@ from portwyrm.config import PortwyrmSettings
 
 def test_npmctl_resource_matrix_covers_non_proxy_collections(tmp_path) -> None:
     async def run() -> None:
-        app = create_app(`n            settings=PortwyrmSettings(backend="sqlite", data_root=tmp_path, sqlite_path=tmp_path / "matrix.sqlite"))
+        app = create_app(
+            settings=PortwyrmSettings(
+                backend="sqlite", data_root=tmp_path, sqlite_path=tmp_path / "matrix.sqlite"
+            )
+        )
         resources = TableResources(app)
         admin = await resources.bootstrap_admin(
             "matrix-admin@example.test", "a strong admin password"
