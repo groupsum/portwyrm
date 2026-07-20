@@ -1,0 +1,20 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1019"
+number: 1019
+slug: "npmctl-aggregate-lifecycle-closure"
+title: "npmctl aggregate lifecycle closure"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "The compatibility API MUST treat npmctl deletion and owner-scoped pruning as aggregate lifecycle operations. A successful delete MUST durably remove the resource, all owned dependent routing rows, health observations, configuration revisions, generated runtime references, and Nginx state according to the retention policy. A delete that cannot complete MUST be atomic and return a non-2xx error without claiming convergence. Certificate and access-list references MUST be detached or rejected explicitly before deletion. Live acceptance MUST cover doctor, schema check, plan, apply, adopt, drift, audit-log, all required collections, stable-ID round trips, ownership metadata, and SQLite/PostgreSQL backend replay."
+supersedes: []
+superseded_by: []
+status_notes: []
+references: []
+body: |-
+  The compatibility API MUST treat npmctl deletion and owner-scoped pruning as aggregate lifecycle operations. A successful delete MUST durably remove the resource, all owned dependent routing rows, health observations, configuration revisions, generated runtime references, and Nginx state according to the retention policy. A delete that cannot complete MUST be atomic and return a non-2xx error without claiming convergence. Certificate and access-list references MUST be detached or rejected explicitly before deletion. Live acceptance MUST cover doctor, schema check, plan, apply, adopt, drift, audit-log, all required collections, stable-ID round trips, ownership metadata, and SQLite/PostgreSQL backend replay.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1016"

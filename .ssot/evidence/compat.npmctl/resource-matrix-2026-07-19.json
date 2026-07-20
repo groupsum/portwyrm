@@ -1,0 +1,1 @@
+{"backends":["sqlite-memory"],"date":"2026-07-19","passed":1,"result":"passed","scope":["redirection_hosts","dead_hosts","streams","settings","users"],"test_path":"tests/integration/test_npmctl_resource_matrix.py"}

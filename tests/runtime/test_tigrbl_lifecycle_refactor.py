@@ -335,3 +335,38 @@ def test_table_modules_do_not_reimplement_kernel_persistence() -> None:
     assert "def create_compat" not in source
     assert "def update_compat" not in source
     assert "def delete_compat" not in source
+
+def test_routing_host_delete_removes_config_revisions_before_root(tmp_path: Path) -> None:
+    async def run() -> None:
+        app = await _app(tmp_path / "delete-revisions.sqlite")
+        host = await app.core.RoutingHostStore.create(
+            {
+                "kind": "proxy",
+                "domain_names": ["delete-revision.example.test"],
+                "forward_scheme": "http",
+                "forward_host": "backend",
+                "forward_port": 8080,
+                "target_kind": "dns",
+            }
+        )
+        await app.core.HostConfigRevisionStore.record(
+            {
+                "routing_host_id": host["id"],
+                "generation": "delete-test-generation",
+                "config_text": "server {}",
+                "config_digest": "digest",
+                "applied": True,
+                "applied_at": 1,
+            }
+        )
+
+        resources = TableResources(app)
+        assert await resources.delete_resource("proxy_hosts", host["id"])
+        with pytest.raises(HTTPException, match="Resource not found"):
+            await app.core.RoutingHostStore.read({"id": host["id"]})
+        assert not any(
+            row["routing_host_id"] == host["id"]
+            for row in await app.core.HostConfigRevisionStore.list({})
+        )
+
+    asyncio.run(run())

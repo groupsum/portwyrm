@@ -584,7 +584,16 @@ class RoutingHostStore(ManagedPortwyrmTable):
 
     @hook_ctx(ops="delete", phase="PRE_HANDLER")
     async def delete_aggregate_children(cls, ctx: dict[str, Any]) -> None:
-        await cls._replace_children(ctx["db"], int(ctx["payload"]["id"]), {})
+        host_id = int(ctx["payload"]["id"])
+        db = ctx["db"]
+        await cls._replace_children(db, host_id, {})
+        # These tables intentionally do not use database-level cascades: the
+        # routing aggregate owns their lifecycle, while audit rows and global
+        # generation records must remain durable. Remove host-specific runtime
+        # state before the root row so SQLite and PostgreSQL enforce the same
+        # referentially complete delete semantics.
+        for table in (ProxyHostHealthObservationStore, HostConfigRevisionStore):
+            await _await(db.execute(delete(table).where(table.routing_host_id == host_id)))
 
     HOOKS = (
         enable_payload,

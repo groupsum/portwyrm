@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority. Successful render, validation, reload, and Nginx process health MUST NOT be represented as proof that an individual upstream is reachable; per-host reachability is governed separately by spc:1018."
+summary: "Nginx reconciliation MUST be triggered after npmctl create, update, enable, disable, delete, and prune operations. Deletion MUST remove or retire generated host configuration and dependent runtime records according to the retention policy, validate the resulting aggregate, and preserve the last-known-good generation when a new reconciliation fails."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -21,12 +21,12 @@ status_notes:
     note: "Accepted as the normative T1/T2 implementation contract."
     status: "accepted"
   -
-    status: "accepted"
-    note: "Separated Nginx reconciliation success from upstream reachability."
     at: "2026-07-17T15:20:07Z"
+    note: "Separated Nginx reconciliation success from upstream reachability."
+    status: "accepted"
 references: []
 body: |-
-  Each desired-state change MUST create an idempotent reconciliation job. The reconciler MUST serialize mutation with a lease, render a complete deterministic generation, run nginx -t, atomically activate the candidate, reload Nginx, verify runtime health, and advance applied_generation only after success. Failure MUST retain the last-known-good generation and expose actionable retry, diagnostics, and rollback. Generated configuration is derived state, not authority. Successful render, validation, reload, and Nginx process health MUST NOT be represented as proof that an individual upstream is reachable; per-host reachability is governed separately by spc:1018.
+  Nginx reconciliation MUST be triggered after npmctl create, update, enable, disable, delete, and prune operations. Deletion MUST remove or retire generated host configuration and dependent runtime records according to the retention policy, validate the resulting aggregate, and preserve the last-known-good generation when a new reconciliation fails.
 spec_kind: "operational"
 adr_ids:
   - "adr:1001"

@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Canonical entities MUST model proxy, redirection, dead, and stream hosts, access lists, certificates, users, settings, audit events, desired generation, and applied generation independently from compatibility DTOs. Stable positive integer compatibility IDs and relationships MUST round-trip. meta.managed_by, meta.owner, and meta.resource_id MUST survive every adapter, export, import, and mutation; foreign-owned resources MUST remain conflict-safe."
+summary: "The canonical metadata keys meta.managed_by, meta.owner, and meta.resource_id MUST survive every npmctl round trip. Adoption and pruning MUST be explicit and owner-scoped. Delete and prune operations MUST be atomic with respect to owned dependent routing rows and runtime references: foreign-owned resources MUST remain untouched, and failed cleanup MUST return non-2xx without claiming convergence."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,12 +17,12 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the normative T1/T2 implementation contract."
     at: "2026-07-13T23:17:08Z"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    status: "accepted"
 references: []
 body: |-
-  Canonical entities MUST model proxy, redirection, dead, and stream hosts, access lists, certificates, users, settings, audit events, desired generation, and applied generation independently from compatibility DTOs. Stable positive integer compatibility IDs and relationships MUST round-trip. meta.managed_by, meta.owner, and meta.resource_id MUST survive every adapter, export, import, and mutation; foreign-owned resources MUST remain conflict-safe.
+  The canonical metadata keys meta.managed_by, meta.owner, and meta.resource_id MUST survive every npmctl round trip. Adoption and pruning MUST be explicit and owner-scoped. Delete and prune operations MUST be atomic with respect to owned dependent routing rows and runtime references: foreign-owned resources MUST remain untouched, and failed cleanup MUST return non-2xx without claiming convergence.
 spec_kind: "normative"
 adr_ids:
   - "adr:1000"

@@ -264,13 +264,23 @@ class TableResources:
             raise ValueError(f"collection {collection!r} does not support enable/disable")
         operation = table.enable if enabled else table.disable
         try:
-            row = await operation(
-                {"id": int(resource_id)},
-                ctx={"principal": actor},
-            )
+            if collection == "streams":
+                # Stream routes do not have an aggregate PRE_HANDLER like
+                # routing hosts do. Pass the lifecycle value explicitly so
+                # the compatibility toggle cannot silently persist the
+                # column's default value.
+                row = await table.update(
+                    {"id": int(resource_id), "enabled": bool(enabled)},
+                    ctx={"principal": actor},
+                )
+            else:
+                row = await operation(
+                    {"id": int(resource_id)},
+                    ctx={"principal": actor},
+                )
         except (LookupError, ValueError):
             return None
-        if collection in _HOST_KIND:
+        if collection in {*_HOST_KIND, "streams"}:
             return await self.get_resource(collection, resource_id)
         return self._project(collection, row)
 
@@ -363,6 +373,18 @@ class TableResources:
         if collection in _HOST_KIND:
             payload["kind"] = _HOST_KIND[collection]
             payload["enabled"] = int(row.get("enabled", payload.get("enabled", 1)))
+        if collection == "streams":
+            payload.update(
+                {
+                    "incoming_port": row["incoming_port"],
+                    "forwarding_host": row["target"],
+                    "forwarding_port": row["target_port"],
+                    "target_kind": row["target_kind"],
+                    "tcp_forwarding": row["protocol"] in {"tcp", "tcp+udp"},
+                    "udp_forwarding": row["protocol"] in {"udp", "tcp+udp"},
+                    "enabled": bool(row["enabled"]),
+                }
+            )
         if collection == "users":
             payload.update(
                 {

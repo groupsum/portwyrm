@@ -68,3 +68,6 @@ Live ACME staging issuance, renewal, and DNS-01 issuance remain credentialed ext
 they require a controlled public domain and provider account. Simulated success, failure,
 cleanup, wildcard admission, renewal-window, and material-publication behavior is covered,
 but is not described as live issuance evidence.
+## Current npmctl lifecycle replay
+
+The fresh 2026-07-19 `portwyrm:npmctl-verify` image passed the real npmctl suite with 7 selected tests passing and 2 deselected. This closes the routing-host deletion/prune foreign-key gap; the canonical evidence artifact is `.ssot/evidence/compat.npmctl/live-replay-2026-07-19.json`. Broader backend and resource-matrix coverage remains a p100 gate.

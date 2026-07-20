@@ -71,7 +71,7 @@ ownership is conflict-safe. Adoption and pruning remain explicit and owner-scope
 
 ## Authoritative-Tigrbl certification
 
-Verified 2026-07-16 against the current sibling `groupsum/npmctl` CLI and a fresh local image
+Verified 2026-07-19 against the current sibling `groupsum/npmctl` CLI and a fresh local image
 built from the lifecycle-hook refactor as `portwyrm:npmctl-current`:
 
 | npmctl command | Result |
@@ -84,12 +84,12 @@ built from the lifecycle-hook refactor as `portwyrm:npmctl-current`:
 | `drift` | `ok=true`, `drift_count=0` |
 | `audit-log` | Authentication, create, and applied-generation events returned |
 
-The sibling repository's complete opt-in real-NPM suite also passed against that image:
-`9 passed`. It covers authentication/health, access-list round trips, custom certificate
-records and proxy references, complete proxy-field readback and update, strict adoption,
-foreign-owner conflict safety, cleanup, and deletion. This replay found and closed two gaps:
-post-commit Nginx failure no longer misreports an already-durable CRUD mutation as failed, and
-omitted proxy WebSocket/block-exploit flags now use NPM-compatible false defaults.
+The sibling repository's real opt-in npmctl suite passed against the fresh image on 2026-07-19:
+`7 passed, 2 deselected`. It covers authentication/health, schema discovery, access-list and
+certificate reference lifecycles, proxy-field readback/update, strict adoption, foreign-owner
+conflict safety, domain collision protection, deletion, and owner-scoped prune. The replay
+initially exposed a SQLite foreign-key failure when deleting hosts with health/config dependents;
+the aggregate deletion hook now removes those owned dependents before the root row.
 
 The SQLite image also passed container restart persistence using only its `/data` volume: the
 Tigrbl-owned administrator credential and proxy host survived without bootstrap environment
@@ -97,3 +97,5 @@ variables, and `/ui/` remained available. A live disposable PostgreSQL 17 instan
 proved that Tigrbl-owned identity and proxy-host state survive application reconstruction. The
 MySQL gate still requires publication and installation of `tigrbl_engine_mysql` before equivalent
 restart evidence can be produced.
+
+The same 7-test replay also passed against the rebuilt PostgreSQL-backed image. SQLite and PostgreSQL are now verified for the current npmctl compatibility slice; MySQL/MariaDB remains the documented engine exception.

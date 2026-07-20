@@ -1,0 +1,17 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1016"
+number: 1016
+slug: "referentially-complete-npmctl-deletion"
+title: "Referentially complete npmctl deletion"
+status: "draft"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: npmctl treats deletion and owner-scoped pruning as successful reconciliation only when the resource and its dependent state are durably converged. Decision: implement compatibility deletion as a transactional aggregate operation that removes or detaches routing children and runtime artifacts, preserves required audit history, reconciles Nginx, and returns success only after the resource is absent. Consequences: direct table deletion is insufficient; dependency cleanup, owner scope, atomic rollback, and post-delete live evidence are mandatory. Governs: feat:compat.npmctl."
+supersedes: []
+superseded_by: []
+status_notes: []
+references: []
+body: |-
+  Context: npmctl treats deletion and owner-scoped pruning as successful reconciliation only when the resource and its dependent state are durably converged. Decision: implement compatibility deletion as a transactional aggregate operation that removes or detaches routing children and runtime artifacts, preserves required audit history, reconciles Nginx, and returns success only after the resource is absent. Consequences: direct table deletion is insufficient; dependency cleanup, owner scope, atomic rollback, and post-delete live evidence are mandatory. Governs: feat:compat.npmctl.

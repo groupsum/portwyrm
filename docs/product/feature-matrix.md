@@ -170,3 +170,6 @@ Exact method/path inventory is in [S5]. Compatibility must be driven by recorded
 - [S16 — Security/support policy](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/76f09db610cfcaecf6d608a8947d6f75aa028870/SECURITY.md)
 - [S17 — Official upgrading documentation](https://nginxproxymanager.com/upgrading/)
 - [S18 — MIT license](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/76f09db610cfcaecf6d608a8947d6f75aa028870/LICENSE)
+### Current npmctl verification slice
+
+A fresh Portwyrm image passed 7 selected npmctl E2E tests, including owner-scoped deletion and prune. Full p100 completion still requires the broader resource and backend matrices.
