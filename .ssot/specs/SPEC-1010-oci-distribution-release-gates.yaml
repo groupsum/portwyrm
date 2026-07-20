@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Portwyrm SHALL publish only from a protected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE tag to ghcr.io/groupsum/portwyrm. Human-facing aliases SHALL be normalized semver MAJOR.MINOR.PATCH, MAJOR.MINOR, and MAJOR; stable releases MAY additionally receive latest, while prereleases MUST NOT receive latest or stable aliases. Branch, arbitrary ref, short SHA, and edge tags are not publication channels. The full multi-architecture digest is the deployment identity."
+summary: "Portwyrm SHALL publish only from a protected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE tag to ghcr.io/groupsum/portwyrm. Human-facing aliases SHALL be normalized SemVer MAJOR.MINOR.PATCH, MAJOR.MINOR, and MAJOR; stable releases MAY additionally receive latest, while prereleases MUST NOT receive latest or stable aliases. Branch, master, edge, arbitrary ref, short SHA, and CI tags are not publication channels. The complete OCI digest reference is the immutable deployment and rollback identity."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -29,14 +29,20 @@ status_notes:
     note: "Extended on 2026-07-20 with canonical GHCR naming, immutable digest deployment identity, release-only publication, fail-closed gates, keyless signing, attestation verification, and explicit registry-cleanup controls."
     status: "accepted"
   -
-    status: "accepted"
-    note: "Extended on 2026-07-20 with canonical GHCR naming, immutable digest deployment identity, release-only publication, fail-closed gates, keyless signing, attestation verification, and explicit registry-cleanup controls."
     at: "2026-07-20T19:41:17Z"
+    note: "Extended on 2026-07-20 with canonical GHCR naming, immutable digest deployment identity, release-only publication, fail-closed gates, keyless signing, attestation verification, and explicit registry-cleanup controls."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Updated on 2026-07-20 with exact SemVer channel rules, digest-only deployment identity, Cosign and attestation retention, promotion sequencing, and legacy-channel retirement."
+    at: "2026-07-20T20:53:34Z"
 references: []
 body: |-
-  Portwyrm SHALL publish only from a protected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE tag to ghcr.io/groupsum/portwyrm. Human-facing aliases SHALL be normalized semver MAJOR.MINOR.PATCH, MAJOR.MINOR, and MAJOR; stable releases MAY additionally receive latest, while prereleases MUST NOT receive latest or stable aliases. Branch, arbitrary ref, short SHA, and edge tags are not publication channels. The full multi-architecture digest is the deployment identity.
+  Portwyrm SHALL publish only from a protected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE tag to ghcr.io/groupsum/portwyrm. Human-facing aliases SHALL be normalized SemVer MAJOR.MINOR.PATCH, MAJOR.MINOR, and MAJOR; stable releases MAY additionally receive latest, while prereleases MUST NOT receive latest or stable aliases. Branch, master, edge, arbitrary ref, short SHA, and CI tags are not publication channels. The complete OCI digest reference is the immutable deployment and rollback identity.
   
-  Pull requests MUST build and scan without publishing, signing, attesting, or writing to GHCR. Before publication, database persistence, protocol, and vulnerability gates MUST pass. Published linux/amd64 and linux/arm64 images MUST carry OCI source, revision, version, and creation metadata, an SBOM, maximally detailed build provenance, and a keyless Sigstore/Cosign signature. Promotion MUST be followed by anonymous pull, signature verification, and GitHub provenance-attestation verification. Rollback MUST pin a previously verified digest and MUST NOT rewrite or retag a release. Legacy and untagged manifests require an explicit inventory and owner-scoped cleanup operation.
+  Pull requests and branch pushes MUST build and scan without publishing, signing, attesting, or writing to GHCR. Before promotion, database persistence, protocol, and vulnerability gates MUST pass. Published linux/amd64 and linux/arm64 images MUST carry OCI source, revision, version, and creation metadata, an SBOM, and maximally detailed GitHub Actions build provenance. The promoted digest MUST receive a keyless Sigstore/Cosign signature and registry attestation. Verification MUST pull anonymously and validate the signature and provenance against the digest and release workflow identity.
+  
+  Tag aliases MUST point to the same verified digest and MUST NOT be used as deployment identity. Stable aliases are MAJOR.MINOR.PATCH, MAJOR.MINOR, MAJOR, and latest. A prerelease receives only its exact normalized prerelease tag. Rollback MUST pin a previously verified digest and MUST NOT rewrite a release tag. Signature and attestation objects SHALL be retained with each protected release digest. Untagged manifests and legacy aliases require an explicit owner-scoped inventory, retention window, deletion record, and post-delete verification. The historical 0.1.0a0/edge group remains a temporary legacy exception until the first compliant SemVer release is published and verified.
 spec_kind: "governance"
 adr_ids:
   - "adr:1007"

@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Context: partial parity must not be labeled as the finished replacement. Decision: define 1.0.0 as the p100 MVP and require signed amd64/arm64 OCI images, SBOM, provenance, vulnerability evidence, recovery drills, and certified compatibility profiles. Consequences: prereleases are delivery milestones and every matrix row must be implemented, explicitly excluded from the frozen profile, or block GA. Governs: feat:distribution.oci and every feature in prf:portwyrm.p100."
+summary: "Context: Portwyrm inherited a registry state containing floating edge, branch, short-SHA, prerelease, digest, signature, and untagged OCI artifacts. Treating those references as equivalent makes deployment identity, release support, rollback, and integrity verification ambiguous."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,9 +17,19 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
     at: "2026-07-13T23:15:50Z"
+    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Updated on 2026-07-20 with canonical OCI tag taxonomy, digest identity, Cosign artifact retention, promotion gates, and legacy edge-channel retirement."
+    at: "2026-07-20T20:53:33Z"
 references: []
 body: |-
-  Context: partial parity must not be labeled as the finished replacement. Decision: define 1.0.0 as the p100 MVP and require signed amd64/arm64 OCI images, SBOM, provenance, vulnerability evidence, recovery drills, and certified compatibility profiles. Consequences: prereleases are delivery milestones and every matrix row must be implemented, explicitly excluded from the frozen profile, or block GA. Governs: feat:distribution.oci and every feature in prf:portwyrm.p100.
+  Context: Portwyrm inherited a registry state containing floating edge, branch, short-SHA, prerelease, digest, signature, and untagged OCI artifacts. Treating those references as equivalent makes deployment identity, release support, rollback, and integrity verification ambiguous.
+  
+  Decision: ghcr.io/groupsum/portwyrm SHALL have one canonical publication model. A protected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-PRERELEASE Git tag is the only publication trigger. Normalized SemVer tags are navigation aliases: MAJOR.MINOR.PATCH, MAJOR.MINOR, and MAJOR; stable releases additionally receive latest. Prereleases receive no stable aliases. edge, master, arbitrary SHA, and CI tags are not public channels. The immutable deployment and rollback identity is the complete OCI digest reference, not a tag.
+  
+  Every promoted digest SHALL be built for linux/amd64 and linux/arm64, carry SBOM and provenance, pass vulnerability and runtime gates, and receive a keyless Cosign signature and registry attestation. Verification SHALL be performed against the digest. Cosign signature and attestation objects are subordinate integrity artifacts and SHALL be retained with their protected release digest. Untagged objects may be removed only after owner-scoped classification and the retention window. The historical 0.1.0a0/edge group is a temporary legacy exception and SHALL be retired after the first compliant SemVer release is published and verified.
+  
+  Consequences: operators use tags for discovery and upgrades but deploy by digest. Rollback is a digest change and never a tag rewrite. Pull requests and branch pushes cannot mutate GHCR. Registry cleanup is an explicit, auditable operation rather than an implicit side effect of publication.
