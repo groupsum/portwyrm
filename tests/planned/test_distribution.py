@@ -55,3 +55,41 @@ def test_container_vulnerability_scan_fails_closed_and_retains_evidence() -> Non
     assert "output: trivy-results.sarif" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
     assert "uses: github/codeql-action/upload-sarif@v3" in workflow
+
+def test_container_publication_has_only_protected_semver_channels() -> None:
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "container.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'tags: ["v*"]' in workflow
+    assert "branches:" not in workflow
+    assert "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" in workflow
+    assert "type=semver,pattern={{version}}" in workflow
+    assert "type=semver,pattern={{major}}.{{minor}}" in workflow
+    assert "type=semver,pattern={{major}}" in workflow
+    assert "type=ref,event=branch" not in workflow
+    assert "type=ref,event=tag" not in workflow
+    assert "type=sha" not in workflow
+    assert "value=latest,enable=" in workflow
+
+
+def test_pull_requests_cannot_publish_or_sign() -> None:
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "container.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "permissions:\n  contents: read" in workflow
+    assert "push: " + "$" + "{{ github.event_name != 'pull_request' }}" in workflow
+    assert "if: github.event_name != 'pull_request'\n        env:\n          DIGEST" in workflow
+    assert "if: github.event_name != 'pull_request'\n        uses: actions/attest@v4" in workflow
+
+
+def test_container_build_forwards_reproducible_oci_metadata() -> None:
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "container.yml").read_text(
+        encoding="utf-8"
+    )
+    dockerfile = (Path(__file__).parents[2] / "Dockerfile").read_text(encoding="utf-8")
+
+    for argument in ("OCI_REVISION", "OCI_VERSION", "OCI_SOURCE", "OCI_CREATED"):
+        assert argument in workflow
+        assert argument in dockerfile
