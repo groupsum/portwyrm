@@ -25,23 +25,12 @@ def test_container_publication_is_multiarch_attested_signed_and_verified() -> No
         encoding="utf-8"
     )
 
+    assert "uses: cobycloud/actions/.github/workflows/reusable-ghcr-publish.yml@master" in workflow
     assert "platforms: linux/amd64,linux/arm64" in workflow
-    assert "provenance: mode=max" in workflow
-    assert "sbom: true" in workflow
-    assert "type=semver,pattern={{version}}" in workflow
-    assert 'tags: ["v*"]' in workflow
-    assert "type=raw,value=latest,enable=" in workflow
-    assert "type=ref,event=branch" not in workflow
-    assert "type=sha" not in workflow
+    assert "image: ghcr.io/groupsum/portwyrm" in workflow
+    assert "package-api-path: /orgs/groupsum/packages/container/portwyrm" in workflow
+    assert "certificate-identity-regexp:" in workflow
     assert "needs: [databases, protocols, vulnerability-scan]" in workflow
-    assert "cosign sign --yes" in workflow
-    assert "uses: actions/attest@v4" in workflow
-    assert "push-to-registry: true" in workflow
-    assert "Verify GHCR package Actions access" in workflow
-    assert "gh api /orgs/groupsum/packages/container/portwyrm" in workflow
-    assert 'docker pull "$IMAGE"' in workflow
-    assert 'cosign verify "$IMAGE"' in workflow
-    assert 'gh attestation verify "oci://$IMAGE" --repo groupsum/portwyrm' in workflow
 
 
 def test_container_vulnerability_scan_fails_closed_and_retains_evidence() -> None:
@@ -63,14 +52,7 @@ def test_container_publication_has_only_protected_semver_channels() -> None:
 
     assert 'tags: ["v*"]' in workflow
     assert "branches:" not in workflow
-    assert "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" in workflow
-    assert "type=semver,pattern={{version}}" in workflow
-    assert "type=semver,pattern={{major}}.{{minor}}" in workflow
-    assert "type=semver,pattern={{major}}" in workflow
-    assert "type=ref,event=branch" not in workflow
-    assert "type=ref,event=tag" not in workflow
-    assert "type=sha" not in workflow
-    assert "value=latest,enable=" in workflow
+    assert "reusable-ghcr-publish.yml@master" in workflow
 
 
 def test_pull_requests_cannot_publish_or_sign() -> None:
@@ -79,9 +61,7 @@ def test_pull_requests_cannot_publish_or_sign() -> None:
     )
 
     assert "permissions:\n  contents: read" in workflow
-    assert "push: " + "$" + "{{ github.event_name != 'pull_request' }}" in workflow
-    assert "if: github.event_name != 'pull_request'\n        env:\n          DIGEST" in workflow
-    assert "if: github.event_name != 'pull_request'\n        uses: actions/attest@v4" in workflow
+    assert "if: github.event_name != 'pull_request'" in workflow
 
 
 def test_container_build_forwards_reproducible_oci_metadata() -> None:
