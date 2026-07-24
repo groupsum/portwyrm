@@ -91,7 +91,7 @@ jobs:
       image: ghcr.io/groupsum/portwyrm
       platforms: linux/amd64,linux/arm64
       package-api-path: /orgs/groupsum/packages/container/portwyrm
-      certificate-identity-regexp: ^https://github.com/groupsum/portwyrm/.github/workflows/container.yml@refs/tags/v.*$
+      certificate-identity-regexp: ^https://github.com/cobycloud/actions/.github/workflows/reusable-ghcr-publish.yml@refs/heads/master$
       build-args: |
         OCI_REVISION=${{ github.sha }}
         OCI_VERSION=${{ github.ref_name }}
