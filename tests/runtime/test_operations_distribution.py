@@ -42,11 +42,10 @@ def test_distribution_workflow_retains_fail_closed_supply_chain_gates() -> None:
         encoding="utf-8"
     )
     for contract in (
+        "cobycloud/actions/.github/workflows/reusable-ghcr-publish.yml@master",
         "linux/amd64,linux/arm64",
-        "sbom: true",
-        "provenance: mode=max",
-        "cosign sign --yes",
-        "actions/attest@v4",
+        "ghcr.io/groupsum/portwyrm",
+        "certificate-identity-regexp:",
         'exit-code: "1"',
     ):
         assert contract in workflow
