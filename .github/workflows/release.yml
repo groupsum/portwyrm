@@ -3,6 +3,7 @@ name: Python Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,18 +39,24 @@ jobs:
 
   publish:
     needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
     permissions:
       contents: read
       actions: read
       id-token: write
-    uses: cobycloud/actions/.github/workflows/reusable-pypi-publish.yml@master
-    with:
-      environment: pypi
-      publish-mode: trusted
-      artifact-name: python-distributions
-      packages-dir: dist
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - uses: cobycloud/actions/actions/pypi-trusted-publish@master
+        with:
+          packages-dir: dist
+          skip-existing: true
 
   github-release:
+    if: github.ref_type == 'tag'
     needs: publish
     runs-on: ubuntu-latest
     permissions:
