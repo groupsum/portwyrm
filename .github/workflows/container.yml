@@ -77,96 +77,23 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-  build:
+  publish:
+    if: github.event_name != 'pull_request'
     needs: [databases, protocols, vulnerability-scan]
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
       artifact-metadata: write
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate release tag
-        if: github.event_name != 'pull_request'
-        run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Unsupported release tag: $GITHUB_REF_NAME" >&2
-            exit 1
-          fi
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: sigstore/cosign-installer@v3
-      - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify GHCR package Actions access
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api /orgs/groupsum/packages/container/portwyrm > /dev/null
-      - uses: docker/metadata-action@v6
-        id: meta
-        with:
-          images: ghcr.io/groupsum/portwyrm
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
-      - uses: docker/build-push-action@v6
-        id: push
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            OCI_REVISION=${{ github.sha }}
-            OCI_VERSION=${{ github.ref_name }}
-            OCI_SOURCE=https://github.com/${{ github.repository }}
-            OCI_CREATED=${{ github.event.head_commit.timestamp || '' }}
-          provenance: mode=max
-          sbom: true
-      - name: Sign immutable GHCR digest
-        if: github.event_name != 'pull_request'
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
-        run: cosign sign --yes "ghcr.io/groupsum/portwyrm@${DIGEST}"
-      - name: Attest immutable GHCR provenance
-        if: github.event_name != 'pull_request'
-        uses: actions/attest@v4
-        with:
-          subject-name: ghcr.io/groupsum/portwyrm
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
-
-  verify-published:
-    if: github.event_name != 'pull_request'
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: sigstore/cosign-installer@v3
-      - name: Pull the public immutable image without registry credentials
-        env:
-          IMAGE: ghcr.io/groupsum/portwyrm@${{ needs.build.outputs.digest }}
-        run: docker pull "$IMAGE"
-      - name: Verify the keyless image signature
-        env:
-          IMAGE: ghcr.io/groupsum/portwyrm@${{ needs.build.outputs.digest }}
-        run: >-
-          cosign verify "$IMAGE"
-          --certificate-identity-regexp '^https://github.com/groupsum/portwyrm/.github/workflows/container.yml@refs/tags/v.*$'
-          --certificate-oidc-issuer https://token.actions.githubusercontent.com
-      - name: Verify GitHub build provenance
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE: ghcr.io/groupsum/portwyrm@${{ needs.build.outputs.digest }}
-        run: gh attestation verify "oci://$IMAGE" --repo groupsum/portwyrm
+    uses: cobycloud/actions/.github/workflows/reusable-ghcr-publish.yml@master
+    with:
+      image: ghcr.io/groupsum/portwyrm
+      platforms: linux/amd64,linux/arm64
+      package-api-path: /orgs/groupsum/packages/container/portwyrm
+      certificate-identity-regexp: ^https://github.com/groupsum/portwyrm/.github/workflows/container.yml@refs/tags/v.*$
+      build-args: |
+        OCI_REVISION=${{ github.sha }}
+        OCI_VERSION=${{ github.ref_name }}
+        OCI_SOURCE=https://github.com/${{ github.repository }}
+        OCI_CREATED=${{ github.event.head_commit.timestamp || '' }}
