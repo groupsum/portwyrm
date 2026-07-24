@@ -59,6 +59,8 @@ def test_uix_assets_are_owned_and_packaged_by_uix() -> None:
             "static/*.html",
             "static/*.css",
             "static/*.js",
+            "static/*.png",
+            "static/*.ico",
             "static/assets/*.css",
             "static/assets/*.js",
         ]
