@@ -40,7 +40,7 @@ def test_legacy_root_modules_and_ui_collision_are_absent() -> None:
 
 def test_uix_assets_are_owned_and_packaged_by_uix() -> None:
     static = PACKAGE_ROOT / "uix" / "static"
-    assert {path.name for path in static.iterdir()} == {"assets", "index.html"}
+    assert {path.name for path in static.iterdir()} == {\n        "apple-touch-icon.png",\n        "assets",\n        "favicon-16x16.png",\n        "favicon-32x32.png",\n        "favicon.ico",\n        "index.html",\n        "portwyrm-mark.png",\n    }
     assets = {path.suffix for path in (static / "assets").iterdir()}
     assert assets == {".js", ".css"}
 
