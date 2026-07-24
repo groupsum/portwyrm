@@ -10,8 +10,8 @@ def test_container_distribution_declares_runtime_and_health_contract() -> None:
     assert "PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE=/data/bootstrap-admin.json" in dockerfile
     assert "PORTWYRM_INITIAL_ADMIN_PASSWORD=" not in dockerfile
     assert 'ENTRYPOINT ["python", "/app/deploy/entrypoint.py"]' in dockerfile
-    assert 'org.opencontainers.image.source=' in dockerfile
-    assert 'org.opencontainers.image.revision=' in dockerfile
+    assert "org.opencontainers.image.source=" in dockerfile
+    assert "org.opencontainers.image.revision=" in dockerfile
 
 
 def test_ui_favicons_are_included_in_package_data() -> None:
@@ -44,6 +44,7 @@ def test_container_vulnerability_scan_fails_closed_and_retains_evidence() -> Non
     assert "output: trivy-results.sarif" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
     assert "uses: github/codeql-action/upload-sarif@v3" in workflow
+
 
 def test_container_publication_has_only_protected_semver_channels() -> None:
     workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "container.yml").read_text(

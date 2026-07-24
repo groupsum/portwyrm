@@ -62,17 +62,17 @@ def test_npmctl_resource_matrix_covers_non_proxy_collections(tmp_path) -> None:
             actor=actor,
         )
 
-        assert (
-            await resources.get_resource("redirection_hosts", redirect["id"])
-        )["kind"] == "redirect"
+        assert (await resources.get_resource("redirection_hosts", redirect["id"]))[
+            "kind"
+        ] == "redirect"
         assert (await resources.get_resource("dead_hosts", dead["id"]))["kind"] == "dead"
         assert (await resources.get_resource("streams", stream["id"]))["incoming_port"] == 19091
-        assert (
-            await resources.get_resource("settings", setting["id"])
-        )["value"] == {"enabled": True}
-        assert (
-            await resources.get_resource("users", user["id"])
-        )["email"] == "matrix-user@example.test"
+        assert (await resources.get_resource("settings", setting["id"]))["value"] == {
+            "enabled": True
+        }
+        assert (await resources.get_resource("users", user["id"]))[
+            "email"
+        ] == "matrix-user@example.test"
 
         changed_redirect = await resources.update_resource(
             "redirection_hosts", redirect["id"], {"forward_http_code": 301}, actor=actor

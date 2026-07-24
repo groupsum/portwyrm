@@ -85,7 +85,5 @@ class PortwyrmSettings:
             host_probe_http_timeout_seconds=max(
                 0.1, float(os.getenv("PORTWYRM_HOST_PROBE_HTTP_TIMEOUT_SECONDS", "5"))
             ),
-            host_probe_concurrency=max(
-                1, int(os.getenv("PORTWYRM_HOST_PROBE_CONCURRENCY", "20"))
-            ),
+            host_probe_concurrency=max(1, int(os.getenv("PORTWYRM_HOST_PROBE_CONCURRENCY", "20"))),
         )

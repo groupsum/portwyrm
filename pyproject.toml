@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portwyrm"
-version = "0.1.0a0"
+version = "0.1.0a1"
 description = "A self-hosted, npmctl-compatible reverse proxy control plane and UI."
 readme = "README.md"
 requires-python = ">=3.12,<3.15"

@@ -336,6 +336,7 @@ def test_table_modules_do_not_reimplement_kernel_persistence() -> None:
     assert "def update_compat" not in source
     assert "def delete_compat" not in source
 
+
 def test_routing_host_delete_removes_config_revisions_before_root(tmp_path: Path) -> None:
     async def run() -> None:
         app = await _app(tmp_path / "delete-revisions.sqlite")
