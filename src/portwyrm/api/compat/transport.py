@@ -151,7 +151,7 @@ class CompatibilityTigrblRouter(_CompatibilityRouteMixin, PortwyrmRouter):
 PortwyrmApp = deriveApp(
     title="Portwyrm",
     description="Self-hosted reverse-proxy control plane",
-    version="0.1.0a0",
+    version="0.1.0a2",
     execution_backend="auto",
 )
 
