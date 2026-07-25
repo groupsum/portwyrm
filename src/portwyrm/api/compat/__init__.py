@@ -60,7 +60,7 @@ def create_compat_app(
     service: CompatibilityService | None = None,
     *,
     tokens: TokenService | None = None,
-    version: str = "0.1.0a2",
+    version: str = "0.1.0a3",
     authenticator: Any | None = None,
     certificates: Any | None = None,
     certificate_factory: Callable[[TigrblApp, CompatibilityService], Any] | None = None,

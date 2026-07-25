@@ -197,6 +197,22 @@ def _wait_http(
         time.sleep(0.2)
 
 
+def _wait_http_connection_closed(port: int, host: str, path: str) -> None:
+    deadline = time.monotonic() + 10
+    request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode()
+    while True:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1) as connection:
+                connection.sendall(request)
+                if connection.recv(1) == b"":
+                    return
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"Nginx route for {host}{path} did not close the connection")
+        time.sleep(0.2)
+
+
 def _wait_tcp_echo(port: int, message: bytes) -> None:
     deadline = time.monotonic() + 10
     while True:
@@ -290,13 +306,7 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
         control_ui = _http(api_port, "127.0.0.1", "/ui/")
         assert control_ui[0] == 200
         assert b"Portwyrm Control Plane" in control_ui[2]
-        data_plane_ui = _wait_http(
-            http_port,
-            "127.0.0.1",
-            "/ui/",
-            lambda result: result[0] in {200, 301, 302, 307, 308, 404},
-        )
-        assert b"Portwyrm Control Plane" not in data_plane_ui[2]
+        _wait_http_connection_closed(http_port, "127.0.0.1", "/ui/")
         login = _json_request(
             f"http://127.0.0.1:{api_port}/api/tokens",
             method="POST",
