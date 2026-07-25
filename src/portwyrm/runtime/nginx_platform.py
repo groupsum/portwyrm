@@ -79,8 +79,7 @@ def render_default_site(platform: PlatformConfig) -> str:
     mode = platform.default_site
     if mode == "congratulations":
         body = (
-            "default_type text/plain;\n"
-            '    return 200 "Congratulations! Portwyrm is running.\\n";'
+            'default_type text/plain;\n    return 200 "Congratulations! Portwyrm is running.\\n";'
         )
     elif mode in {"404", "444"}:
         body = f"return {mode};"

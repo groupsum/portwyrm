@@ -182,12 +182,15 @@ def test_unmatched_hosts_are_silent_by_default() -> None:
 
 
 def test_opt_in_congratulations_site_is_plain_text() -> None:
-    config = NginxRenderer(PlatformConfig(default_site="congratulations")).render().files[
-        "http/default.conf"
-    ]
+    config = (
+        NginxRenderer(PlatformConfig(default_site="congratulations"))
+        .render()
+        .files["http/default.conf"]
+    )
 
     assert "default_type text/plain;" in config
     assert 'return 200 "Congratulations! Portwyrm is running.\\n";' in config
+
 
 def test_render_is_deterministic_across_input_order() -> None:
     first = ProxyHost(2, ["b.example.com"], "http", "b", 80)
