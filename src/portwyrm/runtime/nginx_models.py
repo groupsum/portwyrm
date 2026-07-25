@@ -14,7 +14,7 @@ class PlatformConfig:
     resolver_enabled: bool = True
     resolver_addresses: tuple[str, ...] = ("127.0.0.11",)
     trusted_proxy_ranges: tuple[str, ...] = ()
-    default_site: str = "congratulations"
+    default_site: str = "444"
     default_redirect: str = ""
     default_html: str = ""
     custom_includes: Mapping[str, str] = field(default_factory=dict)

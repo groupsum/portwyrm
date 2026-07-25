@@ -78,7 +78,10 @@ def render_trusted_proxies(platform: PlatformConfig) -> str:
 def render_default_site(platform: PlatformConfig) -> str:
     mode = platform.default_site
     if mode == "congratulations":
-        body = 'return 200 "Congratulations! Portwyrm is running.\\n";'
+        body = (
+            "default_type text/plain;\n"
+            '    return 200 "Congratulations! Portwyrm is running.\\n";'
+        )
     elif mode in {"404", "444"}:
         body = f"return {mode};"
     elif mode == "redirect":

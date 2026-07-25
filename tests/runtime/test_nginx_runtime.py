@@ -173,6 +173,22 @@ def test_redirect_dead_stream_and_platform_rendering() -> None:
     assert rendered.files["custom/root_top.conf"].startswith("load_module")
 
 
+def test_unmatched_hosts_are_silent_by_default() -> None:
+    config = NginxRenderer().render().files["http/default.conf"]
+
+    assert "listen 80 default_server" in config
+    assert "return 444;" in config
+    assert "Congratulations" not in config
+
+
+def test_opt_in_congratulations_site_is_plain_text() -> None:
+    config = NginxRenderer(PlatformConfig(default_site="congratulations")).render().files[
+        "http/default.conf"
+    ]
+
+    assert "default_type text/plain;" in config
+    assert 'return 200 "Congratulations! Portwyrm is running.\\n";' in config
+
 def test_render_is_deterministic_across_input_order() -> None:
     first = ProxyHost(2, ["b.example.com"], "http", "b", 80)
     second = ProxyHost(1, ["a.example.com"], "http", "a", 80)
