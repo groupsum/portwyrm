@@ -154,7 +154,10 @@ def _websocket_echo(port: int, host: str, message: bytes) -> bytes:
         )
         handshake = b""
         while b"\r\n\r\n" not in handshake:
-            handshake += connection.recv(4096)
+            chunk = connection.recv(4096)
+            if not chunk:
+                raise AssertionError("WebSocket handshake connection closed before a response")
+            handshake += chunk
         assert handshake.startswith(b"HTTP/1.1 101")
         expected_accept = base64.b64encode(
             hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
@@ -199,13 +202,11 @@ def _wait_http(
 
 def _wait_http_connection_closed(port: int, host: str, path: str) -> None:
     deadline = time.monotonic() + 10
-    request = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode()
     while True:
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1) as connection:
-                connection.sendall(request)
-                if connection.recv(1) == b"":
-                    return
+            _http(port, host, path)
+        except http.client.RemoteDisconnected:
+            return
         except OSError:
             pass
         if time.monotonic() >= deadline:
