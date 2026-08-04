@@ -91,6 +91,7 @@ jobs:
     with:
       image: ghcr.io/groupsum/portwyrm
       platforms: linux/amd64,linux/arm64
+      tag-regex: ^v[0-9]+\.[0-9]+\.[0-9]+(a[0-9]+|-[0-9A-Za-z.-]+)?$
       package-api-path: /orgs/groupsum/packages/container/portwyrm
       certificate-identity-regexp: ^https://github.com/cobycloud/actions/.github/workflows/reusable-ghcr-publish.yml@refs/heads/master$
       build-args: |
