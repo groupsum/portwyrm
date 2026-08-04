@@ -89,6 +89,7 @@ _RECONCILE_TABLES = {
     "routing_locations",
     "routing_host_access_lists",
     "stream_routes",
+    "quic_passthrough_routes",
     "settings",
 }
 _RECONCILE_COLLECTION = {
@@ -103,6 +104,7 @@ _RECONCILE_COLLECTION = {
     "certificate_domains": "certificates",
     "certificate_challenges": "certificates",
     "stream_routes": "streams",
+    "quic_passthrough_routes": "quic_passthrough_hosts",
     "settings": "settings",
 }
 _SECTION_BY_TABLE = {
@@ -110,6 +112,7 @@ _SECTION_BY_TABLE = {
     "certificates": "certificates",
     "routing_hosts": "proxy_hosts",
     "stream_routes": "streams",
+    "quic_passthrough_routes": "streams",
 }
 _ACTION_BY_ALIAS = {
     "create": "create",

@@ -13,6 +13,7 @@ from .health import ProxyHostHealthObservationStore
 from .mfa import MFABeginResult, MFAEnrollmentStore
 from .migrations import SchemaMigrationStore
 from .principals import BrowserSessionStore, CredentialStore, PrincipalStore, SecurityPrincipal
+from .quic_passthrough import QuicPassthroughRouteStore, canonical_server_name
 from .rbac import PermissionStore, RoleStore
 from .registry import PORTWYRM_TABLES
 from .routing import (
@@ -78,6 +79,7 @@ __all__ = [
     "ProxyHost",
     "ProxyHostHealthObservationStore",
     "ProxyLocation",
+    "QuicPassthroughRouteStore",
     "ReconcileResult",
     "ReconcileStore",
     "RedirectScheme",
@@ -96,4 +98,5 @@ __all__ = [
     "StreamRouteStore",
     "TargetKind",
     "canonical_domains",
+    "canonical_server_name",
 ]

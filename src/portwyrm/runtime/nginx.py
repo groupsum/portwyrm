@@ -18,6 +18,7 @@ from .nginx_platform import (
     render_trusted_proxies,
 )
 from .nginx_primitives import merge_access_lists, render_htpasswd
+from .nginx_quic import render_quic_routes
 from .nginx_stream import render_stream
 
 CUSTOM_INCLUDE_NAMES = (
@@ -49,6 +50,7 @@ class NginxRenderer:
         redirection_hosts: Iterable[RedirectionHost] = (),
         dead_hosts: Iterable[DeadHost] = (),
         streams: Iterable[Stream] = (),
+        quic_passthrough_hosts: Iterable[object] = (),
         access_lists: Iterable[AccessList] = (),
     ) -> RenderedConfiguration:
         access_lists = tuple(access_lists)
@@ -60,6 +62,7 @@ class NginxRenderer:
             "include/trusted-proxies.conf": self.render_trusted_proxies(),
             "conf.d/include/proxy.conf": self.render_proxy_include(),
             "conf.d/include/block-exploits.conf": self.render_block_exploits(),
+            "quic/routes.json": render_quic_routes(quic_passthrough_hosts),
             **{f"custom/{name}.conf": "" for name in CUSTOM_INCLUDE_NAMES},
         }
         if self.platform.default_site == "html":

@@ -17,6 +17,16 @@ from portwyrm.api.security import TableSecurityDependencies
 PortwyrmNativeRouter = CompatibilityTigrblRouter
 
 
+def _quic_payload(payload: dict[str, Any], *, resource_id: int | None = None) -> dict[str, Any]:
+    candidate = {key: value for key, value in payload.items() if key != "meta"}
+    meta = payload.get("meta")
+    if isinstance(meta, dict):
+        candidate["metadata_json"] = {"extensions": {"meta": meta}}
+    if resource_id is not None:
+        candidate["id"] = resource_id
+    return candidate
+
+
 def create_native_router(resources: TableResources, backend: str) -> PortwyrmNativeRouter:
     router = PortwyrmNativeRouter()
     principal_dependency = TableSecurityDependencies(resources.app.state.token_store).principal
@@ -75,6 +85,66 @@ def create_native_router(resources: TableResources, backend: str) -> PortwyrmNat
             "\n".join(lines) + "\n",
             headers={"content-type": "text/plain; version=0.0.4; charset=utf-8"},
         )
+
+    @router.get("/api/v2/capabilities")
+    async def capabilities() -> dict[str, Any]:
+        return {
+            "provider": "portwyrm",
+            "capability_version": 1,
+            "quic_sni_passthrough": {
+                "supported": True,
+                "quic_versions": ["v1", "v2"],
+                "hostname_routing": True,
+                "tls_termination": False,
+                "connection_affinity": "client-address",
+            },
+        }
+
+    @router.get("/api/v2/quic-passthrough-hosts")
+    async def list_quic_routes(
+        principal: Any = Depends(principal_dependency),
+    ) -> list[dict[str, Any]]:
+        return await resources.app.core.QuicPassthroughRouteStore.list(
+            {}, ctx={"principal": principal}
+        )
+
+    @router.post("/api/v2/quic-passthrough-hosts", status_code=HTTPStatus.CREATED)
+    async def create_quic_route(
+        payload: dict[str, Any], principal: Any = Depends(principal_dependency)
+    ) -> dict[str, Any]:
+        await resources.app.core.QuicPassthroughRouteStore.validate(payload)
+        return await resources.app.core.QuicPassthroughRouteStore.create(
+            _quic_payload(payload), ctx={"principal": principal}
+        )
+
+    @router.get("/api/v2/quic-passthrough-hosts/{resource_id}")
+    async def read_quic_route(
+        resource_id: int, principal: Any = Depends(principal_dependency)
+    ) -> dict[str, Any]:
+        return await resources.app.core.QuicPassthroughRouteStore.read(
+            {"id": resource_id}, ctx={"principal": principal}
+        )
+
+    @router.put("/api/v2/quic-passthrough-hosts/{resource_id}")
+    async def update_quic_route(
+        resource_id: int,
+        payload: dict[str, Any],
+        principal: Any = Depends(principal_dependency),
+    ) -> dict[str, Any]:
+        candidate = _quic_payload(payload, resource_id=resource_id)
+        await resources.app.core.QuicPassthroughRouteStore.validate(candidate)
+        return await resources.app.core.QuicPassthroughRouteStore.update(
+            candidate, ctx={"principal": principal}
+        )
+
+    @router.delete("/api/v2/quic-passthrough-hosts/{resource_id}")
+    async def delete_quic_route(
+        resource_id: int, principal: Any = Depends(principal_dependency)
+    ) -> dict[str, bool]:
+        await resources.app.core.QuicPassthroughRouteStore.delete(
+            {"id": resource_id}, ctx={"principal": principal}
+        )
+        return {"deleted": True}
 
     @router.get("/api/v2/proxy-hosts/status")
     async def proxy_host_statuses(principal: Any = Depends(principal_dependency)) -> dict[str, Any]:

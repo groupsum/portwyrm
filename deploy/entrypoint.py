@@ -65,6 +65,22 @@ def main() -> int:
             ]
         ),
     ]
+    if os.getenv("PORTWYRM_QUIC_ROUTER", "0").casefold() in {"1", "true", "yes", "on"}:
+        children.append(
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "portwyrm.runtime.quic_router",
+                    "--config",
+                    "/data/nginx/current/quic/routes.json",
+                    "--host",
+                    os.getenv("PORTWYRM_QUIC_HOST", "0.0.0.0"),
+                    "--port",
+                    os.getenv("PORTWYRM_QUIC_PORT", "443"),
+                ]
+            )
+        )
     stopping = False
     rotation_interval = max(60, int(os.getenv("PORTWYRM_LOG_ROTATION_INTERVAL", "172800")))
     next_rotation = time.monotonic() + rotation_interval

@@ -42,6 +42,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 VOLUME ["/data", "/etc/letsencrypt"]
 EXPOSE 80 81 443
+EXPOSE 443/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:81/health/ready', timeout=3)"
 

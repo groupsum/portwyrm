@@ -1,0 +1,24 @@
+schema_version: "0.8.0"
+kind: "spec"
+id: "spc:1020"
+number: 1020
+slug: "opaque-quic-hostname-passthrough"
+title: "Opaque QUIC hostname passthrough"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Portwyrm SHALL expose authenticated capability discovery and owner-scoped CRUD for QUIC passthrough hosts. The UDP gateway SHALL inspect QUIC v1 and v2 Initial packets only to reassemble ClientHello metadata, select an enabled SNI and ALPN route, preserve encrypted payloads, maintain bounded per-client affinity and queues, expire idle state, remove failed targets, and never terminate TLS. The gateway deployment SHALL be the sole host UDP/443 publisher; application Compose stacks SHALL expose container UDP ports without host mappings."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted with the initial native API, router, container, and deployment implementation."
+    at: "2026-08-04T03:42:26Z"
+references: []
+body: |-
+  Portwyrm SHALL expose authenticated capability discovery and owner-scoped CRUD for QUIC passthrough hosts. The UDP gateway SHALL inspect QUIC v1 and v2 Initial packets only to reassemble ClientHello metadata, select an enabled SNI and ALPN route, preserve encrypted payloads, maintain bounded per-client affinity and queues, expire idle state, remove failed targets, and never terminate TLS. The gateway deployment SHALL be the sole host UDP/443 publisher; application Compose stacks SHALL expose container UDP ports without host mappings.
+spec_kind: "normative"
+adr_ids:
+  - "adr:1017"

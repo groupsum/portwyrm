@@ -7,6 +7,7 @@ services:
       PORTWYRM_DB_BACKEND: sqlite
       PORTWYRM_SQLITE_PATH: /data/portwyrm.sqlite
       PORTWYRM_DEMO_HOST: demo.portwyrm.localhost
+      PORTWYRM_QUIC_ROUTER: "1"
     ports:
       # Nginx proxy data plane.
       - "80:80"
@@ -14,6 +15,7 @@ services:
       - "81:81"
       # Nginx TLS proxy data plane.
       - "443:443"
+      - "443:443/udp"
     volumes:
       - portwyrm-data:/data
       - portwyrm-certificates:/etc/letsencrypt

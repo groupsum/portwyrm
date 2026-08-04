@@ -76,8 +76,14 @@ build, install, deploy, or operate Portwyrm.
 
 ## Deliberate boundaries
 
-- mTLS and HTTP/3/QUIC remain out of the frozen `1.0.0` scope.
-- WebTransport is not supported by the selected Nginx OSS data plane and is intentionally absent.
+- mTLS and HTTP/3 termination remain out of the frozen NPM-compatible `1.0.0` scope.
+- WebTransport termination is not provided by Nginx. The optional QUIC gateway performs opaque hostname routing and leaves TLS/QUIC/WebTransport termination to the backend.
 - Portwyrm never requires Node.js or npm to install, build, deploy, or operate.
 
 Licensed under Apache-2.0.
+
+## Opaque QUIC hostname passthrough
+
+`compose.quic-gateway.yaml` runs Portwyrm as the sole host UDP/443 publisher while Nginx Proxy Manager continues to own TCP/443. The gateway decrypts only the QUIC Initial metadata needed to read SNI and ALPN, chooses an enabled `quic_passthrough_host`, and forwards every datagram without terminating TLS. The backend therefore presents its own certificate and owns the HTTP/3/WebTransport session.
+
+The native API exposes authenticated capability discovery at `/api/v2/capabilities` and owner-scoped CRUD at `/api/v2/quic-passthrough-hosts`. Wyrmctl is the supported declarative controller for these resources. Unknown SNI, unsupported ALPN, malformed Initial packets, and direct-IP traffic have no route. Application Compose stacks expose container UDP ports only; they never publish host UDP ports.

@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1017"
+number: 1017
+slug: "opaque-quic-routing-preserves-backend-tls"
+title: "Opaque QUIC routing preserves backend TLS termination"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Context: Nginx Proxy Manager cannot select UDP QUIC flows by hostname and must not terminate application WebTransport sessions. Decision: Portwyrm owns host UDP/443 in a separate gateway, inspects only QUIC Initial SNI and ALPN, and forwards the encrypted flow to one configured Docker or UDP target. The backend owns TLS, certificate presentation, HTTP/3, and WebTransport. Consequences: NPM remains on TCP/443; unknown SNI, unsupported ALPN, malformed Initial packets, and direct-IP traffic are not routed; each hostname has an independent destination."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted for the hostname-routed QUIC gateway implementation."
+    at: "2026-08-04T03:42:22Z"
+references: []
+body: |-
+  Context: Nginx Proxy Manager cannot select UDP QUIC flows by hostname and must not terminate application WebTransport sessions. Decision: Portwyrm owns host UDP/443 in a separate gateway, inspects only QUIC Initial SNI and ALPN, and forwards the encrypted flow to one configured Docker or UDP target. The backend owns TLS, certificate presentation, HTTP/3, and WebTransport. Consequences: NPM remains on TCP/443; unknown SNI, unsupported ALPN, malformed Initial packets, and direct-IP traffic are not routed; each hostname has an independent destination.

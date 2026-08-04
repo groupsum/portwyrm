@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.tables.access import RuntimeAccessList
+from portwyrm.tables.quic_passthrough import QuicPassthroughRouteStore
 from portwyrm.tables.routing import RoutingHostStore, StreamRouteStore
 
 from .nginx import NginxRenderer, RenderedConfiguration
@@ -23,6 +24,7 @@ ROUTING_COLLECTIONS = {
     "redirection-hosts",
     "dead-hosts",
     "streams",
+    "quic-passthrough-hosts",
     "access-lists",
     "certificates",
     "settings",
@@ -92,6 +94,7 @@ class TableRuntimeController:
         """Compile the canonical table state without filesystem or Nginx side effects."""
         hosts = await self.resources.app.core.RoutingHostStore.runtime_list({})
         streams = await self.resources.app.core.StreamRouteStore.runtime_list({})
+        quic_routes = await self.resources.app.core.QuicPassthroughRouteStore.runtime_list({})
         access_lists = await self.resources.app.core.AccessListStore.runtime_list({})
         runtime_hosts = [RoutingHostStore.RuntimeHost.model_validate(row) for row in hosts["items"]]
         return NginxRenderer().render(
@@ -100,6 +103,10 @@ class TableRuntimeController:
             dead_hosts=[host for host in runtime_hosts if host.kind == "dead"],
             streams=[
                 StreamRouteStore.RuntimeStream.model_validate(row) for row in streams["items"]
+            ],
+            quic_passthrough_hosts=[
+                QuicPassthroughRouteStore.RuntimeRoute.model_validate(row)
+                for row in quic_routes["items"]
             ],
             access_lists=[RuntimeAccessList.model_validate(row) for row in access_lists["items"]],
         )

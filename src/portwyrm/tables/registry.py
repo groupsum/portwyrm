@@ -9,6 +9,7 @@ from .health import ProxyHostHealthObservationStore
 from .mfa import MFAEnrollmentStore, MFARecoveryCodeStore
 from .migrations import SchemaMigrationStore
 from .principals import BrowserSessionStore, CredentialStore, PrincipalStore
+from .quic_passthrough import QuicPassthroughRouteStore
 from .rbac import (
     PermissionStore,
     PrincipalPermissionStore,
@@ -55,6 +56,7 @@ PORTWYRM_TABLES: tuple[type[TableBase], ...] = (
     RoutingHostAccessListStore,
     ProxyHostHealthObservationStore,
     StreamRouteStore,
+    QuicPassthroughRouteStore,
     HostConfigRevisionStore,
     GenerationStore,
     ReconcileStore,

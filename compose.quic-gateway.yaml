@@ -1,0 +1,34 @@
+name: portwyrm-quic-gateway
+
+services:
+  gateway:
+    build: .
+    image: portwyrm:quic-gateway
+    container_name: portwyrm-quic-gateway
+    restart: unless-stopped
+    init: true
+    environment:
+      PORTWYRM_DB_BACKEND: sqlite
+      PORTWYRM_SQLITE_PATH: /data/portwyrm.sqlite
+      PORTWYRM_QUIC_ROUTER: "1"
+      PORTWYRM_DEMO_HOST: ""
+    ports:
+      - "443:443/udp"
+    expose:
+      - "81/tcp"
+    volumes:
+      - quic-gateway-data:/data
+      - quic-gateway-certificates:/etc/letsencrypt
+    networks:
+      edge:
+        aliases:
+          - portwyrm-quic-gateway
+
+networks:
+  edge:
+    external: true
+    name: dockerwp
+
+volumes:
+  quic-gateway-data:
+  quic-gateway-certificates:
