@@ -3,6 +3,7 @@ export type HostType = 'proxy' | 'redirect' | '404' | 'stream';
 export type AdministrativeState = 'enabled' | 'disabled';
 export type DeploymentState = 'pending' | 'applying' | 'applied' | 'failed' | 'drifted' | 'rolled_back';
 export type ReachabilityState = 'unknown' | 'probing' | 'online' | 'offline' | 'stale';
+export type HostProvenanceKind = 'human' | 'automation' | 'system';
 
 export type HostStatus =
   | 'online'
@@ -23,7 +24,8 @@ export interface Host {
   id: string;
   ownerId: string;
   ownerName: string;
-  provenance: string; // 'human' or 'npmctl · site-name'
+  provenanceKind: HostProvenanceKind;
+  managedBy: string | null;
   type: HostType;
   source: string; // domain names or port (e.g., 'app.example.com' or 'TCP :5432')
   destination: string; // Upstream scheme/host/port, Redirect target, "Returns 404", or stream target

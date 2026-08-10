@@ -176,7 +176,8 @@ export default function HostsView({
         h.ownerName.toLowerCase().includes(q) ||
         h.sslName.toLowerCase().includes(q) ||
         h.accessListName.toLowerCase().includes(q) ||
-        h.provenance.toLowerCase().includes(q)
+        h.provenanceKind.toLowerCase().includes(q) ||
+        (h.managedBy || '').toLowerCase().includes(q)
       );
     }
 
@@ -620,7 +621,8 @@ ${customDirectives}
                             <div className="flex flex-col">
                               <span className="font-extrabold text-slate-900 dark:text-zinc-100">{host.ownerName}</span>
                               <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono tracking-wider mt-0.5 uppercase">
-                                {host.provenance}
+                                {host.provenanceKind}
+                                {host.managedBy && ` · ${host.managedBy}`}
                               </span>
                             </div>
                           </td>
