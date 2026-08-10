@@ -18,6 +18,8 @@ from .compat import extension_metadata, extensions, iso
 
 _CERTIFICATE_KNOWN = {
     "id",
+    "owner_principal_id",
+    "owner_user_id",
     "nice_name",
     "provider",
     "challenge_type",
@@ -36,6 +38,7 @@ _CERTIFICATE_KNOWN = {
 class CertificateStore(ManagedPortwyrmTable):
     __tablename__ = "certificates"
     _workflow: Any = None
+    owner_principal_id = acol(Integer, ForeignKey("principals.id"), nullable=True, index=True)
     nice_name = acol(String(255), nullable=False)
     provider = acol(String(64), nullable=False)
     challenge_type = acol(String(32), nullable=True)
@@ -87,6 +90,9 @@ class CertificateStore(ManagedPortwyrmTable):
             ),
             nice_name=str(payload.get("nice_name") or ""),
             certificate_id=(int(payload["id"]) if payload.get("id") is not None else None),
+            actor=ctx.get("principal") or ctx.get("actor"),
+            owner_principal_id=_principal_id(ctx),
+            meta=dict(payload.get("meta") or {}),
         )
 
     @op_ctx(alias="request", target="custom", arity="collection")
@@ -108,7 +114,12 @@ class CertificateStore(ManagedPortwyrmTable):
         )
         credentials = payload.get("dns_credentials")
         if request.challenge_type != ChallengeType.DNS_01:
-            return await cls._require_workflow().request(request)
+            return await cls._require_workflow().request(
+                request,
+                actor=ctx.get("principal") or ctx.get("actor"),
+                owner_principal_id=_principal_id(ctx),
+                meta=dict(payload.get("meta") or {}),
+            )
         if not request.provider or not isinstance(credentials, dict):
             raise ValueError("DNS-01 requires dns_provider and dns_credentials")
         normalized = {str(key): str(value) for key, value in credentials.items()}
@@ -119,7 +130,13 @@ class CertificateStore(ManagedPortwyrmTable):
                 for key, value in normalized.items():
                     handle.write(f"{key} = {value}\n")
             os.chmod(name, 0o600)
-            return await cls._require_workflow().request(request, credentials_file=Path(name))
+            return await cls._require_workflow().request(
+                request,
+                credentials_file=Path(name),
+                actor=ctx.get("principal") or ctx.get("actor"),
+                owner_principal_id=_principal_id(ctx),
+                meta=dict(payload.get("meta") or {}),
+            )
         finally:
             Path(name).unlink(missing_ok=True)
 
@@ -127,7 +144,9 @@ class CertificateStore(ManagedPortwyrmTable):
     async def renew(cls, ctx: Any) -> dict[str, Any]:
         payload = dict(ctx.get("payload") or {})
         return await cls._require_workflow().renew(
-            int(payload["id"]), force=bool(payload.get("force"))
+            int(payload["id"]),
+            force=bool(payload.get("force")),
+            actor=ctx.get("principal") or ctx.get("actor"),
         )
 
     @op_ctx(alias="download", target="custom", arity="member", persist="skip")
@@ -187,6 +206,7 @@ class CertificateStore(ManagedPortwyrmTable):
     @staticmethod
     def _values(payload: dict[str, Any]) -> dict[str, Any]:
         return {
+            "owner_principal_id": payload.get("owner_principal_id", payload.get("owner_user_id")),
             "nice_name": str(payload.get("nice_name") or "Certificate"),
             "provider": str(payload.get("provider") or "custom"),
             "challenge_type": payload.get("challenge_type")
@@ -215,6 +235,8 @@ class CertificateStore(ManagedPortwyrmTable):
         result.update(
             {
                 "id": row.id,
+                "owner_principal_id": row.owner_principal_id,
+                "owner_user_id": row.owner_principal_id,
                 "nice_name": row.nice_name,
                 "provider": row.provider,
                 "challenge_type": row.challenge_type,
@@ -245,6 +267,15 @@ class CertificateStore(ManagedPortwyrmTable):
                     domain_name=str(domain).casefold(),
                 )
             )
+
+
+def _principal_id(ctx: Any) -> int | None:
+    principal = ctx.get("principal") or ctx.get("actor")
+    if isinstance(principal, dict):
+        value = principal.get("user_id", principal.get("id"))
+    else:
+        value = getattr(principal, "user_id", getattr(principal, "id", None))
+    return int(value) if value is not None else None
 
 
 async def _await(value: Any) -> Any:

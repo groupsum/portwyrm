@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from portwyrm.api.compat.resources import TableResources
+from portwyrm.domain.attribution import OperationAttribution
 from portwyrm.tables.access import RuntimeAccessList
 from portwyrm.tables.quic_passthrough import QuicPassthroughRouteStore
 from portwyrm.tables.routing import RoutingHostStore, StreamRouteStore
@@ -54,17 +55,24 @@ class TableRuntimeController:
     def active_generation(self) -> str | None:
         return self.reconciler.store.active_id()
 
-    async def changed(self, collection: str) -> ReconcileResult | None:
+    async def changed(
+        self,
+        collection: str,
+        *,
+        attribution: OperationAttribution | None = None,
+    ) -> ReconcileResult | None:
         if collection.replace("_", "-") not in ROUTING_COLLECTIONS:
             return None
-        return await self.reconcile()
+        return await self.reconcile(attribution=attribution)
 
-    async def reconcile(self) -> ReconcileResult:
+    async def reconcile(
+        self, *, attribution: OperationAttribution | None = None
+    ) -> ReconcileResult:
         rendered = await self.render()
         files = dict(rendered.files)
         self._applying_host_ids = self._host_ids(files)
         try:
-            return await self.reconcile_files(files)
+            return await self.reconcile_files(files, attribution=attribution)
         finally:
             self._applying_host_ids.clear()
 
@@ -116,10 +124,21 @@ class TableRuntimeController:
         _path, created = await asyncio.to_thread(self.reconciler.store.stage, generation, files)
         return {"generation": generation, "created": created}
 
-    async def reconcile_files(self, files: dict[str, str]) -> ReconcileResult:
+    async def reconcile_files(
+        self,
+        files: dict[str, str],
+        *,
+        attribution: OperationAttribution | None = None,
+    ) -> ReconcileResult:
+        attribution = attribution or OperationAttribution.reconciliation()
+        operation_ctx = {
+            "principal": attribution.principal,
+            "audit_attribution": attribution.details(),
+        }
         async with self._lock:
             lease = await self.resources.app.core.LeaseStore.acquire(
-                {"name": "nginx-reconcile", "holder": self._holder, "ttl_seconds": 120}
+                {"name": "nginx-reconcile", "holder": self._holder, "ttl_seconds": 120},
+                ctx=operation_ctx,
             )
             if not lease["acquired"]:
                 raise RuntimeError(f"reconciliation lease is held by {lease['holder']}")
@@ -138,13 +157,15 @@ class TableRuntimeController:
                             applied=False,
                             diagnostic=str(exc),
                         ),
+                        attribution=attribution,
                     )
                     raise
-                await self._persist(result.generation, files, result)
+                await self._persist(result.generation, files, result, attribution=attribution)
                 return result
             finally:
                 await self.resources.app.core.LeaseStore.release(
-                    {"name": "nginx-reconcile", "holder": self._holder}
+                    {"name": "nginx-reconcile", "holder": self._holder},
+                    ctx=operation_ctx,
                 )
 
     async def validate(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +185,12 @@ class TableRuntimeController:
         return {"generation": generation, "reloaded": True}
 
     async def _persist(
-        self, generation: str, files: dict[str, str], result: ReconcileResult
+        self,
+        generation: str,
+        files: dict[str, str],
+        result: ReconcileResult,
+        *,
+        attribution: OperationAttribution,
     ) -> None:
         values = {
             "generation": generation,
@@ -174,9 +200,17 @@ class TableRuntimeController:
             "is_active": False,
             "diagnostic": result.diagnostic,
         }
-        generation_row = await self.resources.app.core.GenerationStore.record(values)
+        operation_ctx = {
+            "principal": attribution.principal,
+            "audit_attribution": attribution.details(),
+        }
+        generation_row = await self.resources.app.core.GenerationStore.record(
+            values, ctx=operation_ctx
+        )
         if result.applied:
-            await self.resources.app.core.GenerationStore.activate({"generation": generation})
+            await self.resources.app.core.GenerationStore.activate(
+                {"generation": generation}, ctx=operation_ctx
+            )
         await self.resources.app.core.ReconcileStore.create(
             {
                 "generation_id": generation_row["id"],
@@ -185,7 +219,8 @@ class TableRuntimeController:
                 "applied": result.applied,
                 "status": "applied" if result.applied else "failed",
                 "diagnostic": result.diagnostic,
-            }
+            },
+            ctx=operation_ctx,
         )
         applied_at = int(time.time()) if result.applied else None
         for path, config_text in files.items():

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from tigrbl.factories.engine import sqlitef
 
@@ -116,6 +117,8 @@ def test_setup_login_and_proxy_host_crud_use_composed_tigrbl_app() -> None:
         "replaced",
     }
     assert {event["user_id"] for event in host_events} == {1}
+    assert {event["actor_name"] for event in host_events} == {"admin"}
+    assert {event["actor_email"] for event in host_events} == {"admin@example.test"}
     assert client.get("/health/ready").json()["components"]["database"]["backend"] == "sqlite"
     status = client.get("/api/v2/system/status", headers=headers).json()
     assert status["components"]["nginx"]["status"] == "disabled"
@@ -226,12 +229,23 @@ def test_runtime_changes_persist_and_publish_immutable_generation(tmp_path: Path
     resources = app.state.control_plane
 
     async def exercise() -> None:
+        principal = await app.core.PrincipalStore.register(
+            {
+                "email": "wyrmctl@example.test",
+                "password": "a strong automation password",
+                "display_name": "Portwyrm Automation",
+                "nickname": "wyrmctl",
+                "is_admin": True,
+            }
+        )
+        actor = SimpleNamespace(id=principal["id"], is_admin=True)
         access_list = await resources.create_resource(
             "access_lists",
             {
                 "name": "private",
                 "items": [{"username": "operator", "password": "write-only-secret"}],
             },
+            actor=actor,
         )
         host = await resources.create_resource(
             "proxy_hosts",
@@ -243,12 +257,23 @@ def test_runtime_changes_persist_and_publish_immutable_generation(tmp_path: Path
                 "access_list_id": access_list["id"],
                 "enabled": 1,
             },
+            actor=actor,
         )
         generations = await app.core.GenerationStore.list({})
         attempts = await app.core.ReconcileStore.list({})
         assert len(generations) >= 1
         assert sum(bool(row["is_active"]) for row in generations) == 1
         assert any(row["applied"] for row in attempts)
+        generation_events = [
+            event
+            for event in await app.core.AuditEventStore.list({})
+            if event["object_type"] == "config_generations"
+        ]
+        assert generation_events
+        assert {event["actor_principal_id"] for event in generation_events} == {principal["id"]}
+        assert {
+            event["details"]["attribution"]["executor_name"] for event in generation_events
+        } == {"Portwyrm reconciler"}
 
         rendered = await app.core.GenerationStore.render({})
         assert rendered["generation"] == app.state.runtime.active_generation

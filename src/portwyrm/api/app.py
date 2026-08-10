@@ -46,7 +46,7 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
 
     @asynccontextmanager
     async def lifespan(_app: TigrblApp):
-        if settings.backend == "sqlite":
+        if settings.backend not in {"memory", "in-memory", "in_memory"}:
             try:
                 await _app.core.SchemaMigrationStore.apply({})
             except Exception as exc:

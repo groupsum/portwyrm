@@ -34,6 +34,9 @@ class TableCertificateManager:
         *,
         nice_name: str,
         certificate_id: int | None = None,
+        actor: Any | None = None,
+        owner_principal_id: int | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         info = await asyncio.to_thread(self.validator.validate, bundle)
         payload = {
@@ -43,18 +46,27 @@ class TableCertificateManager:
             "expires_at": int(info.not_after.timestamp()),
             "expires_on": info.not_after.isoformat(),
             "status": "active",
-            "meta": {"subject": info.subject, "issuer": info.issuer, "serial": info.serial},
+            "owner_principal_id": owner_principal_id,
+            "meta": {
+                **dict(meta or {}),
+                "subject": info.subject,
+                "issuer": info.issuer,
+                "serial": info.serial,
+            },
         }
         created = certificate_id is None
         previous: dict[str, Any] | None = None
+        actor_context = {"actor": actor} if actor is not None else {}
         if created:
-            record = await self.resources.create_resource("certificates", payload)
+            record = await self.resources.create_resource("certificates", payload, **actor_context)
             certificate_id = int(record["id"])
         else:
             previous = await self.resources.get_resource("certificates", certificate_id)
             if previous is None:
                 raise FileNotFoundError(f"certificate {certificate_id} was not found")
-            record = await self.resources.update_resource("certificates", certificate_id, payload)
+            record = await self.resources.update_resource(
+                "certificates", certificate_id, payload, **actor_context
+            )
             if record is None:
                 raise FileNotFoundError(f"certificate {certificate_id} was not found")
         try:
@@ -68,7 +80,13 @@ class TableCertificateManager:
         return record
 
     async def request(
-        self, request: CertificateRequest, *, credentials_file: Path | None = None
+        self,
+        request: CertificateRequest,
+        *,
+        credentials_file: Path | None = None,
+        actor: Any | None = None,
+        owner_principal_id: int | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if self.issuer is None:
             raise RuntimeError("ACME issuer is not configured")
@@ -92,13 +110,16 @@ class TableCertificateManager:
                 "challenge_type": request.challenge_type.value,
                 "key_type": request.key_type,
                 "status": "active",
+                "owner_principal_id": owner_principal_id,
                 "meta": {
+                    **dict(meta or {}),
                     "email": request.email,
                     "dns_provider": request.provider,
                     "challenge_type": request.challenge_type.value,
                     "key_type": request.key_type,
                 },
             },
+            **({"actor": actor} if actor is not None else {}),
         )
         try:
             await asyncio.to_thread(
@@ -111,7 +132,13 @@ class TableCertificateManager:
             raise
         return record
 
-    async def renew(self, certificate_id: int, *, force: bool = False) -> dict[str, Any]:
+    async def renew(
+        self,
+        certificate_id: int,
+        *,
+        force: bool = False,
+        actor: Any | None = None,
+    ) -> dict[str, Any]:
         record = await self.resources.get_resource("certificates", certificate_id)
         if record is None:
             raise FileNotFoundError(f"certificate {certificate_id} was not found")
@@ -131,10 +158,15 @@ class TableCertificateManager:
                 key_type=str(meta.get("key_type") or "rsa"),
                 provider=meta.get("dns_provider"),
             ),
+            actor=actor,
         )
 
     async def _replace_acme(
-        self, certificate_id: int, request: CertificateRequest
+        self,
+        certificate_id: int,
+        request: CertificateRequest,
+        *,
+        actor: Any | None = None,
     ) -> dict[str, Any]:
         if self.issuer is None:
             raise RuntimeError("ACME issuer is not configured")
@@ -155,6 +187,7 @@ class TableCertificateManager:
                 "expires_on": issued.expires_at.isoformat(),
                 "status": "active",
             },
+            **({"actor": actor} if actor is not None else {}),
         )
         if result is None:
             raise FileNotFoundError(f"certificate {certificate_id} was not found")

@@ -93,13 +93,17 @@ def test_host_provenance_distinguishes_automation_humans_and_system_resources() 
     provenance = (root / "utils" / "provenance.ts").read_text(encoding="utf-8")
     store = (root / "store" / "index.ts").read_text(encoding="utf-8")
     hosts = (root / "components" / "HostsView.tsx").read_text(encoding="utf-8")
+    audit_source = (root / "components" / "AuditView.tsx").read_text(encoding="utf-8")
 
     assert "row.meta?.managed_by === 'npmctl'" not in store
     assert "if (managedBy) return {kind: 'automation', managedBy}" in provenance
     assert "if (ownerId) return {kind: 'human', managedBy: null}" in provenance
-    assert "return {kind: 'system', managedBy: null}" in provenance
+    assert "return {kind: 'unassigned', managedBy: null}" in provenance
     assert "provenanceKind: provenance.kind" in store
-    assert "host.managedBy && ` · ${host.managedBy}`" in hosts
+    assert "provenanceCaption(" in hosts
+    assert "row.actor_name" in store
+    assert "'Unattributed'" in store
+    assert "Executed by {selectedLog.executor}" in audit_source
 
 
 def test_root_redirects_to_console() -> None:

@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ArrowUpDown
 } from 'lucide-react';
+import { provenanceCaption } from '../utils/provenance';
 import ActionModal from './ActionModal';
 import { can } from '../utils/permissions';
 import { useFeedback } from './Feedback';
@@ -409,7 +410,13 @@ export default function CertificatesView({
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="font-extrabold text-slate-900 dark:text-zinc-100">{cert.name}</span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">Profile Owner: {cert.ownerName}</span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">{cert.ownerName}</span>
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono tracking-wider uppercase">
+                          {provenanceCaption(
+                            {kind: cert.provenanceKind, managedBy: cert.managedBy},
+                            cert.ownerName,
+                          )}
+                        </span>
                       </div>
                     </td>
 

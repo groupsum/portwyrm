@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from portwyrm.domain.attribution import OperationAttribution
 from portwyrm.domain.ownership import Ownership
 from portwyrm.errors import AuthorizationError, OwnershipError
 from portwyrm.identity.permissions import permission_allows
@@ -335,6 +336,9 @@ def _details(ctx: Mapping[str, Any]) -> dict[str, Any]:
     }:
         if secret in payload:
             payload[secret] = "[redacted]"
+    attribution = ctx.get("audit_attribution")
+    if isinstance(attribution, Mapping):
+        payload["attribution"] = dict(attribution)
     return payload
 
 
@@ -442,7 +446,11 @@ async def reconcile_committed_change(ctx: dict[str, Any]) -> None:
     if runtime is not None:
         collection = _RECONCILE_COLLECTION.get(table_name, _object_type(ctx))
         try:
-            await runtime.changed(collection)
+            principal = ctx.get("principal") or ctx.get("actor")
+            await runtime.changed(
+                collection,
+                attribution=OperationAttribution.reconciliation(principal),
+            )
         except Exception:
             # The kernel has already committed the resource mutation. The runtime
             # controller persists its failed reconcile attempt, so transport must

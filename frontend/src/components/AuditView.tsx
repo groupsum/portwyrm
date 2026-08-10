@@ -169,7 +169,10 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
 
                     {/* Actor */}
                     <td className="px-6 py-4.5 font-bold font-mono text-xs text-slate-800 dark:text-zinc-200">
-                      {log.actor}
+                      <span className="block">{log.actor}</span>
+                      {log.executor && log.executor !== log.actor && (
+                        <span className="block text-[10px] font-medium text-slate-400">via {log.executor}</span>
+                      )}
                     </td>
 
                     {/* Resource */}
@@ -231,8 +234,11 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
                   <strong className="text-slate-900 dark:text-zinc-100 font-mono text-[10px] block mt-0.5">{selectedLog.id}</strong>
                 </div>
                 <div>
-                  <span className="text-slate-400 block uppercase text-[10px]">Actor Node</span>
+                  <span className="text-slate-400 block uppercase text-[10px]">Initiated By</span>
                   <strong className="text-slate-900 dark:text-zinc-100 font-mono block mt-0.5">{selectedLog.actor}</strong>
+                  {selectedLog.executor && (
+                    <span className="text-slate-500 block text-[10px] mt-1">Executed by {selectedLog.executor}</span>
+                  )}
                 </div>
                 <div>
                   <span className="text-slate-400 block uppercase text-[10px]">Action Event</span>

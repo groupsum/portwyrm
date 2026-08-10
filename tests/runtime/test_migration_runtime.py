@@ -94,13 +94,43 @@ def test_schema_migration_surface_only_reports_the_current_contract(tmp_path: Pa
             "record_failure",
         }
         assert await app.core.SchemaMigrationStore.plan({}) == {
-            "name": "tigrbl-current-schema",
+            "name": "certificate-owner-principal-v1",
             "required": False,
             "records": 0,
-            "checksum": "current",
+            "checksum": "sha256:certificate-owner-principal-v1",
         }
         result = await app.core.SchemaMigrationStore.apply({})
         assert result["required"] is False
         assert result["applied"] is False
 
     asyncio.run(run())
+
+
+def test_schema_migration_adds_certificate_owner_to_existing_sqlite_database(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE certificates ("
+            "id INTEGER PRIMARY KEY, metadata_json JSON NOT NULL, "
+            "nice_name VARCHAR(255) NOT NULL, provider VARCHAR(64) NOT NULL, "
+            "challenge_type VARCHAR(32), key_type VARCHAR(32) NOT NULL, "
+            "material_ref VARCHAR(1024), expires_at INTEGER, status VARCHAR(32) NOT NULL, "
+            "created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
+        )
+
+    async def run() -> None:
+        app = TigrblApp(engine=sqlitef(str(path), async_=False), mount_system=False)
+        app.include_tables(PORTWYRM_TABLES)
+        initialized = app.initialize(tables=PORTWYRM_TABLES)
+        if inspect.isawaitable(initialized):
+            await initialized
+        assert (await app.core.SchemaMigrationStore.plan({}))["required"] is True
+        assert (await app.core.SchemaMigrationStore.apply({}))["applied"] is True
+        assert (await app.core.SchemaMigrationStore.plan({}))["required"] is False
+
+    asyncio.run(run())
+    with sqlite3.connect(path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(certificates)")}
+    assert "owner_principal_id" in columns

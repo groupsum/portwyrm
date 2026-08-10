@@ -327,6 +327,7 @@ class TableResources:
 
     async def list_audit(self, since: str | None = None) -> list[Resource]:
         rows = await self.app.core.AuditEventStore.list({})
+        principals = {int(row["id"]): row for row in await self.app.core.PrincipalStore.list({})}
         projected = [
             {
                 "id": row["id"],
@@ -335,6 +336,10 @@ class TableResources:
                 "object_type": row["object_type"],
                 "object_id": row["object_id"],
                 "user_id": row.get("actor_principal_id"),
+                **_audit_actor(row.get("actor_principal_id"), principals),
+                "executor_name": (row.get("details") or {})
+                .get("attribution", {})
+                .get("executor_name"),
                 "meta": row.get("details") or {},
             }
             for row in rows
@@ -416,6 +421,9 @@ class TableResources:
             }
         if collection == "certificates":
             return {
+                "owner_principal_id": payload.get(
+                    "owner_principal_id", payload.get("owner_user_id")
+                ),
                 "nice_name": str(payload.get("nice_name") or "Certificate"),
                 "provider": str(payload.get("provider") or "custom"),
                 "challenge_type": payload.get("challenge_type"),
@@ -459,6 +467,20 @@ class TableResources:
                 "metadata_json": {"compat": compat},
             }
         raise ValueError(f"unknown compatibility collection {collection!r}")
+
+
+def _audit_actor(actor_id: Any, principals: dict[int, Resource]) -> Resource:
+    if actor_id is None:
+        return {"actor_id": None, "actor_name": None, "actor_email": None}
+    principal = principals.get(int(actor_id), {})
+    return {
+        "actor_id": int(actor_id),
+        "actor_name": principal.get("nickname")
+        or principal.get("display_name")
+        or principal.get("email")
+        or f"Principal {actor_id}",
+        "actor_email": principal.get("email"),
+    }
 
 
 __all__ = ["TableResources"]

@@ -3,7 +3,8 @@ export type HostType = 'proxy' | 'redirect' | '404' | 'stream';
 export type AdministrativeState = 'enabled' | 'disabled';
 export type DeploymentState = 'pending' | 'applying' | 'applied' | 'failed' | 'drifted' | 'rolled_back';
 export type ReachabilityState = 'unknown' | 'probing' | 'online' | 'offline' | 'stale';
-export type HostProvenanceKind = 'human' | 'automation' | 'system';
+export type ResourceProvenanceKind = 'human' | 'automation' | 'system' | 'unassigned';
+export type HostProvenanceKind = ResourceProvenanceKind;
 
 export type HostStatus =
   | 'online'
@@ -74,6 +75,8 @@ export interface Certificate {
   domains: string[];
   provider: "Let's Encrypt" | 'Custom Upload';
   ownerName: string;
+  provenanceKind: ResourceProvenanceKind;
+  managedBy: string | null;
   status: CertificateStatus;
   expiration: string; // ISO String
   autoRenewal: boolean;
@@ -149,6 +152,7 @@ export interface AuditLog {
   id: string;
   timestamp: string; // ISO String
   actor: string; // e.g., '@alex'
+  executor: string | null;
   action: string; // e.g., 'Create Host'
   resource: string; // e.g., 'app.example.com'
   outcome: 'Success' | 'Failure' | 'Rolled Back';

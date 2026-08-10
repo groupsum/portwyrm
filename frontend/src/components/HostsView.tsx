@@ -24,6 +24,7 @@ import {
   ChevronRight,
   ArrowUpDown
 } from 'lucide-react';
+import { provenanceCaption } from '../utils/provenance';
 import CertificatesView from './CertificatesView';
 import ActionModal from './ActionModal';
 import { can, hostPermissionResource } from '../utils/permissions';
@@ -621,8 +622,10 @@ ${customDirectives}
                             <div className="flex flex-col">
                               <span className="font-extrabold text-slate-900 dark:text-zinc-100">{host.ownerName}</span>
                               <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono tracking-wider mt-0.5 uppercase">
-                                {host.provenanceKind}
-                                {host.managedBy && ` · ${host.managedBy}`}
+                                {provenanceCaption(
+                                  {kind: host.provenanceKind, managedBy: host.managedBy},
+                                  host.ownerName,
+                                )}
                               </span>
                             </div>
                           </td>

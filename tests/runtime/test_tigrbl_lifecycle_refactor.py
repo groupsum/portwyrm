@@ -261,7 +261,7 @@ def test_global_hooks_redact_secrets_and_reconcile_once_per_mutation(tmp_path: P
         def __init__(self) -> None:
             self.collections: list[str] = []
 
-        async def changed(self, collection: str) -> None:
+        async def changed(self, collection: str, **_kwargs: object) -> None:
             self.collections.append(collection)
 
     async def run() -> None:

@@ -209,7 +209,7 @@ class CertificateService:
             )
         }
 
-    async def create_resource(self, collection, payload):
+    async def create_resource(self, collection, payload, **_kwargs):
         row = {**payload, "id": len(self.rows[collection]) + 1}
         self.rows[collection][row["id"]] = row
         return dict(row)
@@ -220,7 +220,7 @@ class CertificateService:
     async def list_resources(self, collection):
         return [dict(row) for row in self.rows[collection].values()]
 
-    async def update_resource(self, collection, resource_id, payload):
+    async def update_resource(self, collection, resource_id, payload, **_kwargs):
         self.rows[collection][resource_id].update(payload)
         return dict(self.rows[collection][resource_id])
 
@@ -249,9 +249,18 @@ def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_p
         acme = await manager.request(
             CertificateRequest(
                 "Automatic", ("app.example.com",), "admin@example.test", ChallengeType.HTTP_01
-            )
+            ),
+            actor={"id": 7},
+            owner_principal_id=7,
+            meta={
+                "managed_by": "groupsum-infrastructure",
+                "owner": "groupsum-infrastructure",
+                "resource_id": "certificate.app-example",
+            },
         )
         assert acme["provider"] == "letsencrypt"
+        assert acme["owner_principal_id"] == 7
+        assert acme["meta"]["managed_by"] == "groupsum-infrastructure"
         assert (tmp_path / "live" / f"npm-{acme['id']}" / "privkey.pem").is_file()
         archive_path = tmp_path / "certificate.zip"
         archive_path.write_bytes(await manager.download(custom["id"]))

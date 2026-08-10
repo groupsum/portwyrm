@@ -2,13 +2,53 @@
 
 from __future__ import annotations
 
+import inspect
 import time
 from typing import Any
 
+from sqlalchemy import text
 from tigrbl import op_ctx
 from tigrbl.types import Integer, String, Text, UniqueConstraint
 
 from .base import READ_ONLY_PROFILE, PortwyrmTable, acol
+
+_CERTIFICATE_OWNER_MIGRATION = "certificate-owner-principal-v1"
+_CERTIFICATE_OWNER_CHECKSUM = "sha256:certificate-owner-principal-v1"
+
+
+async def _await(value: Any) -> Any:
+    return await value if inspect.isawaitable(value) else value
+
+
+async def _certificate_owner_required(db: Any) -> bool:
+    bind = db.get_bind()
+    dialect = str(bind.dialect.name)
+    if dialect == "sqlite":
+        rows = await _await(db.execute(text("PRAGMA table_info(certificates)")))
+        columns = {str(row[1]) for row in rows}
+    elif dialect == "postgresql":
+        rows = await _await(
+            db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = 'certificates'"
+                )
+            )
+        )
+        columns = {str(row[0]) for row in rows}
+    elif dialect == "mysql":
+        rows = await _await(
+            db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = DATABASE() AND table_name = 'certificates'"
+                )
+            )
+        )
+        columns = {str(row[0]) for row in rows}
+    else:
+        raise RuntimeError(f"schema migration does not support {dialect!r}")
+    return "owner_principal_id" not in columns
 
 
 class SchemaMigrationStore(PortwyrmTable):
@@ -28,23 +68,54 @@ class SchemaMigrationStore(PortwyrmTable):
 
     @op_ctx(alias="plan", target="custom", arity="collection", persist="skip")
     async def plan(cls, ctx: Any) -> dict[str, Any]:
-        del ctx
+        required = await _certificate_owner_required(ctx["db"])
         return {
-            "name": "tigrbl-current-schema",
-            "required": False,
-            "records": 0,
-            "checksum": "current",
+            "name": _CERTIFICATE_OWNER_MIGRATION,
+            "required": required,
+            "records": 1 if required else 0,
+            "checksum": _CERTIFICATE_OWNER_CHECKSUM,
         }
 
     @op_ctx(alias="apply", target="custom", arity="collection")
     async def apply(cls, ctx: Any) -> dict[str, Any]:
-        del ctx
+        required = await _certificate_owner_required(ctx["db"])
+        if required:
+            dialect = str(ctx["db"].get_bind().dialect.name)
+            column_sql = "INTEGER REFERENCES principals(id)"
+            if dialect == "mysql":
+                column_sql = "INTEGER NULL"
+            await _await(
+                ctx["db"].execute(
+                    text("ALTER TABLE certificates ADD COLUMN owner_principal_id " + column_sql)
+                )
+            )
+            if dialect == "mysql":
+                index_sql = (
+                    "CREATE INDEX ix_certificates_owner_principal_id "
+                    "ON certificates (owner_principal_id)"
+                )
+            else:
+                index_sql = (
+                    "CREATE INDEX IF NOT EXISTS ix_certificates_owner_principal_id "
+                    "ON certificates (owner_principal_id)"
+                )
+            await _await(ctx["db"].execute(text(index_sql)))
+            ctx["db"].add(
+                cls(
+                    name=_CERTIFICATE_OWNER_MIGRATION,
+                    checksum=_CERTIFICATE_OWNER_CHECKSUM,
+                    source_version="0.1.0a10",
+                    status="applied",
+                    started_at=int(time.time()),
+                    applied_at=int(time.time()),
+                )
+            )
         return {
-            "name": "tigrbl-current-schema",
-            "required": False,
-            "records": 0,
-            "checksum": "current",
-            "applied": False,
+            "name": _CERTIFICATE_OWNER_MIGRATION,
+            "required": required,
+            "records": 1 if required else 0,
+            "checksum": _CERTIFICATE_OWNER_CHECKSUM,
+            "applied": required,
         }
 
     @op_ctx(alias="record_failure", target="custom", arity="collection")

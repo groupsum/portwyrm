@@ -39,7 +39,15 @@ function splitHostId(id: string): [string, string] {
 }
 
 function displayOwner(row: Json, users: User[]): string {
-  return users.find(user => user.id === String(row.owner_user_id))?.displayName || row.meta?.owner || 'System';
+  const user = users.find(candidate => candidate.id === String(row.owner_user_id));
+  return user?.username?.replace(/^@/, '') || row.meta?.owner || 'Unassigned';
+}
+
+function auditActor(row: Json, users: User[]): {actor: string; executor: string | null} {
+  const user = users.find(candidate => candidate.id === String(row.actor_id ?? row.user_id));
+  const actor = row.actor_name || user?.username?.replace(/^@/, '') || row.user_email;
+  const executor = row.executor_name || row.meta?.attribution?.executor_name || null;
+  return {actor: actor || executor || 'Unattributed', executor: actor ? executor : null};
 }
 
 function mapUser(row: Json): User {
@@ -253,7 +261,10 @@ export class PortwyrmStore {
     ]);
     this.users = users.map(mapUser);
     if (this.currentUser && !this.users.some(user => user.id === this.currentUser!.id)) this.users.unshift(this.currentUser);
-    this.certificates = certRows.map((row: Json) => ({id: String(row.id), name: row.nice_name || (row.domain_names || []).join(', '), domains: row.domain_names || [], provider: row.provider === 'letsencrypt' ? "Let's Encrypt" : 'Custom Upload', ownerName: displayOwner(row, this.users), status: row.expires_on && new Date(row.expires_on) < new Date() ? 'expired' : 'valid', expiration: row.expires_on || '', autoRenewal: row.provider === 'letsencrypt', lastRenewal: row.renewed_on || null, created: row.created_on, modified: row.modified_on}));
+    this.certificates = certRows.map((row: Json) => {
+      const provenance = deriveResourceProvenance(row);
+      return {id: String(row.id), name: row.nice_name || (row.domain_names || []).join(', '), domains: row.domain_names || [], provider: row.provider === 'letsencrypt' ? "Let's Encrypt" : 'Custom Upload', ownerName: displayOwner(row, this.users), provenanceKind: provenance.kind, managedBy: provenance.managedBy, status: row.expires_on && new Date(row.expires_on) < new Date() ? 'expired' : 'valid', expiration: row.expires_on || '', autoRenewal: row.provider === 'letsencrypt', lastRenewal: row.renewed_on || null, created: row.created_on, modified: row.modified_on};
+    });
     this.accessLists = aclRows.map((row: Json) => {
       const identityIds = Array.isArray(row.identity_ids) ? row.identity_ids.map(String) : [];
       return {id: String(row.id), name: row.name, ownerName: displayOwner(row, this.users), usersCount: identityIds.length + (row.items || []).length, rulesCount: (row.clients || []).length, policyComposition: row.satisfy_any ? 'satisfy_any' : 'satisfy_all', forwardHeader: Boolean(row.pass_auth), created: row.created_on, modified: row.modified_on, identityIds, users: (row.items || []).map((item: Json) => ({username: item.username, passwordHint: ''})), rules: (row.clients || []).map((item: Json) => ({type: item.directive === 'deny' ? 'deny' : 'allow', subnet: item.address}))};
@@ -280,14 +291,17 @@ export class PortwyrmStore {
         lastError: status.error_detail || status.error_code || host.lastError,
       };
     });
-    this.auditLogs = auditRows.map((row: Json) => ({id: String(row.id), timestamp: row.created_on, actor: row.actor || row.user_email || 'System', action: row.action || row.event || 'Changed', resource: row.object_type || row.resource_type || 'Resource', outcome: row.outcome === 'failure' ? 'Failure' : row.outcome === 'rolled_back' ? 'Rolled Back' : 'Success', summary: row.summary || row.action || '', details: JSON.stringify(row, null, 2)}));
+    this.auditLogs = auditRows.map((row: Json) => {
+      const attribution = auditActor(row, this.users);
+      return {id: String(row.id), timestamp: row.created_on, actor: attribution.actor, executor: attribution.executor, action: row.action || row.event || 'Changed', resource: row.object_type || row.resource_type || 'Resource', outcome: row.outcome === 'failure' ? 'Failure' : row.outcome === 'rolled_back' ? 'Rolled Back' : 'Success', summary: row.summary || row.action || '', details: JSON.stringify(row, null, 2)};
+    });
     const versionCounts = new Map<string, number>();
     this.hostConfigVersions = auditRows.flatMap((row: Json) => {
       if (row.action !== 'configuration.applied' || !hostTypeByFamily[row.object_type] || !row.meta?.snapshot) return [];
       const host = mapHost(row.meta.snapshot, row.object_type, this.users, this.certificates, this.accessLists);
       const version = (versionCounts.get(host.id) || 0) + 1;
       versionCounts.set(host.id, version);
-      return [{id: String(row.id), hostId: host.id, version, timestamp: row.created_on, actor: row.actor || row.user_email || 'System', generation: String(row.meta.generation || ''), config: generateNginxConfig(host)}];
+      return [{id: String(row.id), hostId: host.id, version, timestamp: row.created_on, actor: auditActor(row, this.users).actor, generation: String(row.meta.generation || ''), config: generateNginxConfig(host)}];
     });
     this.applySystemStatus(health, version.version || '-');
     this.emit();

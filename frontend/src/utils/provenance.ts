@@ -1,4 +1,4 @@
-import type { HostProvenanceKind } from '../types';
+import type { ResourceProvenanceKind } from '../types';
 
 type ResourceRow = {
   owner_user_id?: unknown;
@@ -6,7 +6,7 @@ type ResourceRow = {
 };
 
 export interface ResourceProvenance {
-  kind: HostProvenanceKind;
+  kind: ResourceProvenanceKind;
   managedBy: string | null;
 }
 
@@ -17,5 +17,11 @@ export function deriveResourceProvenance(row: ResourceRow): ResourceProvenance {
   const ownerId = row.owner_user_id == null ? '' : String(row.owner_user_id).trim();
   if (ownerId) return {kind: 'human', managedBy: null};
 
-  return {kind: 'system', managedBy: null};
+  return {kind: 'unassigned', managedBy: null};
+}
+
+export function provenanceCaption(provenance: ResourceProvenance, ownerName: string): string {
+  const kind = provenance.kind.toUpperCase();
+  if (!provenance.managedBy || provenance.managedBy === ownerName) return kind;
+  return `${kind} · ${provenance.managedBy}`;
 }
