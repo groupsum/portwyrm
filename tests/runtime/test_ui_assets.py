@@ -88,6 +88,20 @@ def test_data_tables_do_not_reserve_an_actions_header() -> None:
     assert "colSpan={6}" in audit_source
 
 
+def test_host_provenance_distinguishes_automation_humans_and_system_resources() -> None:
+    root = Path(__file__).parents[2] / "frontend" / "src"
+    provenance = (root / "utils" / "provenance.ts").read_text(encoding="utf-8")
+    store = (root / "store" / "index.ts").read_text(encoding="utf-8")
+    hosts = (root / "components" / "HostsView.tsx").read_text(encoding="utf-8")
+
+    assert "row.meta?.managed_by === 'npmctl'" not in store
+    assert "if (managedBy) return {kind: 'automation', managedBy}" in provenance
+    assert "if (ownerId) return {kind: 'human', managedBy: null}" in provenance
+    assert "return {kind: 'system', managedBy: null}" in provenance
+    assert "provenanceKind: provenance.kind" in store
+    assert "host.managedBy && ` · ${host.managedBy}`" in hosts
+
+
 def test_root_redirects_to_console() -> None:
     app = TigrblApp(mount_system=False)
     mount_uix(app)

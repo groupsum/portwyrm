@@ -1,6 +1,7 @@
 import type { AccessList, AccessToken, AuditLog, Certificate, CreatedAccessToken, Host, HostConfigVersion, HostType, SystemHealth, User } from '../types';
 import { can, hostPermissionResource, normalizePermissions } from '../utils/permissions';
 import { generateNginxConfig } from '../utils/nginxConfig';
+import { deriveResourceProvenance } from '../utils/provenance';
 
 type Listener = () => void;
 type Json = Record<string, any>;
@@ -95,9 +96,10 @@ function mapHost(row: Json, family: string, users: User[], certs: Certificate[],
   const selectedAccessLists = accessListIds
     .map(id => acls.find(item => item.id === id))
     .filter((item): item is AccessList => Boolean(item));
+  const provenance = deriveResourceProvenance(row);
   return {
     id: `${family}:${row.id}`, ownerId: String(row.owner_user_id || ''), ownerName: displayOwner(row, users),
-    provenance: row.meta?.managed_by === 'npmctl' ? `npmctl · ${row.meta?.owner || 'managed'}` : 'human',
+    provenanceKind: provenance.kind, managedBy: provenance.managedBy,
     type, source, destination, sslId: certificate?.id || null, sslName: certificate?.name || 'None',
     accessListId: accessListIds[0] || null,
     accessListIds,
