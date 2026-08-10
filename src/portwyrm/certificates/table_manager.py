@@ -45,7 +45,7 @@ class TableCertificateManager:
             "domain_names": list(info.domain_names),
             "expires_at": int(info.not_after.timestamp()),
             "expires_on": info.not_after.isoformat(),
-            "status": "active",
+            "status": "pending" if certificate_id is None else "active",
             "owner_principal_id": owner_principal_id,
             "meta": {
                 **dict(meta or {}),
@@ -71,8 +71,19 @@ class TableCertificateManager:
                 raise FileNotFoundError(f"certificate {certificate_id} was not found")
         try:
             await asyncio.to_thread(self.store.put, certificate_id, bundle)
+            if created:
+                activated = await self.resources.update_resource(
+                    "certificates",
+                    certificate_id,
+                    {"status": "active"},
+                    **actor_context,
+                )
+                if activated is None:
+                    raise FileNotFoundError(f"certificate {certificate_id} was not found")
+                record = activated
         except BaseException:
             if created:
+                await asyncio.to_thread(self.store.delete, certificate_id)
                 await self.resources.delete_resource("certificates", certificate_id)
             elif previous is not None:
                 await self.resources.update_resource("certificates", certificate_id, previous)
@@ -109,7 +120,7 @@ class TableCertificateManager:
                 "expires_on": issued.expires_at.isoformat(),
                 "challenge_type": request.challenge_type.value,
                 "key_type": request.key_type,
-                "status": "active",
+                "status": "pending",
                 "owner_principal_id": owner_principal_id,
                 "meta": {
                     **dict(meta or {}),
@@ -127,7 +138,17 @@ class TableCertificateManager:
                 int(record["id"]),
                 CustomCertificateBundle(issued.certificate, issued.private_key, issued.chain),
             )
+            activated = await self.resources.update_resource(
+                "certificates",
+                int(record["id"]),
+                {"status": "active"},
+                **({"actor": actor} if actor is not None else {}),
+            )
+            if activated is None:
+                raise FileNotFoundError(f"certificate {record['id']} was not found")
+            record = activated
         except BaseException:
+            await asyncio.to_thread(self.store.delete, int(record["id"]))
             await self.resources.delete_resource("certificates", int(record["id"]))
             raise
         return record
