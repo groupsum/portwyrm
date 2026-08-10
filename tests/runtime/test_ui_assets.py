@@ -102,7 +102,8 @@ def test_host_provenance_distinguishes_automation_humans_and_system_resources() 
     assert "provenanceKind: provenance.kind" in store
     assert "provenanceCaption(" in hosts
     assert "row.actor_name" in store
-    assert "'Unattributed'" in store
+    assert "actor || 'System'" in store
+    assert "'Unattributed'" not in store
     assert "Executed by {selectedLog.executor}" in audit_source
 
 

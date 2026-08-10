@@ -117,8 +117,13 @@ def test_setup_login_and_proxy_host_crud_use_composed_tigrbl_app() -> None:
         "replaced",
     }
     assert {event["user_id"] for event in host_events} == {1}
+    assert {event["actor_kind"] for event in host_events} == {"user"}
     assert {event["actor_name"] for event in host_events} == {"admin"}
     assert {event["actor_email"] for event in host_events} == {"admin@example.test"}
+    system_events = [event for event in audit.json() if event["user_id"] is None]
+    assert system_events
+    assert {event["actor_kind"] for event in system_events} == {"system"}
+    assert {event["actor_name"] for event in system_events} == {"System"}
     assert client.get("/health/ready").json()["components"]["database"]["backend"] == "sqlite"
     status = client.get("/api/v2/system/status", headers=headers).json()
     assert status["components"]["nginx"]["status"] == "disabled"

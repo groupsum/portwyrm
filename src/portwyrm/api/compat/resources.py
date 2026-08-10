@@ -471,10 +471,16 @@ class TableResources:
 
 def _audit_actor(actor_id: Any, principals: dict[int, Resource]) -> Resource:
     if actor_id is None:
-        return {"actor_id": None, "actor_name": None, "actor_email": None}
+        return {
+            "actor_id": None,
+            "actor_kind": "system",
+            "actor_name": "System",
+            "actor_email": None,
+        }
     principal = principals.get(int(actor_id), {})
     return {
         "actor_id": int(actor_id),
+        "actor_kind": "user",
         "actor_name": principal.get("nickname")
         or principal.get("display_name")
         or principal.get("email")

@@ -47,7 +47,7 @@ function auditActor(row: Json, users: User[]): {actor: string; executor: string 
   const user = users.find(candidate => candidate.id === String(row.actor_id ?? row.user_id));
   const actor = row.actor_name || user?.username?.replace(/^@/, '') || row.user_email;
   const executor = row.executor_name || row.meta?.attribution?.executor_name || null;
-  return {actor: actor || executor || 'Unattributed', executor: actor ? executor : null};
+  return {actor: actor || 'System', executor};
 }
 
 function mapUser(row: Json): User {
