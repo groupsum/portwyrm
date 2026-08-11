@@ -8,6 +8,8 @@ from tigrbl import HTTPException
 
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.api.security import TableIdentity
+from portwyrm.identity.api_keys import hash_api_key, verify_api_key
+from portwyrm.identity.passwords import hash_secret
 from portwyrm.tables import PORTWYRM_TABLES, PATRecord, SecurityPrincipal
 
 
@@ -38,6 +40,18 @@ def test_identity_models_are_canonical_table_schemas() -> None:
     assert SecurityPrincipal.__qualname__.endswith("PrincipalStore.SecurityPrincipal")
     assert PATRecord.__qualname__.endswith("PATStore.TokenRecord")
     assert {table.__name__ for table in PORTWYRM_TABLES} >= {"PrincipalStore", "PATStore"}
+
+
+def test_api_keys_use_standalone_tigrbl_auth_hashing_with_legacy_verification() -> None:
+    secret = "pwyrm_example_secret"
+    digest = hash_api_key(secret)
+    assert digest.startswith("$2")
+    assert verify_api_key(digest, secret)
+    assert not verify_api_key(digest, f"{secret}-wrong")
+
+    legacy_digest = hash_secret(secret)
+    assert legacy_digest.startswith("$argon2")
+    assert verify_api_key(legacy_digest, secret)
 
 
 async def _security_lifecycle() -> None:

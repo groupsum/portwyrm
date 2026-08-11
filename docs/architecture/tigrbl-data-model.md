@@ -13,7 +13,7 @@ Custom operations are reserved for named workflows and operational state transit
 |---|---|---|
 | Identity | `principals`, `credentials`, `browser_sessions` | `register`, `authenticate`, `change_password`, `set_password`, `update_identity`, `set_authorization`, `authorization`, session `issue`, `verify`, `revoke` |
 | RBAC | `roles`, `permissions`, `principal_roles`, `role_permissions`, `principal_permissions` | read/list inspection; mutation is owned by principal authorization operations |
-| Personal access tokens | `personal_access_tokens` | `issue`, `verify`, `revoke`, `refresh`, `rotate`; no generic CRUD |
+| Personal access tokens | `personal_access_tokens` | `issue`, `verify`, `revoke`, `refresh`, `rotate`; portable Portwyrm persistence with standalone Tigrbl Auth bcrypt hashing; no generic CRUD |
 | MFA | `mfa_enrollments`, `mfa_recovery_codes` | `begin`, `enabled`, `confirm`, `verify`, `disable`, `regenerate_backup_codes` |
 | Access policy | `access_lists`, `access_list_rules`, `access_list_credentials`, `access_list_principals` | canonical access-list CRUD with aggregate child hooks; private `runtime_list` projection |
 | Certificates | `certificates`, `certificate_domains`, `certificate_challenges` | canonical CRUD plus `validate`, `upload`, `request`, `renew`, `download`, and `remove` |

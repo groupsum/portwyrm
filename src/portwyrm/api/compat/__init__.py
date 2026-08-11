@@ -485,7 +485,10 @@ def create_compat_app(
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
         try:
-            replacement, plaintext = await _identity_call(token_store.rotate_pat, token_id)
+            kwargs = {"actor": principal} if isinstance(token_store, TableIdentity) else {}
+            replacement, plaintext = await _identity_call(
+                token_store.rotate_pat, token_id, **kwargs
+            )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return {**replacement.public(), "token": plaintext}
@@ -497,7 +500,8 @@ def create_compat_app(
         record = await _owned_token(token_store, token_id, principal)
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
-        await _identity_call(token_store.revoke_pat, token_id)
+        kwargs = {"actor": principal} if isinstance(token_store, TableIdentity) else {}
+        await _identity_call(token_store.revoke_pat, token_id, **kwargs)
 
     @app.get("/api/v2/export")
     async def export_state(principal: Principal = Depends(principal_from_bearer)) -> Resource:

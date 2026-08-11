@@ -45,7 +45,8 @@ function displayOwner(row: Json, users: User[]): string {
 
 function auditActor(row: Json, users: User[]): {actor: string; executor: string | null} {
   const user = users.find(candidate => candidate.id === String(row.actor_id ?? row.user_id));
-  const actor = row.actor_name || user?.username?.replace(/^@/, '') || row.user_email;
+  const rawActor = row.actor_name || user?.username || row.user_email;
+  const actor = row.actor_kind === 'user' && rawActor ? `@${String(rawActor).replace(/^@/, '')}` : rawActor;
   const executor = row.executor_name || row.meta?.attribution?.executor_name || null;
   return {actor: actor || 'System', executor};
 }
@@ -293,8 +294,8 @@ export class PortwyrmStore {
     });
     this.auditLogs = auditRows.map((row: Json) => {
       const attribution = auditActor(row, this.users);
-      return {id: String(row.id), timestamp: row.created_on, actor: attribution.actor, executor: attribution.executor, action: row.action || row.event || 'Changed', resource: row.object_type || row.resource_type || 'Resource', outcome: row.outcome === 'failure' ? 'Failure' : row.outcome === 'rolled_back' ? 'Rolled Back' : 'Success', summary: row.summary || row.action || '', details: JSON.stringify(row, null, 2)};
-    });
+      return {id: String(row.id), timestamp: row.created_on, actor: attribution.actor, executor: attribution.executor, action: row.action || row.event || 'Changed', resource: row.resource_label || row.object_type || row.resource_type || 'Resource', outcome: row.outcome === 'failure' ? 'Failure' : row.outcome === 'rolled_back' ? 'Rolled Back' : 'Success', summary: row.summary || row.action || '', details: JSON.stringify(row, null, 2)};
+    }).sort((left: AuditLog, right: AuditLog) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
     const versionCounts = new Map<string, number>();
     this.hostConfigVersions = auditRows.flatMap((row: Json) => {
       if (row.action !== 'configuration.applied' || !hostTypeByFamily[row.object_type] || !row.meta?.snapshot) return [];
@@ -337,7 +338,7 @@ export class PortwyrmStore {
 
   async addHost(data: Partial<Host>, progress: (phase: string) => void): Promise<void> { progress('Validating configuration'); try { await api(`/api/nginx/${hostFamily[data.type || 'proxy']}`, {method: 'POST', body: JSON.stringify(hostPayload(data))}); progress('Reloading Nginx'); await this.refresh(); progress('Complete'); } catch (error) { progress('Rolled back'); throw error; } }
   async updateHost(id: string, data: Partial<Host>, progress: (phase: string) => void): Promise<void> { const [family, resourceId] = splitHostId(id); progress('Validating configuration'); try { await api(`/api/nginx/${family}/${resourceId}`, {method: 'PUT', body: JSON.stringify(hostPayload({...data, type: data.type || this.hosts.find(item => item.id === id)?.type}))}); progress('Reloading Nginx'); await this.refresh(); progress('Complete'); } catch (error) { progress('Rolled back'); throw error; } }
-  async deleteHost(id: string): Promise<void> { const [family, resourceId] = splitHostId(id); await api(`/api/nginx/${family}/${resourceId}`, {method: 'DELETE'}); await this.refresh(); }
+  async deleteHost(id: string): Promise<void> { const [family, resourceId] = splitHostId(id); await api(`/api/nginx/${family}/${resourceId}`, {method: 'DELETE'}); await this.refresh(); if (this.hosts.some(host => host.id === id)) throw new Error('The host still exists after the delete request.'); }
   async toggleHostStatus(id: string): Promise<void> { const host = this.hosts.find(item => item.id === id); if (!host) return; const [family, resourceId] = splitHostId(id); const operation = host.administrativeState === 'disabled' ? 'enable' : 'disable'; await api(`/api/nginx/${family}/${resourceId}/${operation}`, {method: 'POST'}); await this.refresh(); }
   async probeHost(id: string): Promise<void> { const host = this.hosts.find(item => item.id === id); if (!host || host.type !== 'proxy' || host.administrativeState === 'disabled') return; const [, resourceId] = splitHostId(id); this.hosts = this.hosts.map(item => item.id === id ? {...item, status: 'probing', reachabilityState: 'probing'} : item); this.emit(); await api(`/api/v2/proxy-hosts/${resourceId}/probe`, {method: 'POST'}); await this.refresh(); }
 

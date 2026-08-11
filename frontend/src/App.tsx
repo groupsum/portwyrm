@@ -8,6 +8,7 @@ import HostsView from './components/HostsView';
 import AccessListsView from './components/AccessListsView';
 import UsersView from './components/UsersView';
 import AuditView from './components/AuditView';
+import AccessTokensView from './components/AccessTokensModal';
 import SettingsView from './components/SettingsView';
 import HostDialog from './components/HostDialog';
 import { useFeedback } from './components/Feedback';
@@ -82,7 +83,7 @@ export default function App() {
   useEffect(() => {
     const parseHash = () => {
       const route = window.location.hash.replace('#', '').split('?')[0] || 'overview';
-      if (['overview', 'hosts', 'certificates', 'access-lists', 'users', 'audit', 'settings'].includes(route)) setCurrentTab(route);
+      if (['overview', 'hosts', 'certificates', 'access-lists', 'users', 'access-tokens', 'audit', 'settings'].includes(route)) setCurrentTab(route);
     };
     parseHash(); window.addEventListener('hashchange', parseHash); return () => window.removeEventListener('hashchange', parseHash);
   }, []);
@@ -94,7 +95,7 @@ export default function App() {
   const navigate = (tab: string) => { window.location.hash = tab; };
   const openCreate = () => { setEditingHost(null); setIsCreateHostOpen(true); };
   const openEdit = (host: Host) => { setEditingHost(host); setIsCreateHostOpen(true); };
-  const deleteHost = (id: string) => { const host = portwyrmStore.hosts.find(item => item.id === id); if (!host) return; void feedback.confirm({title: 'Delete routing host?', description: `Permanently delete ${host.source}? This removes its active Nginx configuration.`, confirmLabel: 'Delete host', destructive: true}).then(accepted => { if (accepted) void portwyrmStore.deleteHost(id); }); };
+  const deleteHost = (id: string) => { const host = portwyrmStore.hosts.find(item => item.id === id); if (!host) return; void feedback.confirm({title: 'Delete routing host?', description: `Permanently delete ${host.source}? This removes its active Nginx configuration.`, confirmLabel: 'Delete host', destructive: true}).then(async accepted => { if (!accepted) return; try { await portwyrmStore.deleteHost(id); feedback.toast(`${host.source} was deleted and is no longer registered.`, 'success'); } catch (error) { feedback.toast(error instanceof Error ? error.message : 'Unable to verify host deletion.', 'error'); } }); };
   const renew = (id: string, progress: (message: string, done: boolean, error?: string) => void) => { void portwyrmStore.renewCertificate(id, progress); };
 
   const hosts = <HostsView hosts={portwyrmStore.hosts} certificates={portwyrmStore.certificates} accessLists={portwyrmStore.accessLists} configVersions={portwyrmStore.hostConfigVersions} currentUser={currentUser} onAddHost={openCreate} onEditHost={openEdit} onDeleteHost={deleteHost} onToggleHostStatus={id => void portwyrmStore.toggleHostStatus(id)} onProbeHost={id => void portwyrmStore.probeHost(id)} defaultSubTab={currentTab === 'certificates' ? 'certificates' : 'hosts'} onAddCert={data => void portwyrmStore.addCertificate(data)} onRequestLetsEncrypt={(name, domains, challenge, progress) => void portwyrmStore.requestLetsEncrypt(name, domains, challenge, progress)} onRenewCert={renew} onDeleteCert={id => portwyrmStore.deleteCertificate(id)} onDuplicateHost={host => { setEditingHost({...host, id: '', source: `copy-${host.source}`}); setIsCreateHostOpen(true); }} />;
@@ -105,6 +106,7 @@ export default function App() {
       {(currentTab === 'hosts' || currentTab === 'certificates') && hosts}
       {currentTab === 'access-lists' && <AccessListsView accessLists={portwyrmStore.accessLists} hosts={portwyrmStore.hosts} users={portwyrmStore.users} currentUser={currentUser} onAddAccessList={data => void portwyrmStore.addAccessList(data)} onUpdateAccessList={(id, data) => void portwyrmStore.updateAccessList(id, data)} onDeleteAccessList={id => portwyrmStore.deleteAccessList(id)} />}
       {currentTab === 'users' && <UsersView users={portwyrmStore.users} accessLists={portwyrmStore.accessLists} currentUser={currentUser} onAddUser={(data, aclIds) => void portwyrmStore.addUser(data, aclIds)} onUpdateUser={(id, data) => void portwyrmStore.updateUser(id, data)} onDeleteUser={id => portwyrmStore.deleteUser(id)} />}
+      {currentTab === 'access-tokens' && <AccessTokensView currentUser={currentUser} onList={() => portwyrmStore.listAccessTokens()} onCreate={data => portwyrmStore.createAccessToken(data)} onRotate={id => portwyrmStore.rotateAccessToken(id)} onRevoke={id => portwyrmStore.revokeAccessToken(id)} />}
       {currentTab === 'audit' && <AuditView auditLogs={portwyrmStore.auditLogs} currentUser={currentUser} />}
       {currentTab === 'settings' && <SettingsView currentUser={currentUser} users={portwyrmStore.users} health={portwyrmStore.health} onPreviewImport={(bundle, replace) => portwyrmStore.previewPortableImport(bundle, replace)} onApplyImport={(bundle, replace) => portwyrmStore.applyPortableImport(bundle, replace)} />}
       <HostDialog isOpen={isCreateHostOpen} onClose={() => {setIsCreateHostOpen(false); setEditingHost(null);}} onSubmit={(data, progress) => editingHost?.id ? void portwyrmStore.updateHost(editingHost.id, data, progress) : void portwyrmStore.addHost(data, progress)} certificates={portwyrmStore.certificates} accessLists={portwyrmStore.accessLists} editingHost={editingHost} onDeleteHost={deleteHost} />

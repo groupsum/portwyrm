@@ -20,7 +20,7 @@ from tigrbl.types import (
     relationship,
 )
 
-from portwyrm.identity.passwords import hash_secret, verify_secret
+from portwyrm.identity.api_keys import hash_api_key, verify_api_key
 from portwyrm.kernel_support import select
 
 from .base import READ_ONLY_PROFILE, PortwyrmTable, acol
@@ -136,9 +136,13 @@ class PATStore(PortwyrmTable):
             raise ValueError("PAT expiry must be in the future")
         prefix = secrets.token_hex(12)
         plaintext = f"pwyrm_{prefix}_{secrets.token_urlsafe(32)}"
-        digest = await asyncio.to_thread(hash_secret, plaintext)
+        digest = await asyncio.to_thread(hash_api_key, plaintext)
         row = cls(
-            id=secrets.randbelow(2**63 - 1) + 1,
+            # Portwyrm's portable schema intentionally uses SQL INTEGER keys.
+            # Keep generated IDs within the signed 32-bit range accepted by
+            # PostgreSQL, MySQL, and SQLite instead of relying on SQLite's
+            # wider permissive integer storage.
+            id=secrets.randbelow(2**31 - 1) + 1,
             principal_id=int(payload["principal_id"]),
             name=name,
             token_prefix=prefix,
@@ -206,12 +210,8 @@ class PATStore(PortwyrmTable):
             raise ValueError("invalid token")
         row = await cls._by_prefix(ctx["db"], parts[1])
         now = int(time.time())
-        digest = (
-            row.token_digest
-            if row is not None
-            else "$argon2id$v=19$m=8,t=1,p=1$AAAAAAAAAAA$AAAAAAAAAAA"
-        )
-        matches = await asyncio.to_thread(verify_secret, digest, token)
+        digest = row.token_digest if row is not None else ""
+        matches = await asyncio.to_thread(verify_api_key, digest, token)
         if (
             row is None
             or not matches

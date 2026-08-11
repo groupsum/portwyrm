@@ -18,6 +18,22 @@ dependencies = [
   "pyjwt[crypto]>=2.10,<3",
   "pyotp>=2.9,<3",
   "sqlalchemy>=2.0.51,<3",
+  # The standalone auth packages are source-pinned together because their
+  # current registry artifacts are incomplete/internally inconsistent.
+  "tigrbl-attestation-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-attestation-contracts",
+  "tigrbl-claim-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-claim-contracts",
+  "tigrbl-did-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-did-contracts",
+  "tigrbl-digital-credential-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-digital-credential-contracts",
+  "tigrbl-identity-assurance-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-identity-assurance-contracts",
+  "tigrbl-identity-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-identity-contracts",
+  "tigrbl-identity-core @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/00-primitives/tigrbl-identity-core",
+  "tigrbl-public-key-authentication-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-public-key-authentication-contracts",
+  "tigrbl-replay-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-replay-contracts",
+  "tigrbl-security-event-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-security-event-contracts",
+  "tigrbl-security-trust-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-security-trust-contracts",
+  "tigrbl-secret-hashing-bcrypt-provider @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/20-providers/tigrbl-secret-hashing-bcrypt-provider",
+  "tigrbl-token-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-token-contracts",
+  "tigrbl-workload-identity-contracts @ git+https://github.com/tigrbl/tigrbl_auth.git@fab4fc93d161c5d1d41f1afebf9306dec0e46578#subdirectory=pkgs/02-contracts/tigrbl-workload-identity-contracts",
   "tigrbl[postgres]>=0.4.4,<0.5",
   "uvicorn>=0.35,<1",
 ]

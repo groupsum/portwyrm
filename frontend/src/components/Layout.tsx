@@ -26,7 +26,6 @@ import {
   ,Copy
 } from 'lucide-react';
 import AccountSettingsModal from './AccountSettingsModal';
-import AccessTokensModal from './AccessTokensModal';
 import { can, HOST_PERMISSION_RESOURCES } from '../utils/permissions';
 import { useFeedback } from './Feedback';
 
@@ -46,7 +45,6 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
   const feedback = useFeedback();
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
-  const [isAccessTokensOpen, setIsAccessTokensOpen] = useState(false);
   const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('portwyrm_theme') as 'light' | 'dark') || 'light';
@@ -140,6 +138,7 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
                 { id: 'hosts', label: 'Hosts', icon: Globe, perm: HOST_PERMISSION_RESOURCES.some(resource => can(currentUser, resource, 'read')) },
                 { id: 'access-lists', label: 'Access Lists', icon: Shield, perm: can(currentUser, 'access_lists', 'read') },
                 { id: 'users', label: 'Users', icon: Users, perm: currentUser.role === 'Administrator' }, // admin only
+                { id: 'access-tokens', label: 'Tokens', icon: Key, perm: true },
                 { id: 'audit', label: 'Audit', icon: FileText, perm: true },
                 { id: 'settings', label: 'Settings', icon: SettingsIcon, perm: currentUser.role === 'Administrator' },
               ].map((tab) => {
@@ -222,7 +221,7 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
                       <button
                         onClick={() => {
                           setIsUserDropdownOpen(false);
-                          setIsAccessTokensOpen(true);
+                          onTabChange('access-tokens');
                         }}
                         className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded-lg flex items-center gap-2 cursor-pointer"
                       >
@@ -257,16 +256,6 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
         onClose={() => setIsAccountSettingsOpen(false)}
         onSave={data => portwyrmStore.updateMyAccount(data)}
       />
-      <AccessTokensModal
-        open={isAccessTokensOpen}
-        currentUser={currentUser}
-        onClose={() => setIsAccessTokensOpen(false)}
-        onList={() => portwyrmStore.listAccessTokens()}
-        onCreate={data => portwyrmStore.createAccessToken(data)}
-        onRotate={id => portwyrmStore.rotateAccessToken(id)}
-        onRevoke={id => portwyrmStore.revokeAccessToken(id)}
-      />
-
       {/* MOBILE HEADER OVERFLOW */}
       <div className="md:hidden sticky top-[64px] z-30 bg-slate-100 dark:bg-zinc-800 border-b border-slate-200 dark:border-zinc-700 px-4 py-2 overflow-x-auto flex gap-1.5">
         {[
@@ -274,6 +263,7 @@ export default function Layout({ currentTab, onTabChange, onSignOut, children, s
           { id: 'hosts', label: 'Hosts', perm: HOST_PERMISSION_RESOURCES.some(resource => can(currentUser, resource, 'read')) },
           { id: 'access-lists', label: 'Access Lists', perm: can(currentUser, 'access_lists', 'read') },
           { id: 'users', label: 'Users', perm: currentUser.role === 'Administrator' },
+          { id: 'access-tokens', label: 'Tokens', perm: true },
           { id: 'audit', label: 'Audit', perm: true },
           { id: 'settings', label: 'Settings', perm: currentUser.role === 'Administrator' },
         ].map((tab) => {

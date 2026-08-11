@@ -208,11 +208,21 @@ async def enforce_ownership(ctx: dict[str, Any]) -> None:
     if row is None:
         return
     if _table_name(ctx) == "routing_hosts":
-        ctx.setdefault("temp", {})["object_type"] = {
+        temp = ctx.setdefault("temp", {})
+        temp["object_type"] = {
             "proxy": "proxy_hosts",
             "redirect": "redirection_hosts",
             "dead": "dead_hosts",
         }.get(str(getattr(row, "kind", None)), "routing_hosts")
+        if alias == "delete" and not isinstance(temp.get("deleted_resource"), Mapping):
+            projected = await _await(model._project(ctx["db"], row))
+            temp["deleted_resource"] = {
+                "id": getattr(row, "id", resource_id),
+                "kind": getattr(row, "kind", None),
+                "domain_names": list(projected.get("domain_names") or []),
+                "forward_host": projected.get("forward_host"),
+                "forward_port": projected.get("forward_port"),
+            }
     if _principal_value(ctx, "is_admin"):
         return
     row_owner = getattr(row, "owner_principal_id", None)
@@ -339,6 +349,9 @@ def _details(ctx: Mapping[str, Any]) -> dict[str, Any]:
     attribution = ctx.get("audit_attribution")
     if isinstance(attribution, Mapping):
         payload["attribution"] = dict(attribution)
+    temp = ctx.get("temp")
+    if isinstance(temp, Mapping) and isinstance(temp.get("deleted_resource"), Mapping):
+        payload["deleted_resource"] = dict(temp["deleted_resource"])
     return payload
 
 

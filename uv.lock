@@ -737,6 +737,20 @@ dependencies = [
     { name = "pyotp" },
     { name = "sqlalchemy" },
     { name = "tigrbl", extra = ["postgres"] },
+    { name = "tigrbl-attestation-contracts" },
+    { name = "tigrbl-claim-contracts" },
+    { name = "tigrbl-did-contracts" },
+    { name = "tigrbl-digital-credential-contracts" },
+    { name = "tigrbl-identity-assurance-contracts" },
+    { name = "tigrbl-identity-contracts" },
+    { name = "tigrbl-identity-core" },
+    { name = "tigrbl-public-key-authentication-contracts" },
+    { name = "tigrbl-replay-contracts" },
+    { name = "tigrbl-secret-hashing-bcrypt-provider" },
+    { name = "tigrbl-security-event-contracts" },
+    { name = "tigrbl-security-trust-contracts" },
+    { name = "tigrbl-token-contracts" },
+    { name = "tigrbl-workload-identity-contracts" },
     { name = "uvicorn" },
 ]
 
@@ -759,6 +773,20 @@ requires-dist = [
     { name = "pyotp", specifier = ">=2.9,<3" },
     { name = "sqlalchemy", specifier = ">=2.0.51,<3" },
     { name = "tigrbl", extras = ["postgres"], specifier = ">=0.4.4,<0.5" },
+    { name = "tigrbl-attestation-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-attestation-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-claim-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-claim-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-did-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-did-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-digital-credential-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-digital-credential-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-identity-assurance-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-identity-assurance-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-identity-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-identity-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-identity-core", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F00-primitives%2Ftigrbl-identity-core&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-public-key-authentication-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-public-key-authentication-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-replay-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-replay-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-secret-hashing-bcrypt-provider", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F20-providers%2Ftigrbl-secret-hashing-bcrypt-provider&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-security-event-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-security-event-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-security-trust-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-security-trust-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-token-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-token-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
+    { name = "tigrbl-workload-identity-contracts", git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-workload-identity-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578" },
     { name = "uvicorn", specifier = ">=0.35,<1" },
 ]
 
@@ -1351,6 +1379,14 @@ wheels = [
 ]
 
 [[package]]
+name = "tigrbl-attestation-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-attestation-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+dependencies = [
+    { name = "tigrbl-token-contracts" },
+]
+
+[[package]]
 name = "tigrbl-base"
 version = "0.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1381,6 +1417,14 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/70/73/91106ce2ee3b9d967718a8011a823ded9b45ae949ef84d45dcdd24cfbcd5/tigrbl_canon-0.4.4.tar.gz", hash = "sha256:e1591cbef70dd64a4a3b183667a293a4ab60edd7a8def32702ce656174ca2a42", size = 64866, upload-time = "2026-06-27T03:11:03.806Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/56/830a24c78ef62b83e817f91d5443aaedf328972bb1d09f9067d6c49b22f3/tigrbl_canon-0.4.4-py3-none-any.whl", hash = "sha256:d10fad46adf0d2c18b106b95fe0a604da7cebd067cb30f93727d4a164e087109", size = 90525, upload-time = "2026-06-27T03:11:02.746Z" },
+]
+
+[[package]]
+name = "tigrbl-claim-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-claim-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+dependencies = [
+    { name = "tigrbl-identity-core" },
 ]
 
 [[package]]
@@ -1422,6 +1466,45 @@ sdist = { url = "https://files.pythonhosted.org/packages/84/d3/417fabc52c6f60760
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ea/b8/77e17680583e5bab133d2819e7d50a14908dddfed5453107ab4f16651e08/tigrbl_core-0.4.4-py3-none-any.whl", hash = "sha256:3686dfc291f289e9b503bcdd126f58e83e407f32e14ed8f622cae50267248cf5", size = 113884, upload-time = "2026-06-27T03:10:55.708Z" },
 ]
+
+[[package]]
+name = "tigrbl-did-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-did-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+
+[[package]]
+name = "tigrbl-digital-credential-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-digital-credential-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+
+[[package]]
+name = "tigrbl-identity-assurance-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-identity-assurance-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+
+[[package]]
+name = "tigrbl-identity-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-identity-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+dependencies = [
+    { name = "tigrbl-attestation-contracts" },
+    { name = "tigrbl-claim-contracts" },
+    { name = "tigrbl-did-contracts" },
+    { name = "tigrbl-digital-credential-contracts" },
+    { name = "tigrbl-identity-assurance-contracts" },
+    { name = "tigrbl-identity-core" },
+    { name = "tigrbl-public-key-authentication-contracts" },
+    { name = "tigrbl-replay-contracts" },
+    { name = "tigrbl-security-event-contracts" },
+    { name = "tigrbl-security-trust-contracts" },
+    { name = "tigrbl-token-contracts" },
+    { name = "tigrbl-workload-identity-contracts" },
+]
+
+[[package]]
+name = "tigrbl-identity-core"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F00-primitives%2Ftigrbl-identity-core&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
 
 [[package]]
 name = "tigrbl-kernel"
@@ -1491,6 +1574,16 @@ wheels = [
 ]
 
 [[package]]
+name = "tigrbl-public-key-authentication-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-public-key-authentication-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+
+[[package]]
+name = "tigrbl-replay-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-replay-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+
+[[package]]
 name = "tigrbl-runtime"
 version = "0.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1508,6 +1601,25 @@ wheels = [
 ]
 
 [[package]]
+name = "tigrbl-secret-hashing-bcrypt-provider"
+version = "0.1.0"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F20-providers%2Ftigrbl-secret-hashing-bcrypt-provider&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+dependencies = [
+    { name = "bcrypt" },
+    { name = "tigrbl-identity-contracts" },
+]
+
+[[package]]
+name = "tigrbl-security-event-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-security-event-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+
+[[package]]
+name = "tigrbl-security-trust-contracts"
+version = "0.1.0"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-security-trust-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+
+[[package]]
 name = "tigrbl-spec"
 version = "0.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1521,6 +1633,14 @@ wheels = [
 ]
 
 [[package]]
+name = "tigrbl-token-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-token-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+dependencies = [
+    { name = "tigrbl-identity-core" },
+]
+
+[[package]]
 name = "tigrbl-typing"
 version = "0.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1530,6 +1650,14 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a3/0c/d8a993407354d9926c8f02a1bafd959288e5b813d9ebc89366ebfcf608c9/tigrbl_typing-0.4.4.tar.gz", hash = "sha256:24453a9bc814fb3b92bd2b6999fc93f06852cb1ba380d27e67310490a9b7c871", size = 23614, upload-time = "2026-06-27T03:11:16.439Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/15/fe/c0d71a6baa4bf5c4f5c88a7059edbaafc9d8d4b6760197403eb3ba5e4126/tigrbl_typing-0.4.4-py3-none-any.whl", hash = "sha256:4f0329e63c0be8bf75f0659d291110f3073d556364ba09a24d98d752c7d0174b", size = 28037, upload-time = "2026-06-27T03:11:15.489Z" },
+]
+
+[[package]]
+name = "tigrbl-workload-identity-contracts"
+version = "0.4.0.dev2"
+source = { git = "https://github.com/tigrbl/tigrbl_auth.git?subdirectory=pkgs%2F02-contracts%2Ftigrbl-workload-identity-contracts&rev=fab4fc93d161c5d1d41f1afebf9306dec0e46578#fab4fc93d161c5d1d41f1afebf9306dec0e46578" }
+dependencies = [
+    { name = "tigrbl-identity-core" },
 ]
 
 [[package]]

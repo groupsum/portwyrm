@@ -114,7 +114,8 @@ class TableIdentity:
                 "name": name,
                 "scopes": sorted(principal.scopes),
                 "expires_at": expires_at,
-            }
+            },
+            ctx={"principal": principal},
         )
         return self._pat(result, principal), str(result["token"])
 
@@ -136,17 +137,37 @@ class TableIdentity:
         principal = await self._principal_by_id(int(row["principal_id"]), row.get("scopes") or [])
         return self._pat(row, principal)
 
-    async def revoke_pat(self, token_id: str, *, now: int | None = None) -> bool:
+    async def revoke_pat(
+        self,
+        token_id: str,
+        *,
+        actor: SecurityPrincipal | None = None,
+        now: int | None = None,
+    ) -> bool:
         del now
-        result = await self.app.core.PATStore.revoke({"token_prefix": token_id})
+        context = {"principal": actor} if actor is not None else None
+        result = await self.app.core.PATStore.revoke(
+            {"token_prefix": token_id},
+            **({"ctx": context} if context is not None else {}),
+        )
         return bool(result["revoked"])
 
-    async def rotate_pat(self, token_id: str, *, now: int | None = None) -> tuple[PATRecord, str]:
+    async def rotate_pat(
+        self,
+        token_id: str,
+        *,
+        actor: SecurityPrincipal | None = None,
+        now: int | None = None,
+    ) -> tuple[PATRecord, str]:
         del now
         existing = await self.get_pat(token_id)
         if existing is None:
             raise ValueError("token not found")
-        result = await self.app.core.PATStore.rotate({"token_prefix": token_id})
+        context = {"principal": actor} if actor is not None else None
+        result = await self.app.core.PATStore.rotate(
+            {"token_prefix": token_id},
+            **({"ctx": context} if context is not None else {}),
+        )
         return self._pat(result, existing.principal), str(result["token"])
 
     async def _principal_by_id(self, principal_id: int, scopes: list[str]) -> SecurityPrincipal:

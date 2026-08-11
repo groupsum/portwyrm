@@ -134,7 +134,7 @@ export default function AuditView({ auditLogs, currentUser, onClearLogs }: Audit
           <thead className="bg-slate-50/50 dark:bg-zinc-900/60 text-slate-700 dark:text-zinc-300 text-xs uppercase font-extrabold border-b border-slate-200/80 dark:border-zinc-800">
             <tr>
               <th scope="col" className="px-6 py-4">Time</th>
-              <th scope="col" className="px-6 py-4">Actor</th>
+              <th scope="col" className="px-6 py-4">Initiated by</th>
               <th scope="col" className="px-6 py-4">Resource</th>
               <th scope="col" className="px-6 py-4">Action</th>
               <th scope="col" className="px-6 py-4">Outcome</th>

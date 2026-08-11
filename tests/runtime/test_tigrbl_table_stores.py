@@ -249,6 +249,7 @@ async def _pat_lifecycle() -> None:
     issued = await app.core.PATStore.issue(
         {"principal_id": principal["id"], "name": "automation", "scopes": ["user"]}
     )
+    assert 0 < issued["id"] <= 2_147_483_647
     assert issued["token"].startswith(f"pwyrm_{issued['token_prefix']}_")
     verified = await app.core.PATStore.verify({"token": issued["token"]})
     assert verified["email"] == "operator@example.com"

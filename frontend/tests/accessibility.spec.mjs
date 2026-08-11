@@ -46,7 +46,7 @@ test('login and authenticated operator surfaces pass automated WCAG checks', asy
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Proxy Workspace Overview' })).toBeVisible();
 
-  for (const route of ['overview', 'hosts', 'certificates', 'access-lists', 'users', 'audit', 'settings']) {
+  for (const route of ['overview', 'hosts', 'certificates', 'access-lists', 'users', 'access-tokens', 'audit', 'settings']) {
     await page.evaluate(value => { window.location.hash = value; }, route);
     await page.waitForTimeout(150);
     await assertNoAxeViolations(page, route);

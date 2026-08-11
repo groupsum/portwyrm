@@ -335,6 +335,8 @@ class TableResources:
                 "action": row["action"],
                 "object_type": row["object_type"],
                 "object_id": row["object_id"],
+                "resource_label": _audit_resource_label(row),
+                "summary": f"{row['action']} {_audit_resource_label(row)}",
                 "user_id": row.get("actor_principal_id"),
                 **_audit_actor(row.get("actor_principal_id"), principals),
                 "executor_name": (row.get("details") or {})
@@ -487,6 +489,16 @@ def _audit_actor(actor_id: Any, principals: dict[int, Resource]) -> Resource:
         or f"Principal {actor_id}",
         "actor_email": principal.get("email"),
     }
+
+
+def _audit_resource_label(row: Resource) -> str:
+    details = dict(row.get("details") or {})
+    deleted = details.get("deleted_resource")
+    source = deleted if isinstance(deleted, dict) else details
+    domains = source.get("domain_names") if isinstance(source, dict) else None
+    if isinstance(domains, list) and domains:
+        return ", ".join(str(domain) for domain in domains)
+    return f"{row['object_type']} #{row['object_id']}"
 
 
 __all__ = ["TableResources"]

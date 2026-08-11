@@ -58,12 +58,18 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert "/api/v2/system/status" in script.text
     assert "/api/v2/tokens" in script.text
     assert "Create access token" in script.text
+    assert "access-tokens" in script.text
     assert "Copy this token now" in script.text
     assert "Portwyrm stores only its secure hash" in script.text
     token_source = (
         Path(__file__).parents[2] / "frontend" / "src" / "components" / "AccessTokensModal.tsx"
     ).read_text(encoding="utf-8")
     assert "setSecret(null)" in token_source
+    assert 'role="dialog"' not in token_source
+    assert '<table className="w-full min-w-[760px]' in token_source
+    assert '>Manage</th>' in token_source
+    assert "Production npmctl" not in token_source
+    assert "Create scoped credentials for npmctl" not in token_source
     assert "Access token management is not available" not in script.text
     assert "Config:" in script.text
     assert "Applied Gen:" not in script.text
@@ -102,6 +108,8 @@ def test_host_provenance_distinguishes_automation_humans_and_system_resources() 
     assert "provenanceKind: provenance.kind" in store
     assert "provenanceCaption(" in hosts
     assert "row.actor_name" in store
+    assert "`@${String(rawActor).replace(/^@/, '')}`" in store
+    assert ".sort((left: AuditLog, right: AuditLog)" in store
     assert "actor || 'System'" in store
     assert "'Unattributed'" not in store
     assert "Executed by {selectedLog.executor}" in audit_source

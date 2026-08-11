@@ -586,6 +586,16 @@ class RoutingHostStore(ManagedPortwyrmTable):
     async def delete_aggregate_children(cls, ctx: dict[str, Any]) -> None:
         host_id = int(ctx["payload"]["id"])
         db = ctx["db"]
+        row = await _await(db.get(cls, host_id))
+        if row is not None:
+            projected = await cls._project(db, row)
+            ctx.setdefault("temp", {})["deleted_resource"] = {
+                "id": host_id,
+                "kind": row.kind,
+                "domain_names": list(projected.get("domain_names") or []),
+                "forward_host": projected.get("forward_host"),
+                "forward_port": projected.get("forward_port"),
+            }
         await cls._replace_children(db, host_id, {})
         # These tables intentionally do not use database-level cascades: the
         # routing aggregate owns their lifecycle, while audit rows and global

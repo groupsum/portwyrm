@@ -120,6 +120,42 @@ def test_setup_login_and_proxy_host_crud_use_composed_tigrbl_app() -> None:
     assert {event["actor_kind"] for event in host_events} == {"user"}
     assert {event["actor_name"] for event in host_events} == {"admin"}
     assert {event["actor_email"] for event in host_events} == {"admin@example.test"}
+
+    deleted = client.delete(f"/api/nginx/proxy-hosts/{host['id']}", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json() is True
+    assert client.get(f"/api/nginx/proxy-hosts/{host['id']}", headers=headers).status_code == 404
+    delete_event = next(
+        event
+        for event in client.get("/api/audit-log", headers=headers).json()
+        if event["object_type"] == "proxy_hosts"
+        and event["object_id"] == str(host["id"])
+        and event["action"] == "deleted"
+    )
+    assert delete_event["actor_name"] == "admin"
+    assert delete_event["resource_label"] == "one.example.test, two.example.test"
+    assert delete_event["meta"]["deleted_resource"]["domain_names"] == [
+        "one.example.test",
+        "two.example.test",
+    ]
+
+    token = client.post(
+        "/api/v2/tokens",
+        headers=headers,
+        json={"name": "runtime test", "scopes": ["proxy_hosts:read"]},
+    )
+    assert token.status_code == 201, token.text
+    token_id = token.json()["id"]
+    revoked = client.delete(f"/api/v2/tokens/{token_id}", headers=headers)
+    assert revoked.status_code == 204
+    token_events = [
+        event
+        for event in client.get("/api/audit-log", headers=headers).json()
+        if event["object_type"] == "personal_access_tokens"
+        and event["action"] in {"issue", "revoke"}
+    ]
+    assert {event["action"] for event in token_events} == {"issue", "revoke"}
+    assert {event["user_id"] for event in token_events} == {1}
     system_events = [event for event in audit.json() if event["user_id"] is None]
     assert system_events
     assert {event["actor_kind"] for event in system_events} == {"system"}
