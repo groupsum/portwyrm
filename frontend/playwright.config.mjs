@@ -14,6 +14,25 @@ const browserPath = process.env.PORTWYRM_BROWSER_PATH
     ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     : undefined);
 
+const inheritedRuntimeEnv = Object.fromEntries(
+  [
+    'HOME',
+    'HOMEDRIVE',
+    'HOMEPATH',
+    'PATH',
+    'PATHEXT',
+    'SystemDrive',
+    'SystemRoot',
+    'TEMP',
+    'TMP',
+    'TMPDIR',
+    'USERPROFILE',
+    'windir',
+  ]
+    .filter((name) => process.env[name] !== undefined)
+    .map((name) => [name, process.env[name]]),
+);
+
 export default defineConfig({
   testDir: './tests',
   timeout: 90_000,
@@ -32,7 +51,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 60_000,
     env: {
-      ...process.env,
+      ...inheritedRuntimeEnv,
       PORTWYRM_DB_BACKEND: 'sqlite',
       PORTWYRM_DATA_ROOT: runtimeRoot,
       PORTWYRM_SQLITE_PATH: resolve(runtimeRoot, 'portwyrm.sqlite'),
