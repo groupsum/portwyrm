@@ -16,7 +16,7 @@ LABEL org.opencontainers.image.title="Portwyrm" \
 COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates certbot nginx libnginx-mod-stream \
+    && apt-get install --no-install-recommends -y ca-certificates certbot git nginx libnginx-mod-stream \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
