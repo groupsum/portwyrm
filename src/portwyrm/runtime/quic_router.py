@@ -120,6 +120,25 @@ def decrypt_initial(datagram: bytes) -> bytes:
         raise QuicParseError("unable to decrypt QUIC Initial") from exc
 
 
+def initial_connection_ids(datagram: bytes) -> tuple[bytes, bytes]:
+    """Return destination and source connection IDs from a QUIC long header."""
+    if len(datagram) < 7 or not datagram[0] & 0x80:
+        raise QuicParseError("not a QUIC long-header packet")
+    offset = 5
+    dcid_length = datagram[offset]
+    offset += 1
+    dcid = datagram[offset : offset + dcid_length]
+    offset += dcid_length
+    if offset >= len(datagram):
+        raise QuicParseError("truncated destination connection id")
+    scid_length = datagram[offset]
+    offset += 1
+    scid = datagram[offset : offset + scid_length]
+    if len(dcid) != dcid_length or len(scid) != scid_length:
+        raise QuicParseError("truncated QUIC connection id")
+    return dcid, scid
+
+
 def crypto_fragments(plaintext: bytes) -> dict[int, bytes]:
     offset = 0
     fragments: dict[int, bytes] = {}
@@ -206,6 +225,7 @@ class Route:
 class Session:
     upstream: asyncio.DatagramTransport
     timeout: int
+    client_scid: bytes
     last_seen: float = field(default_factory=time.monotonic)
 
 
@@ -272,6 +292,26 @@ class QuicRouter(asyncio.DatagramProtocol):
         self.reload()
         session = self.sessions.get(addr)
         if session is not None:
+            try:
+                _dcid, client_scid = initial_connection_ids(data)
+                server_name, alpns = inspect_sni(data)
+            except (QuicParseError, IndexError, UnicodeError):
+                session.last_seen = time.monotonic()
+                session.upstream.sendto(data)
+                return
+            if client_scid != session.client_scid:
+                route = self.routes.get(server_name)
+                if route is None or route.alpn not in alpns:
+                    LOGGER.warning("dropping QUIC Initial for unconfigured SNI %s", server_name)
+                    return
+                session.upstream.close()
+                self.sessions.pop(addr, None)
+                self.pending[addr] = [data]
+                self.pending_crypto.pop(addr, None)
+                self.pending_seen[addr] = time.monotonic()
+                self.opening.add(addr)
+                self._spawn(self._open(addr, route, client_scid))
+                return
             session.last_seen = time.monotonic()
             session.upstream.sendto(data)
             return
@@ -306,9 +346,10 @@ class QuicRouter(asyncio.DatagramProtocol):
             self.pending.pop(addr, None)
             return
         self.opening.add(addr)
-        self._spawn(self._open(addr, route))
+        _dcid, client_scid = initial_connection_ids(data)
+        self._spawn(self._open(addr, route, client_scid))
 
-    async def _open(self, addr: tuple[Any, ...], route: Route) -> None:
+    async def _open(self, addr: tuple[Any, ...], route: Route, client_scid: bytes) -> None:
         try:
             if addr in self.sessions:
                 return
@@ -319,6 +360,7 @@ class QuicRouter(asyncio.DatagramProtocol):
             self.sessions[addr] = Session(
                 upstream=transport,
                 timeout=route.idle_timeout_seconds,  # type: ignore[arg-type]
+                client_scid=client_scid,
             )
             self.pending_crypto.pop(addr, None)
             self.pending_seen.pop(addr, None)

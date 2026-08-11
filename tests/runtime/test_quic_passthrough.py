@@ -5,12 +5,17 @@ from pathlib import Path
 
 import pytest
 
+import portwyrm.runtime.quic_router as quic_router
 from portwyrm.api import create_app
 from portwyrm.config import PortwyrmSettings
 from portwyrm.runtime.nginx import NginxRenderer
 from portwyrm.runtime.quic_router import (
+    QuicRouter,
+    Route,
+    Session,
     _initial_keys,
     assemble_crypto,
+    initial_connection_ids,
     parse_client_hello,
 )
 from portwyrm.tables.quic_passthrough import (
@@ -47,6 +52,95 @@ def test_quic_v1_initial_keys_match_rfc_9001() -> None:
     assert key.hex() == "1f369613dd76d5467730efcbe3b1a22d"
     assert iv.hex() == "fa044b2f42a3fd3b46fb255c"
     assert header_protection.hex() == "9f50449e04a0e810283a1e9933adedd2"
+
+
+def test_initial_connection_ids_parse_client_long_header() -> None:
+    dcid = bytes.fromhex("01020304")
+    scid = bytes.fromhex("a1a2a3")
+    datagram = b"\xc0\x00\x00\x00\x01" + bytes([len(dcid)]) + dcid + bytes([len(scid)]) + scid
+
+    assert initial_connection_ids(datagram) == (dcid, scid)
+
+
+def test_new_client_connection_id_replaces_stale_udp_affinity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeUpstream:
+        def __init__(self) -> None:
+            self.closed = False
+            self.sent: list[bytes] = []
+
+        def close(self) -> None:
+            self.closed = True
+
+        def sendto(self, data: bytes) -> None:
+            self.sent.append(data)
+
+    router = QuicRouter(tmp_path / "missing-routes.json")
+    route = Route("present.example", "presentation-backend", 4443)
+    router.routes[route.server_name] = route
+    address = ("203.0.113.7", 54321)
+    upstream = FakeUpstream()
+    router.sessions[address] = Session(  # type: ignore[arg-type]
+        upstream=upstream,
+        timeout=1800,
+        client_scid=b"old-client-connection",
+    )
+    spawned = []
+
+    def capture(coroutine: object) -> None:
+        spawned.append(coroutine)
+        coroutine.close()  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(router, "_spawn", capture)
+    monkeypatch.setattr(
+        quic_router, "initial_connection_ids", lambda _data: (b"dcid", b"new-client-connection")
+    )
+    monkeypatch.setattr(quic_router, "inspect_sni", lambda _data: ("present.example", ("h3",)))
+
+    router.datagram_received(b"new QUIC Initial", address)
+
+    assert upstream.closed is True
+    assert address not in router.sessions
+    assert router.pending[address] == [b"new QUIC Initial"]
+    assert address in router.opening
+    assert len(spawned) == 1
+
+
+def test_same_client_connection_id_preserves_retry_affinity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeUpstream:
+        def __init__(self) -> None:
+            self.closed = False
+            self.sent: list[bytes] = []
+
+        def close(self) -> None:
+            self.closed = True
+
+        def sendto(self, data: bytes) -> None:
+            self.sent.append(data)
+
+    router = QuicRouter(tmp_path / "missing-routes.json")
+    address = ("203.0.113.7", 54321)
+    upstream = FakeUpstream()
+    router.sessions[address] = Session(  # type: ignore[arg-type]
+        upstream=upstream,
+        timeout=1800,
+        client_scid=b"same-client-connection",
+    )
+    monkeypatch.setattr(
+        quic_router,
+        "initial_connection_ids",
+        lambda _data: (b"retry-dcid", b"same-client-connection"),
+    )
+    monkeypatch.setattr(quic_router, "inspect_sni", lambda _data: ("present.example", ("h3",)))
+
+    router.datagram_received(b"retried QUIC Initial", address)
+
+    assert upstream.closed is False
+    assert upstream.sent == [b"retried QUIC Initial"]
+    assert router.sessions[address].upstream is upstream
 
 
 def test_client_hello_parser_extracts_sni_and_h3_alpn() -> None:
