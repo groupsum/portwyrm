@@ -67,7 +67,7 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert "setSecret(null)" in token_source
     assert 'role="dialog"' not in token_source
     assert '<table className="w-full min-w-[760px]' in token_source
-    assert '>Manage</th>' in token_source
+    assert ">Manage</th>" in token_source
     assert "Production npmctl" not in token_source
     assert "Create scoped credentials for npmctl" not in token_source
     assert "Access token management is not available" not in script.text
