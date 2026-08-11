@@ -45,6 +45,19 @@ class CompatibilityService(Protocol):
 
 class TokenService(Protocol):
     def verify(self, token: str, *, now: int | None = None) -> Any: ...
+    def list_pats(self, principal: Any, *, target_principal_id: int | None = None) -> Any: ...
+    def create_pat(
+        self,
+        *,
+        name: str,
+        principal: Any,
+        actor: Any | None = None,
+        expires_at: int | None = None,
+    ) -> Any: ...
+    def get_pat(self, token_id: str, *, actor: Any | None = None, action: str = "read") -> Any: ...
+    def update_pat_expiry(self, token_id: str, expires_at: int, *, actor: Any) -> Any: ...
+    def rotate_pat(self, token_id: str, *, actor: Any | None = None) -> Any: ...
+    def revoke_pat(self, token_id: str, *, actor: Any | None = None) -> Any: ...
 
 
 class MFAService(Protocol):
@@ -73,16 +86,12 @@ SECTION_BY_COLLECTION = {
     "dead_hosts": "dead_hosts",
     "streams": "streams",
 }
-TOKEN_SCOPE_ACTIONS = frozenset({"create", "read", "update", "delete"})
-TOKEN_SCOPE_SECTIONS = frozenset(SECTION_BY_COLLECTION.values())
 TOGGLE_COLLECTIONS = {"proxy_hosts", "redirection_hosts", "dead_hosts", "streams"}
 
 __all__ = [
     "COLLECTIONS",
     "SECTION_BY_COLLECTION",
     "TOGGLE_COLLECTIONS",
-    "TOKEN_SCOPE_ACTIONS",
-    "TOKEN_SCOPE_SECTIONS",
     "CompatibilityService",
     "MFAService",
     "Resource",

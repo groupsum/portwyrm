@@ -55,12 +55,25 @@ def test_postgresql_identity_and_routing_survive_app_reconstruction(tmp_path: Pa
                 "target_kind": "dns",
             }
         )
+        issued = await first.core.PATStore.issue(
+            {"principal_id": principal["id"], "name": "postgres lifecycle", "scopes": ["user"]}
+        )
+        assert 0 < issued["id"] <= 2_147_483_647
+        verified = await first.core.PATStore.verify({"token": issued["token"]})
+        assert verified["principal_id"] == principal["id"]
+        rotated = await first.core.PATStore.rotate({"token_prefix": issued["token_prefix"]})
 
         reconstructed = create_app(settings=settings)
         authenticated = await reconstructed.core.CredentialStore.authenticate(
             {"email": email.upper(), "password": password}
         )
         persisted = await reconstructed.core.RoutingHostStore.read({"id": host["id"]})
+        assert (await reconstructed.core.PATStore.verify({"token": rotated["token"]}))[
+            "principal_id"
+        ] == principal["id"]
+        await reconstructed.core.PATStore.revoke({"token_prefix": rotated["token_prefix"]})
+        with pytest.raises(Exception, match="invalid token"):
+            await reconstructed.core.PATStore.verify({"token": rotated["token"]})
 
         assert authenticated["principal_id"] == principal["id"]
         assert persisted["domain_names"] == [domain]

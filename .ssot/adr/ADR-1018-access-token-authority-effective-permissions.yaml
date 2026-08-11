@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1018"
+number: 1018
+slug: "access-token-authority-effective-permissions"
+title: "Access-token authority and effective permissions"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Native access tokens SHALL belong to exactly one user principal. A user may manage only that user's tokens; cross-user administration requires an explicit access-token management permission, a distinct authorized operation, and attributed audit. Effective authority SHALL be the intersection of current principal permissions and visibility, token scopes, and endpoint policy; explicit denial wins and unknown scopes fail closed. Authentication SHALL resolve current principal state. Disabled or deleted principals invalidate passwords, sessions, and tokens immediately, while forced-password-change principals are restricted to credential-recovery operations. Expired, revoked, rotated, malformed, or unknown tokens fail uniformly. Rotation SHALL atomically issue a successor and revoke its predecessor. Last-used recording SHALL be bounded so authentication does not require an unbounded write per request. Service-principal credentials are outside the current access-token feature and require a separate decision."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted to govern the access-token security-negative and cross-user authorization tranche."
+    at: "2026-08-11T09:37:33Z"
+references: []
+body: |-
+  Native access tokens SHALL belong to exactly one user principal. A user may manage only that user's tokens; cross-user administration requires an explicit access-token management permission, a distinct authorized operation, and attributed audit. Effective authority SHALL be the intersection of current principal permissions and visibility, token scopes, and endpoint policy; explicit denial wins and unknown scopes fail closed. Authentication SHALL resolve current principal state. Disabled or deleted principals invalidate passwords, sessions, and tokens immediately, while forced-password-change principals are restricted to credential-recovery operations. Expired, revoked, rotated, malformed, or unknown tokens fail uniformly. Rotation SHALL atomically issue a successor and revoke its predecessor. Last-used recording SHALL be bounded so authentication does not require an unbounded write per request. Service-principal credentials are outside the current access-token feature and require a separate decision.

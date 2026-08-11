@@ -11,6 +11,13 @@ from .permissions import (
     PermissionLevel,
     permission_allows,
 )
+from .token_policy import (
+    PortwyrmScopeMatcher,
+    effective_token_authority,
+    may_manage_foreign_tokens,
+    normalize_token_scopes,
+    validate_requested_scopes,
+)
 
 Permission = PermissionLevel
 
@@ -35,9 +42,14 @@ __all__ = [
     "PermissionGrant",
     "PermissionLevel",
     "PersonalAccessToken",
+    "PortwyrmScopeMatcher",
     "Principal",
+    "effective_token_authority",
     "hash_secret",
+    "may_manage_foreign_tokens",
     "needs_rehash",
+    "normalize_token_scopes",
     "permission_allows",
+    "validate_requested_scopes",
     "verify_secret",
 ]

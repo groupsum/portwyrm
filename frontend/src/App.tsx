@@ -8,7 +8,7 @@ import HostsView from './components/HostsView';
 import AccessListsView from './components/AccessListsView';
 import UsersView from './components/UsersView';
 import AuditView from './components/AuditView';
-import AccessTokensView from './components/AccessTokensModal';
+import AccessTokensView from './components/AccessTokensView';
 import SettingsView from './components/SettingsView';
 import HostDialog from './components/HostDialog';
 import { useFeedback } from './components/Feedback';
@@ -81,18 +81,18 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [portwyrmStore.authenticated]);
   useEffect(() => {
-    const parseHash = () => {
-      const route = window.location.hash.replace('#', '').split('?')[0] || 'overview';
+    const parsePath = () => {
+      const route = window.location.pathname.replace(/^\/ui\/?/, '').split('/')[0] || 'overview';
       if (['overview', 'hosts', 'certificates', 'access-lists', 'users', 'access-tokens', 'audit', 'settings'].includes(route)) setCurrentTab(route);
     };
-    parseHash(); window.addEventListener('hashchange', parseHash); return () => window.removeEventListener('hashchange', parseHash);
+    parsePath(); window.addEventListener('popstate', parsePath); return () => window.removeEventListener('popstate', parsePath);
   }, []);
 
   if (portwyrmStore.loading) return <div className="min-h-screen grid place-items-center bg-slate-50 dark:bg-zinc-950"><LoaderCircle className="h-8 w-8 animate-spin text-indigo-600" aria-label="Loading Portwyrm" /></div>;
   if (!portwyrmStore.authenticated) return <AuthScreen />;
 
   const currentUser = portwyrmStore.getCurrentUser();
-  const navigate = (tab: string) => { window.location.hash = tab; };
+  const navigate = (tab: string) => { const path = tab === 'overview' ? '/ui/' : `/ui/${tab}`; window.history.pushState({}, '', path); setCurrentTab(tab); };
   const openCreate = () => { setEditingHost(null); setIsCreateHostOpen(true); };
   const openEdit = (host: Host) => { setEditingHost(host); setIsCreateHostOpen(true); };
   const deleteHost = (id: string) => { const host = portwyrmStore.hosts.find(item => item.id === id); if (!host) return; void feedback.confirm({title: 'Delete routing host?', description: `Permanently delete ${host.source}? This removes its active Nginx configuration.`, confirmLabel: 'Delete host', destructive: true}).then(async accepted => { if (!accepted) return; try { await portwyrmStore.deleteHost(id); feedback.toast(`${host.source} was deleted and is no longer registered.`, 'success'); } catch (error) { feedback.toast(error instanceof Error ? error.message : 'Unable to verify host deletion.', 'error'); } }); };
@@ -106,7 +106,7 @@ export default function App() {
       {(currentTab === 'hosts' || currentTab === 'certificates') && hosts}
       {currentTab === 'access-lists' && <AccessListsView accessLists={portwyrmStore.accessLists} hosts={portwyrmStore.hosts} users={portwyrmStore.users} currentUser={currentUser} onAddAccessList={data => void portwyrmStore.addAccessList(data)} onUpdateAccessList={(id, data) => void portwyrmStore.updateAccessList(id, data)} onDeleteAccessList={id => portwyrmStore.deleteAccessList(id)} />}
       {currentTab === 'users' && <UsersView users={portwyrmStore.users} accessLists={portwyrmStore.accessLists} currentUser={currentUser} onAddUser={(data, aclIds) => void portwyrmStore.addUser(data, aclIds)} onUpdateUser={(id, data) => void portwyrmStore.updateUser(id, data)} onDeleteUser={id => portwyrmStore.deleteUser(id)} />}
-      {currentTab === 'access-tokens' && <AccessTokensView currentUser={currentUser} onList={() => portwyrmStore.listAccessTokens()} onCreate={data => portwyrmStore.createAccessToken(data)} onRotate={id => portwyrmStore.rotateAccessToken(id)} onRevoke={id => portwyrmStore.revokeAccessToken(id)} />}
+      {currentTab === 'access-tokens' && <AccessTokensView currentUser={currentUser} users={portwyrmStore.users} onList={userId => portwyrmStore.listAccessTokens(userId)} onCreate={(data, userId) => portwyrmStore.createAccessToken(data, userId)} onUpdateExpiry={(id, expiresAt, userId) => portwyrmStore.updateAccessTokenExpiry(id, expiresAt, userId)} onRotate={(id, userId) => portwyrmStore.rotateAccessToken(id, userId)} onRevoke={(id, userId) => portwyrmStore.revokeAccessToken(id, userId)} />}
       {currentTab === 'audit' && <AuditView auditLogs={portwyrmStore.auditLogs} currentUser={currentUser} />}
       {currentTab === 'settings' && <SettingsView currentUser={currentUser} users={portwyrmStore.users} health={portwyrmStore.health} onPreviewImport={(bundle, replace) => portwyrmStore.previewPortableImport(bundle, replace)} onApplyImport={(bundle, replace) => portwyrmStore.applyPortableImport(bundle, replace)} />}
       <HostDialog isOpen={isCreateHostOpen} onClose={() => {setIsCreateHostOpen(false); setEditingHost(null);}} onSubmit={(data, progress) => editingHost?.id ? void portwyrmStore.updateHost(editingHost.id, data, progress) : void portwyrmStore.addHost(data, progress)} certificates={portwyrmStore.certificates} accessLists={portwyrmStore.accessLists} editingHost={editingHost} onDeleteHost={deleteHost} />

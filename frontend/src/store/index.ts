@@ -218,23 +218,34 @@ export class PortwyrmStore {
     await this.refresh();
   }
 
-  async listAccessTokens(): Promise<AccessToken[]> {
-    const rows = await api('/api/v2/tokens');
-    return rows.map(mapAccessToken).filter((token: AccessToken) => token.userId === this.getCurrentUser().id);
+  private accessTokenBase(userId?: string): string {
+    return userId && userId !== this.getCurrentUser().id
+      ? `/api/v2/users/${encodeURIComponent(userId)}/tokens`
+      : '/api/v2/tokens';
   }
 
-  async createAccessToken(data: {name: string; scopes: string[]; expiresAt: number | null}): Promise<CreatedAccessToken> {
-    const row = await api('/api/v2/tokens', {method: 'POST', body: JSON.stringify({name: data.name, scopes: data.scopes, expires_at: data.expiresAt})});
+  async listAccessTokens(userId?: string): Promise<AccessToken[]> {
+    const rows = await api(this.accessTokenBase(userId));
+    return rows.map(mapAccessToken);
+  }
+
+  async createAccessToken(data: {name: string; scopes: string[]; expiresAt: number | null}, userId?: string): Promise<CreatedAccessToken> {
+    const row = await api(this.accessTokenBase(userId), {method: 'POST', body: JSON.stringify({name: data.name, scopes: data.scopes, expires_at: data.expiresAt})});
     return {...mapAccessToken(row), token: String(row.token)};
   }
 
-  async rotateAccessToken(id: string): Promise<CreatedAccessToken> {
-    const row = await api(`/api/v2/tokens/${encodeURIComponent(id)}/rotate`, {method: 'POST'});
+  async rotateAccessToken(id: string, userId?: string): Promise<CreatedAccessToken> {
+    const row = await api(`${this.accessTokenBase(userId)}/${encodeURIComponent(id)}/rotate`, {method: 'POST'});
     return {...mapAccessToken(row), token: String(row.token)};
   }
 
-  async revokeAccessToken(id: string): Promise<void> {
-    await api(`/api/v2/tokens/${encodeURIComponent(id)}`, {method: 'DELETE'});
+  async updateAccessTokenExpiry(id: string, expiresAt: number, userId?: string): Promise<AccessToken> {
+    const row = await api(`${this.accessTokenBase(userId)}/${encodeURIComponent(id)}`, {method: 'PATCH', body: JSON.stringify({expires_at: expiresAt})});
+    return mapAccessToken(row);
+  }
+
+  async revokeAccessToken(id: string, userId?: string): Promise<void> {
+    await api(`${this.accessTokenBase(userId)}/${encodeURIComponent(id)}`, {method: 'DELETE'});
   }
 
   async previewPortableImport(bundle: Json, replace: boolean): Promise<Json> {

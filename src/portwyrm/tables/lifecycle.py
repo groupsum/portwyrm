@@ -13,6 +13,7 @@ from portwyrm.domain.attribution import OperationAttribution
 from portwyrm.domain.ownership import Ownership
 from portwyrm.errors import AuthorizationError, OwnershipError
 from portwyrm.identity.permissions import permission_allows
+from portwyrm.identity.token_policy import may_manage_foreign_tokens
 
 from .audit import AuditEventStore
 
@@ -111,6 +112,7 @@ _RECONCILE_COLLECTION = {
 _SECTION_BY_TABLE = {
     "access_lists": "access_lists",
     "certificates": "certificates",
+    "personal_access_tokens": "access_tokens",
     "routing_hosts": "proxy_hosts",
     "stream_routes": "streams",
     "quic_passthrough_routes": "streams",
@@ -127,6 +129,10 @@ _ACTION_BY_ALIAS = {
     "health_read": "read",
     "health_list": "read",
     "probe": "update",
+    "issue": "create",
+    "refresh": "update",
+    "rotate": "update",
+    "revoke": "delete",
 }
 
 
@@ -250,6 +256,16 @@ async def enforce_authorization(ctx: dict[str, Any]) -> None:
     section = _SECTION_BY_TABLE.get(table_name)
     if section is None:
         return
+    if table_name == "personal_access_tokens":
+        target_principal_id = ctx.get("target_principal_id")
+        if target_principal_id is None and isinstance(ctx.get("payload"), Mapping):
+            target_principal_id = ctx["payload"].get("principal_id")
+        principal_id = _principal_id(ctx)
+        if target_principal_id is None or principal_id == int(target_principal_id):
+            return
+        if may_manage_foreign_tokens(principal, action):
+            return
+        raise AuthorizationError("permission denied")
     if table_name == "routing_hosts":
         payload = ctx.get("payload")
         kind = payload.get("kind") if isinstance(payload, Mapping) else None
@@ -355,6 +371,40 @@ def _details(ctx: Mapping[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _actor_snapshot(ctx: Mapping[str, Any]) -> dict[str, Any]:
+    principal = ctx.get("principal") or ctx.get("actor")
+    if principal is None:
+        return {}
+    if isinstance(principal, Mapping):
+        read = principal.get
+    else:
+
+        def read(name: str, default: Any = None) -> Any:
+            return getattr(principal, name, default)
+
+    email = read("identity", read("email"))
+    display_name = read("display_name")
+    actor_name = str(email).partition("@")[0] if email else display_name
+    return {
+        "principal_id": _principal_id(ctx),
+        "email": email,
+        "display_name": display_name,
+        "actor_name": actor_name,
+        "is_admin": bool(read("is_admin", False)),
+    }
+
+
+def _target_principal_id(ctx: Mapping[str, Any]) -> int | None:
+    value = ctx.get("target_principal_id")
+    if value is None and isinstance(ctx.get("temp"), Mapping):
+        value = ctx["temp"].get("target_principal_id")
+    if value is None and _table_name(ctx) == "personal_access_tokens":
+        payload = ctx.get("payload")
+        if isinstance(payload, Mapping):
+            value = payload.get("principal_id")
+    return int(value) if value is not None else None
+
+
 def _object_type(ctx: Mapping[str, Any]) -> str:
     table_name = _table_name(ctx)
     if table_name != "routing_hosts":
@@ -417,6 +467,9 @@ async def audit_mutation(ctx: dict[str, Any]) -> None:
         ctx["db"].add(
             AuditEventStore(
                 actor_principal_id=_principal_id(ctx),
+                actor_snapshot=_actor_snapshot(ctx),
+                target_principal_id=_target_principal_id(ctx),
+                outcome="success",
                 action="proxy_host.health.changed",
                 object_type="proxy_hosts",
                 object_id=str(result["id"]),
@@ -435,6 +488,9 @@ async def audit_mutation(ctx: dict[str, Any]) -> None:
     ctx["db"].add(
         AuditEventStore(
             actor_principal_id=_principal_id(ctx),
+            actor_snapshot=_actor_snapshot(ctx),
+            target_principal_id=_target_principal_id(ctx),
+            outcome="success",
             action=_ACTION.get(alias, alias),
             object_type=_object_type(ctx),
             object_id=_object_id(ctx),

@@ -14,6 +14,8 @@ from .base import READ_ONLY_PROFILE, PortwyrmTable, acol
 
 _CERTIFICATE_OWNER_MIGRATION = "certificate-owner-principal-v1"
 _CERTIFICATE_OWNER_CHECKSUM = "sha256:certificate-owner-principal-v1"
+_AUDIT_ATTRIBUTION_MIGRATION = "audit-attribution-snapshot-v1"
+_AUDIT_ATTRIBUTION_CHECKSUM = "sha256:audit-attribution-snapshot-v1"
 
 
 async def _await(value: Any) -> Any:
@@ -49,6 +51,37 @@ async def _certificate_owner_required(db: Any) -> bool:
     else:
         raise RuntimeError(f"schema migration does not support {dialect!r}")
     return "owner_principal_id" not in columns
+
+
+async def _audit_attribution_required(db: Any) -> set[str]:
+    bind = db.get_bind()
+    dialect = str(bind.dialect.name)
+    if dialect == "sqlite":
+        rows = await _await(db.execute(text("PRAGMA table_info(audit_events)")))
+        columns = {str(row[1]) for row in rows}
+    elif dialect == "postgresql":
+        rows = await _await(
+            db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = 'audit_events'"
+                )
+            )
+        )
+        columns = {str(row[0]) for row in rows}
+    elif dialect == "mysql":
+        rows = await _await(
+            db.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = DATABASE() AND table_name = 'audit_events'"
+                )
+            )
+        )
+        columns = {str(row[0]) for row in rows}
+    else:
+        raise RuntimeError(f"schema migration does not support {dialect!r}")
+    return {"actor_snapshot", "target_principal_id", "outcome"} - columns
 
 
 class SchemaMigrationStore(PortwyrmTable):
@@ -105,6 +138,37 @@ class SchemaMigrationStore(PortwyrmTable):
                     name=_CERTIFICATE_OWNER_MIGRATION,
                     checksum=_CERTIFICATE_OWNER_CHECKSUM,
                     source_version="0.1.0a10",
+                    status="applied",
+                    started_at=int(time.time()),
+                    applied_at=int(time.time()),
+                )
+            )
+        audit_columns = await _audit_attribution_required(ctx["db"])
+        if audit_columns:
+            dialect = str(ctx["db"].get_bind().dialect.name)
+            json_type = "JSONB" if dialect == "postgresql" else "JSON"
+            definitions = {
+                "actor_snapshot": f"{json_type} NULL",
+                "target_principal_id": "INTEGER NULL REFERENCES principals(id)",
+                "outcome": "VARCHAR(32) NULL",
+            }
+            for column in sorted(audit_columns):
+                await _await(
+                    ctx["db"].execute(
+                        text(f"ALTER TABLE audit_events ADD COLUMN {column} {definitions[column]}")
+                    )
+                )
+            if "outcome" in audit_columns:
+                await _await(
+                    ctx["db"].execute(
+                        text("UPDATE audit_events SET outcome = 'success' WHERE outcome IS NULL")
+                    )
+                )
+            ctx["db"].add(
+                cls(
+                    name=_AUDIT_ATTRIBUTION_MIGRATION,
+                    checksum=_AUDIT_ATTRIBUTION_CHECKSUM,
+                    source_version="0.1.0a14",
                     status="applied",
                     started_at=int(time.time()),
                     applied_at=int(time.time()),

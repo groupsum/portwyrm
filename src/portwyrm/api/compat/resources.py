@@ -328,24 +328,38 @@ class TableResources:
     async def list_audit(self, since: str | None = None) -> list[Resource]:
         rows = await self.app.core.AuditEventStore.list({})
         principals = {int(row["id"]): row for row in await self.app.core.PrincipalStore.list({})}
-        projected = [
-            {
-                "id": row["id"],
-                "created_on": _iso(row.get("created_at")),
-                "action": row["action"],
-                "object_type": row["object_type"],
-                "object_id": row["object_id"],
-                "resource_label": _audit_resource_label(row),
-                "summary": f"{row['action']} {_audit_resource_label(row)}",
-                "user_id": row.get("actor_principal_id"),
-                **_audit_actor(row.get("actor_principal_id"), principals),
-                "executor_name": (row.get("details") or {})
-                .get("attribution", {})
-                .get("executor_name"),
-                "meta": row.get("details") or {},
-            }
-            for row in rows
-        ]
+        projected = []
+        for row in rows:
+            snapshot = dict(row.get("actor_snapshot") or {})
+            actor = _audit_actor(row.get("actor_principal_id"), principals)
+            if snapshot:
+                actor = {
+                    "actor_id": snapshot.get("principal_id"),
+                    "actor_kind": "user" if snapshot.get("principal_id") else "system",
+                    "actor_name": snapshot.get("actor_name")
+                    or snapshot.get("display_name")
+                    or snapshot.get("email"),
+                    "actor_email": snapshot.get("email"),
+                }
+            projected.append(
+                {
+                    "id": row["id"],
+                    "created_on": _iso(row.get("created_at")),
+                    "action": row["action"],
+                    "object_type": row["object_type"],
+                    "object_id": row["object_id"],
+                    "resource_label": _audit_resource_label(row),
+                    "summary": f"{row['action']} {_audit_resource_label(row)}",
+                    "user_id": row.get("actor_principal_id"),
+                    "target_principal_id": row.get("target_principal_id"),
+                    "outcome": row.get("outcome") or "success",
+                    **actor,
+                    "executor_name": (row.get("details") or {})
+                    .get("attribution", {})
+                    .get("executor_name"),
+                    "meta": row.get("details") or {},
+                }
+            )
         return [item for item in projected if since is None or item["created_on"] >= since]
 
     @staticmethod

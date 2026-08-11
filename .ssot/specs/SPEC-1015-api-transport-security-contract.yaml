@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Compatibility profiles SHALL define exact route and method capabilities, raw-array collections, token envelopes, defaults, nullability, integer and boolean coercion, unknown-field preservation, status and error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned. Proxy-host probe operations and observed-health fields SHALL be native extensions unless an individual frozen compatibility profile explicitly includes them; compatibility payloads SHALL not drift implicitly when native health support is added."
+summary: "Compatibility profiles SHALL define exact route and method capabilities, collection and token envelopes, defaults, coercion, unknown-field preservation, status and error shapes, gzip, CORS, no-store, security headers, and retry-safe behavior. Native APIs SHALL remain separately versioned. Across native APIs, invalid, malformed, unknown, expired, revoked, or rotated credentials SHALL return a non-disclosing 401 response. A valid credential lacking effective scope, permission, visibility, ownership, or administrative authority SHALL return 403. Unknown scopes fail closed. Missing or invalid CSRF protection on cookie-authenticated mutations SHALL return 403. Token ownership violations and cross-user administration failures SHALL not disclose the existence or secret state of another principal's credential. Proxy-host probe operations and observed-health fields SHALL remain native extensions unless a frozen compatibility profile explicitly includes them; compatibility payloads SHALL not drift implicitly."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,15 +17,20 @@ status_notes:
     note: "Accepted for the Portwyrm p100 boundary."
     status: "accepted"
   -
-    status: "accepted"
-    note: "Classified proxy-host observation as a native extension outside frozen compatibility profiles."
     at: "2026-07-17T15:20:09Z"
+    note: "Classified proxy-host observation as a native extension outside frozen compatibility profiles."
+    status: "accepted"
+  -
+    at: "2026-08-11T09:40:08Z"
+    note: "Defined native authentication versus authorization failures, scope handling, ownership privacy, and CSRF semantics."
+    status: "accepted"
 references: []
 body: |-
-  Compatibility profiles SHALL define exact route and method capabilities, raw-array collections, token envelopes, defaults, nullability, integer and boolean coercion, unknown-field preservation, status and error shapes, gzip, CORS, no-store, security headers, and retry-safe method behavior. Native APIs SHALL remain separately versioned. Proxy-host probe operations and observed-health fields SHALL be native extensions unless an individual frozen compatibility profile explicitly includes them; compatibility payloads SHALL not drift implicitly when native health support is added.
+  Compatibility profiles SHALL define exact route and method capabilities, collection and token envelopes, defaults, coercion, unknown-field preservation, status and error shapes, gzip, CORS, no-store, security headers, and retry-safe behavior. Native APIs SHALL remain separately versioned. Across native APIs, invalid, malformed, unknown, expired, revoked, or rotated credentials SHALL return a non-disclosing 401 response. A valid credential lacking effective scope, permission, visibility, ownership, or administrative authority SHALL return 403. Unknown scopes fail closed. Missing or invalid CSRF protection on cookie-authenticated mutations SHALL return 403. Token ownership violations and cross-user administration failures SHALL not disclose the existence or secret state of another principal's credential. Proxy-host probe operations and observed-health fields SHALL remain native extensions unless a frozen compatibility profile explicitly includes them; compatibility payloads SHALL not drift implicitly.
 spec_kind: "normative"
 adr_ids:
   - "adr:1000"
   - "adr:1001"
   - "adr:1009"
   - "adr:1015"
+  - "adr:1018"

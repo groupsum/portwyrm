@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid adapters MUST satisfy one repository conformance suite. Durable adapters MUST preserve transactions, IDs, relationships, metadata, audit ordering, outbox behavior, and secret references. Filesystem-only mode is single-writer. PostgreSQL MAY provide HA through row locks and advisory leases. Cross-backend movement MUST use a versioned checksummed export, validation, dry-run import, and reconciliation."
+summary: "Memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid adapters MUST satisfy one repository conformance suite. Durable adapters MUST preserve transactions, portable identifiers, relationships, metadata, audit ordering, outbox behavior, and secret references. Identity conformance MUST execute real principal registration, password authentication, PAT insertion, verification, rotation, revocation, expiry, and application reconstruction against every supported durable database. Generated PAT identifiers MUST be representable by the declared column type on every backend; numeric-range assertions alone do not satisfy PostgreSQL or MySQL conformance. Filesystem-only mode is single-writer. PostgreSQL MAY provide HA through row locks and advisory leases. Cross-backend movement MUST use a versioned checksummed export, validation, dry-run import, and reconciliation."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,13 +17,18 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the normative T1/T2 implementation contract."
     at: "2026-07-13T23:17:19Z"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    status: "accepted"
+  -
+    at: "2026-08-11T09:38:56Z"
+    note: "Required real cross-engine identity and PAT lifecycle conformance, including identifier insertion."
+    status: "accepted"
 references: []
 body: |-
-  Memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid adapters MUST satisfy one repository conformance suite. Durable adapters MUST preserve transactions, IDs, relationships, metadata, audit ordering, outbox behavior, and secret references. Filesystem-only mode is single-writer. PostgreSQL MAY provide HA through row locks and advisory leases. Cross-backend movement MUST use a versioned checksummed export, validation, dry-run import, and reconciliation.
+  Memory, SQLite, MySQL/MariaDB, PostgreSQL, filesystem-only, and hybrid adapters MUST satisfy one repository conformance suite. Durable adapters MUST preserve transactions, portable identifiers, relationships, metadata, audit ordering, outbox behavior, and secret references. Identity conformance MUST execute real principal registration, password authentication, PAT insertion, verification, rotation, revocation, expiry, and application reconstruction against every supported durable database. Generated PAT identifiers MUST be representable by the declared column type on every backend; numeric-range assertions alone do not satisfy PostgreSQL or MySQL conformance. Filesystem-only mode is single-writer. PostgreSQL MAY provide HA through row locks and advisory leases. Cross-backend movement MUST use a versioned checksummed export, validation, dry-run import, and reconciliation.
 spec_kind: "normative"
 adr_ids:
   - "adr:1002"
   - "adr:1005"
+  - "adr:1019"

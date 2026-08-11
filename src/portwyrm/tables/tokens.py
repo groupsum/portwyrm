@@ -21,10 +21,13 @@ from tigrbl.types import (
 )
 
 from portwyrm.identity.api_keys import hash_api_key, verify_api_key
+from portwyrm.identity.token_policy import may_manage_foreign_tokens, normalize_token_scopes
 from portwyrm.kernel_support import select
 
 from .base import READ_ONLY_PROFILE, PortwyrmTable, acol
 from .principals import PrincipalStore
+
+PAT_LAST_USED_WRITE_INTERVAL_SECONDS = 300
 
 
 async def _await(value: Any) -> Any:
@@ -121,7 +124,9 @@ class PATStore(PortwyrmTable):
 
     @op_ctx(alias="issue", target="custom", arity="collection")
     async def issue(cls, ctx: Any) -> dict[str, Any]:
-        row, result = await cls._new_token(dict(ctx.get("payload") or {}))
+        payload = dict(ctx.get("payload") or {})
+        cls._authorize_owner(ctx, int(payload["principal_id"]), "create")
+        row, result = await cls._new_token(payload)
         ctx["db"].add(row)
         return result
 
@@ -147,7 +152,7 @@ class PATStore(PortwyrmTable):
             name=name,
             token_prefix=prefix,
             token_digest=digest,
-            scopes=sorted(set(payload.get("scopes") or [])),
+            scopes=sorted(normalize_token_scopes(payload.get("scopes") or [])),
             expires_at=int(expires_at) if expires_at is not None else None,
         )
         return row, {
@@ -165,6 +170,7 @@ class PATStore(PortwyrmTable):
         row = await cls._by_prefix(ctx["db"], prefix)
         if row is None:
             return {"revoked": False, "token_prefix": prefix}
+        cls._authorize_owner(ctx, int(row.principal_id), "delete")
         if row.revoked_at is None:
             row.revoked_at = int(time.time())
         return {"revoked": True, "token_prefix": prefix, "revoked_at": row.revoked_at}
@@ -176,6 +182,7 @@ class PATStore(PortwyrmTable):
         row = await cls._by_prefix(ctx["db"], prefix)
         if row is None or row.revoked_at is not None:
             raise ValueError("token not found or revoked")
+        cls._authorize_owner(ctx, int(row.principal_id), "update")
         expires_at = int(payload["expires_at"])
         if expires_at <= int(time.time()):
             raise ValueError("PAT expiry must be in the future")
@@ -189,6 +196,7 @@ class PATStore(PortwyrmTable):
         row = await cls._by_prefix(ctx["db"], prefix)
         if row is None or row.revoked_at is not None:
             raise ValueError("token not found or revoked")
+        cls._authorize_owner(ctx, int(row.principal_id), "update")
         replacement, result = await cls._new_token(
             {
                 "principal_id": row.principal_id,
@@ -224,8 +232,12 @@ class PATStore(PortwyrmTable):
         )
         principal = result.scalar_one_or_none()
         if principal is None or principal.is_disabled or principal.is_deleted:
-            raise ValueError("principal is unavailable")
-        row.last_used_at = now
+            raise ValueError("invalid token")
+        if (
+            row.last_used_at is None
+            or now - int(row.last_used_at) >= PAT_LAST_USED_WRITE_INTERVAL_SECONDS
+        ):
+            row.last_used_at = now
         return {
             "principal_id": principal.id,
             "email": principal.email,
@@ -238,6 +250,21 @@ class PATStore(PortwyrmTable):
     async def _by_prefix(cls, db: Any, prefix: str) -> Any:
         result = await _await(db.execute(select(cls).where(cls.token_prefix == prefix)))
         return result.scalar_one_or_none()
+
+    @staticmethod
+    def _authorize_owner(ctx: Any, owner_id: int, action: str) -> None:
+        actor = ctx.get("principal") or ctx.get("actor")
+        if actor is None:
+            return
+        actor_id = (
+            actor.get("user_id", actor.get("id"))
+            if isinstance(actor, dict)
+            else getattr(actor, "user_id", getattr(actor, "id", None))
+        )
+        if actor_id is None:
+            raise PermissionError("authenticated principal required")
+        if int(actor_id) != owner_id and not may_manage_foreign_tokens(actor, action):
+            raise PermissionError("access-token permission required")
 
 
 PersonalAccessToken = PATStore

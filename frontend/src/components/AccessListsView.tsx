@@ -499,7 +499,7 @@ export default function AccessListsView({
                 />
                 <div>
                   <label htmlFor="forward-header" className="font-bold text-slate-800 dark:text-zinc-200 block">Forward Authorization Header</label>
-                  <span className="text-slate-400">Allows downstream proxy clients or apps to read the authorization tokens if required.</span>
+                  <span className="text-slate-400">Allows authorized clients to receive the authenticated user identity when required.</span>
                 </div>
               </div>
 

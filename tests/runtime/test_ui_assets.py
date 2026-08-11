@@ -62,7 +62,7 @@ def test_compiled_console_is_packaged_and_accessible() -> None:
     assert "Copy this token now" in script.text
     assert "Portwyrm stores only its secure hash" in script.text
     token_source = (
-        Path(__file__).parents[2] / "frontend" / "src" / "components" / "AccessTokensModal.tsx"
+        Path(__file__).parents[2] / "frontend" / "src" / "components" / "AccessTokensView.tsx"
     ).read_text(encoding="utf-8")
     assert "setSecret(null)" in token_source
     assert 'role="dialog"' not in token_source

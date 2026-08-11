@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The control-plane UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Proxy-host rows and details MUST not infer online from enabled. They MUST expose administrative state, deployment state, and observed reachability, support online, offline, stale, unknown, probing, and disabled filtering, show last observation and a concise diagnostic, and preserve the precedence rules in spc:1018. Host inventory rows MUST distinguish human, automation-managed, and system provenance. Any non-empty meta.managed_by value MUST classify the resource as automation-managed and MUST be displayed verbatim without a manager-specific allowlist. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements."
+summary: "The control-plane UI MUST provide dashboard, host, certificate, access-list, user, access-token, activity, settings, and system-health flows. Access tokens MUST have a first-class routed page rather than a nested modal. The page MUST distinguish self-management from explicitly authorized cross-user administration; support list, issue, one-time secret reveal, rotate, expiry update, and revoke; use product-neutral labels; and represent forbidden, read-only, empty, loading, validation, error, success, and destructive-confirmation states. Browser acceptance MUST operate these controls, not merely visit the page. The broader UI MUST represent saving, pending, activation failure, degraded runtime, certificate risk, and destructive dependency states. Proxy-host rows and details MUST independently expose administrative, deployment, and observed reachability state according to spc:1018. Host inventory MUST distinguish human, automation-managed, and system provenance and display non-empty meta.managed_by values verbatim. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -25,14 +25,19 @@ status_notes:
     note: "Required observed proxy-host health states, filters, diagnostics, and accessible presentation."
     status: "accepted"
   -
-    status: "accepted"
-    note: "Clarify generic human, automation-managed, and system provenance presentation."
     at: "2026-08-10T10:41:25Z"
+    note: "Clarify generic human, automation-managed, and system provenance presentation."
+    status: "accepted"
+  -
+    at: "2026-08-11T09:39:17Z"
+    note: "Made access-token management a first-class operated browser workflow with authority and state requirements."
+    status: "accepted"
 references: []
 body: |-
-  The control-plane UI MUST provide dashboard, host, certificate, access-list, user, token, activity, settings, and system-health flows. It MUST represent loading, empty, error, read-only, hidden, saving, pending, success, validation failure, activation failure, degraded runtime, certificate risk, and destructive dependency states. Proxy-host rows and details MUST not infer online from enabled. They MUST expose administrative state, deployment state, and observed reachability, support online, offline, stale, unknown, probing, and disabled filtering, show last observation and a concise diagnostic, and preserve the precedence rules in spc:1018. Host inventory rows MUST distinguish human, automation-managed, and system provenance. Any non-empty meta.managed_by value MUST classify the resource as automation-managed and MUST be displayed verbatim without a manager-specific allowlist. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements.
+  The control-plane UI MUST provide dashboard, host, certificate, access-list, user, access-token, activity, settings, and system-health flows. Access tokens MUST have a first-class routed page rather than a nested modal. The page MUST distinguish self-management from explicitly authorized cross-user administration; support list, issue, one-time secret reveal, rotate, expiry update, and revoke; use product-neutral labels; and represent forbidden, read-only, empty, loading, validation, error, success, and destructive-confirmation states. Browser acceptance MUST operate these controls, not merely visit the page. The broader UI MUST represent saving, pending, activation failure, degraded runtime, certificate risk, and destructive dependency states. Proxy-host rows and details MUST independently expose administrative, deployment, and observed reachability state according to spc:1018. Host inventory MUST distinguish human, automation-managed, and system provenance and display non-empty meta.managed_by values verbatim. Responsive behavior, keyboard operation, focus management, semantic forms and tables, reduced motion, 200 percent zoom, and WCAG 2.2 AA are release requirements.
 spec_kind: "normative"
 adr_ids:
   - "adr:1001"
   - "adr:1004"
   - "adr:1015"
+  - "adr:1018"

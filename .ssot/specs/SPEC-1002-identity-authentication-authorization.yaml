@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The control plane MUST support NPM-compatible users, admins, disabled state, password lifecycle, section permissions hidden/view/manage, visibility user/all, RS256 JWT issuance and refresh, TOTP challenge, and eight one-use backup codes. Native personal and service tokens MUST be opaque, scoped, expiring, revocable, shown once, hashed at rest, and audited. UI sessions MUST use secure HttpOnly cookies and CSRF protection."
+summary: "The control plane MUST preserve NPM-compatible users, administrators, disabled state, password lifecycle, section permissions hidden/view/manage, visibility user/all, RS256 JWT issuance and refresh, TOTP challenge, and eight one-use backup codes. Native access tokens are user-principal-owned PATs; service-principal credentials are outside this feature. PATs MUST be opaque, scoped, expiring, revocable, shown once, hashed at rest, and audited. Effective authority MUST be the fail-closed intersection of current principal permissions and visibility, PAT scopes, and endpoint policy; explicit denial wins and unknown scopes deny access. Users may manage only their own PATs. Cross-user administration requires an explicit access-token management permission and attributed operation. Disabled or deleted principals invalidate password, session, and PAT authentication immediately. Forced-password-change principals may access only credential-recovery operations. Expired, revoked, rotated, malformed, or unknown credentials MUST fail uniformly. Rotation MUST atomically revoke the predecessor and issue the successor. Last-used recording MUST be bounded. UI sessions MUST be expiring and revocable, use secure HttpOnly SameSite cookies, and require CSRF protection for mutations."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,13 +17,19 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the normative T1/T2 implementation contract."
     at: "2026-07-13T23:17:10Z"
+    note: "Accepted as the normative T1/T2 implementation contract."
+    status: "accepted"
+  -
+    at: "2026-08-11T09:38:33Z"
+    note: "Expanded identity and PAT authority, invalidation, ownership, lifecycle, and session requirements."
+    status: "accepted"
 references: []
 body: |-
-  The control plane MUST support NPM-compatible users, admins, disabled state, password lifecycle, section permissions hidden/view/manage, visibility user/all, RS256 JWT issuance and refresh, TOTP challenge, and eight one-use backup codes. Native personal and service tokens MUST be opaque, scoped, expiring, revocable, shown once, hashed at rest, and audited. UI sessions MUST use secure HttpOnly cookies and CSRF protection.
+  The control plane MUST preserve NPM-compatible users, administrators, disabled state, password lifecycle, section permissions hidden/view/manage, visibility user/all, RS256 JWT issuance and refresh, TOTP challenge, and eight one-use backup codes. Native access tokens are user-principal-owned PATs; service-principal credentials are outside this feature. PATs MUST be opaque, scoped, expiring, revocable, shown once, hashed at rest, and audited. Effective authority MUST be the fail-closed intersection of current principal permissions and visibility, PAT scopes, and endpoint policy; explicit denial wins and unknown scopes deny access. Users may manage only their own PATs. Cross-user administration requires an explicit access-token management permission and attributed operation. Disabled or deleted principals invalidate password, session, and PAT authentication immediately. Forced-password-change principals may access only credential-recovery operations. Expired, revoked, rotated, malformed, or unknown credentials MUST fail uniformly. Rotation MUST atomically revoke the predecessor and issue the successor. Last-used recording MUST be bounded. UI sessions MUST be expiring and revocable, use secure HttpOnly SameSite cookies, and require CSRF protection for mutations.
 spec_kind: "normative"
 adr_ids:
   - "adr:1004"
   - "adr:1005"
+  - "adr:1018"
+  - "adr:1019"

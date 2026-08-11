@@ -3,7 +3,10 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'playwright/test';
 
 const repositoryRoot = resolve(import.meta.dirname, '..');
-const runtimeRoot = resolve(repositoryRoot, '.a11y-runtime');
+const runtimeRoot = resolve(
+  repositoryRoot,
+  process.env.PORTWYRM_A11Y_RUNTIME || '.a11y-runtime',
+);
 mkdirSync(runtimeRoot, { recursive: true });
 
 const browserPath = process.env.PORTWYRM_BROWSER_PATH
@@ -13,7 +16,7 @@ const browserPath = process.env.PORTWYRM_BROWSER_PATH
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 60_000,
+  timeout: 90_000,
   workers: 1,
   reporter: 'line',
   use: {

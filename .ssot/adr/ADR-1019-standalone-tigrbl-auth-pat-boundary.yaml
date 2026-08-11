@@ -1,0 +1,21 @@
+schema_version: "0.8.0"
+kind: "adr"
+id: "adr:1019"
+number: 1019
+slug: "standalone-tigrbl-auth-pat-boundary"
+title: "Standalone Tigrbl Auth composition and PAT persistence boundary"
+status: "accepted"
+origin: "repo-local"
+decision_date: null
+tags: []
+summary: "Portwyrm SHALL compose focused standalone Tigrbl Auth contracts and providers directly and SHALL NOT depend on an authentication or credentials facade. Portwyrm SHALL retain ownership of its portable personal-access-token table until standalone authentication storage supports Portwyrm's engine-neutral schema, identifier constraints, component migration, and adoption requirements. New PAT secrets SHALL use domain-separated SHA-256 normalization before the standalone bcrypt provider; existing Argon2 PAT digests SHALL remain verification-compatible through an explicitly tested retirement window. The current commit-pinned Git dependency closure is a temporary distribution exception caused by incomplete or inconsistent registry artifacts. Migration to released standalone packages requires import-surface, class-identity, lock-resolution, and persistence-conformance evidence."
+supersedes: []
+superseded_by: []
+status_notes:
+  -
+    status: "accepted"
+    note: "Accepted to document the implemented standalone-package and portable-storage boundary without adopting a facade."
+    at: "2026-08-11T09:37:49Z"
+references: []
+body: |-
+  Portwyrm SHALL compose focused standalone Tigrbl Auth contracts and providers directly and SHALL NOT depend on an authentication or credentials facade. Portwyrm SHALL retain ownership of its portable personal-access-token table until standalone authentication storage supports Portwyrm's engine-neutral schema, identifier constraints, component migration, and adoption requirements. New PAT secrets SHALL use domain-separated SHA-256 normalization before the standalone bcrypt provider; existing Argon2 PAT digests SHALL remain verification-compatible through an explicitly tested retirement window. The current commit-pinned Git dependency closure is a temporary distribution exception caused by incomplete or inconsistent registry artifacts. Migration to released standalone packages requires import-surface, class-identity, lock-resolution, and persistence-conformance evidence.

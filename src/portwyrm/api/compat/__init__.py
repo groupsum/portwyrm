@@ -27,8 +27,6 @@ from portwyrm.api.compat.contracts import (
     COLLECTIONS,
     SECTION_BY_COLLECTION,
     TOGGLE_COLLECTIONS,
-    TOKEN_SCOPE_ACTIONS,
-    TOKEN_SCOPE_SECTIONS,
     CompatibilityService,
     MFAService,
     Resource,
@@ -42,9 +40,13 @@ from portwyrm.api.portability import TablePortability
 from portwyrm.api.security import (
     TableIdentity,
     TableSecurityDependencies,
-    permissions_from_scopes,
 )
 from portwyrm.certificates import DEFAULT_PROVIDER_CATALOG, provider_status
+from portwyrm.identity.token_policy import (
+    effective_token_authority,
+    may_manage_foreign_tokens,
+    validate_requested_scopes,
+)
 from portwyrm.migration import preflight_npm
 from portwyrm.security import Principal
 from portwyrm.tables import CertificateStore
@@ -418,58 +420,72 @@ def create_compat_app(
         token, expires = await _identity_call(token_store.issue_session, impersonated)
         return {"token": token, "expires": expires, "user": user}
 
-    @app.get("/api/v2/tokens")
-    async def list_personal_tokens(
-        request: Request,
-        principal: Principal = Depends(principal_from_bearer),
-    ) -> list[Resource]:
-        include_all = _query_bool(request, "include_all")
-        records = await _identity_call(token_store.list_pats, principal)
-        if not (include_all and principal.is_admin):
-            records = [
-                record
-                for record in records
-                if str(record.principal.user_id) == str(principal.user_id)
-            ]
+    async def token_owner(target_principal_id: int, actor: Principal, action: str) -> Principal:
+        if target_principal_id == int(actor.user_id):
+            return actor
+        if not may_manage_foreign_tokens(actor, cast(Any, action)):
+            raise HTTPException(status_code=403, detail="access-token permission required")
+        user = await _service_get(service, "users", target_principal_id, actor)
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        return _as_principal(user, fallback_identity=str(target_principal_id))
+
+    async def list_tokens_for(target_principal_id: int, actor: Principal) -> list[Resource]:
+        await token_owner(target_principal_id, actor, "read")
+        try:
+            records = await _identity_call(
+                token_store.list_pats,
+                actor,
+                target_principal_id=target_principal_id,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         return [record.public() for record in records]
 
-    @app.post("/api/v2/tokens", status_code=status.HTTP_201_CREATED)
-    async def create_personal_token(
-        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    async def create_token_for(
+        target_principal_id: int,
+        payload: dict[str, Any],
+        actor: Principal,
     ) -> Resource:
+        owner = await token_owner(target_principal_id, actor, "create")
         name = payload.get("name")
         expires_at = payload.get("expires_at")
-        scopes = payload.get("scopes", sorted(principal.scopes))
+        scopes = payload.get("scopes", sorted(owner.scopes))
         if not isinstance(name, str) or not isinstance(scopes, list):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="name and scopes are required",
             )
-        requested = frozenset(str(scope).strip() for scope in scopes)
-        if not requested:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="invalid token scopes"
-            )
         try:
-            token_permissions, token_is_admin = _validate_token_scopes(requested, principal)
+            requested = validate_requested_scopes(
+                scopes,
+                permissions=owner.permissions,
+                is_admin=owner.is_admin,
+            )
+            token_permissions, token_is_admin, stored_scopes = effective_token_authority(
+                scopes=requested,
+                permissions=owner.permissions,
+                is_admin=owner.is_admin,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-        stored_scopes = requested if requested == {"user"} else requested | {"user"}
         pat_principal = Principal(
-            user_id=principal.user_id,
-            identity=principal.identity,
+            user_id=owner.user_id,
+            identity=owner.identity,
             is_admin=token_is_admin,
             permissions=token_permissions,
-            visibility=principal.visibility,
+            visibility=owner.visibility,
             scopes=stored_scopes,
-            owner=principal.owner,
+            owner=owner.owner,
         )
         try:
+            kwargs = {"actor": actor} if isinstance(token_store, TableIdentity) else {}
             record, plaintext = await _identity_call(
                 token_store.create_pat,
                 name=name,
                 principal=pat_principal,
                 expires_at=int(expires_at) if expires_at is not None else None,
+                **kwargs,
             )
         except (TypeError, ValueError) as exc:
             raise HTTPException(
@@ -477,11 +493,71 @@ def create_compat_app(
             ) from exc
         return {**record.public(), "token": plaintext}
 
+    @app.get("/api/v2/tokens")
+    async def list_personal_tokens(
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> list[Resource]:
+        return await list_tokens_for(int(principal.user_id), principal)
+
+    @app.post("/api/v2/tokens", status_code=status.HTTP_201_CREATED)
+    async def create_personal_token(
+        payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
+    ) -> Resource:
+        return await create_token_for(int(principal.user_id), payload, principal)
+
+    @app.get("/api/v2/users/{principal_id}/tokens")
+    async def list_user_personal_tokens(
+        principal_id: int,
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> list[Resource]:
+        return await list_tokens_for(principal_id, principal)
+
+    @app.post("/api/v2/users/{principal_id}/tokens", status_code=status.HTTP_201_CREATED)
+    async def create_user_personal_token(
+        principal_id: int,
+        payload: dict[str, Any],
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        return await create_token_for(principal_id, payload, principal)
+
+    async def owned_token(token_id: str, principal: Principal, action: str) -> Any:
+        kwargs = (
+            {"actor": principal, "action": action} if isinstance(token_store, TableIdentity) else {}
+        )
+        record = await _identity_call(token_store.get_pat, token_id, **kwargs)
+        if record is None:
+            raise HTTPException(status_code=404, detail="token not found")
+        return record
+
+    @app.patch("/api/v2/tokens/{token_id}")
+    async def update_personal_token_expiry(
+        token_id: str,
+        payload: dict[str, Any],
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        if "expires_at" not in payload or payload["expires_at"] is None:
+            raise HTTPException(status_code=422, detail="expires_at is required")
+        try:
+            record = await owned_token(token_id, principal, "update")
+            if not isinstance(token_store, TableIdentity):
+                raise HTTPException(status_code=501, detail="token expiry update unavailable")
+            updated = await _identity_call(
+                token_store.update_pat_expiry,
+                token_id,
+                int(payload["expires_at"]),
+                actor=principal,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail="token not found") from exc
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {**record.public(), **updated.public()}
+
     @app.post("/api/v2/tokens/{token_id}/rotate", status_code=status.HTTP_201_CREATED)
     async def rotate_personal_token(
         token_id: str, principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
-        record = await _owned_token(token_store, token_id, principal)
+        record = await owned_token(token_id, principal, "update")
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
         try:
@@ -489,6 +565,8 @@ def create_compat_app(
             replacement, plaintext = await _identity_call(
                 token_store.rotate_pat, token_id, **kwargs
             )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail="token not found") from exc
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return {**replacement.public(), "token": plaintext}
@@ -497,11 +575,54 @@ def create_compat_app(
     async def revoke_personal_token(
         token_id: str, principal: Principal = Depends(principal_from_bearer)
     ) -> None:
-        record = await _owned_token(token_store, token_id, principal)
+        record = await owned_token(token_id, principal, "delete")
         if record.revoked_at is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="token is revoked")
         kwargs = {"actor": principal} if isinstance(token_store, TableIdentity) else {}
-        await _identity_call(token_store.revoke_pat, token_id, **kwargs)
+        try:
+            await _identity_call(token_store.revoke_pat, token_id, **kwargs)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail="token not found") from exc
+
+    @app.patch("/api/v2/users/{principal_id}/tokens/{token_id}")
+    async def update_user_personal_token_expiry(
+        principal_id: int,
+        token_id: str,
+        payload: dict[str, Any],
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        record = await owned_token(token_id, principal, "update")
+        if int(record.principal.user_id) != principal_id:
+            raise HTTPException(status_code=404, detail="token not found")
+        return await update_personal_token_expiry(token_id, payload, principal)
+
+    @app.post(
+        "/api/v2/users/{principal_id}/tokens/{token_id}/rotate",
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def rotate_user_personal_token(
+        principal_id: int,
+        token_id: str,
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        record = await owned_token(token_id, principal, "update")
+        if int(record.principal.user_id) != principal_id:
+            raise HTTPException(status_code=404, detail="token not found")
+        return await rotate_personal_token(token_id, principal)
+
+    @app.delete(
+        "/api/v2/users/{principal_id}/tokens/{token_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def revoke_user_personal_token(
+        principal_id: int,
+        token_id: str,
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> None:
+        record = await owned_token(token_id, principal, "delete")
+        if int(record.principal.user_id) != principal_id:
+            raise HTTPException(status_code=404, detail="token not found")
+        await revoke_personal_token(token_id, principal)
 
     @app.get("/api/v2/export")
     async def export_state(principal: Principal = Depends(principal_from_bearer)) -> Resource:
@@ -911,43 +1032,6 @@ def _as_principal(value: Principal | Mapping[str, Any], *, fallback_identity: st
         visibility="all" if value.get("visibility") == "all" else "user",
         owner=str(value["owner"]) if value.get("owner") is not None else None,
     )
-
-
-def _permissions_from_token_scopes(scopes: frozenset[str]) -> dict[str, dict[str, bool]]:
-    return {
-        section: grants
-        for section, grants in permissions_from_scopes(scopes).items()
-        if section in TOKEN_SCOPE_SECTIONS
-        and all(action in TOKEN_SCOPE_ACTIONS for action in grants)
-    }
-
-
-def _validate_token_scopes(
-    scopes: frozenset[str], principal: Principal
-) -> tuple[dict[str, Any], bool]:
-    if scopes == {"user"}:
-        return dict(principal.permissions), principal.is_admin
-    if "user" in scopes:
-        scopes = scopes - {"user"}
-    if not scopes:
-        raise ValueError("select at least one access scope")
-    permissions = _permissions_from_token_scopes(scopes)
-    if sum(len(actions) for actions in permissions.values()) != len(scopes):
-        raise ValueError("invalid token scopes")
-    for section, grants in permissions.items():
-        for action in grants:
-            if not principal.may(section, action=cast(Any, action)):
-                raise ValueError(f"scope exceeds account permission: {section}:{action}")
-    return permissions, False
-
-
-async def _owned_token(token_store: TokenService, token_id: str, principal: Principal) -> Any:
-    record = await _identity_call(token_store.get_pat, token_id)
-    if record is None or (
-        not principal.is_admin and str(record.principal.user_id) != str(principal.user_id)
-    ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="token not found")
-    return record
 
 
 def _authorize(

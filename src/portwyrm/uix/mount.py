@@ -17,6 +17,21 @@ def mount_uix(app: TigrblApp) -> None:
     async def ui_index() -> FileResponse:
         return FileResponse(str(root.joinpath("index.html")))
 
+    async def ui_document() -> FileResponse:
+        return FileResponse(str(root.joinpath("index.html")))
+
+    for path in (
+        "overview",
+        "hosts",
+        "certificates",
+        "access-lists",
+        "users",
+        "access-tokens",
+        "audit",
+        "settings",
+    ):
+        app.get(f"/ui/{path}", include_in_schema=False)(ui_document)
+
     @app.get("/console", include_in_schema=False)
     async def console() -> FileResponse:
         return FileResponse(str(root.joinpath("index.html")))

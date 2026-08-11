@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "Context: NPM compatibility requires JWT, user visibility, section permissions, and TOTP while operators also require revocable automation credentials. Decision: preserve compatible JWT/RBAC/2FA behavior and add separately scoped opaque personal and service tokens stored only as hashes. Consequences: native tokens never alter compatibility JWT semantics and every privilege transition is audited. Governs: feat:identity.users-rbac, feat:identity.auth-2fa, feat:identity.access-tokens."
+summary: "NPM compatibility requires JWT, user visibility, section permissions, and TOTP while operators also require revocable automation credentials. Portwyrm SHALL preserve compatible JWT, RBAC, and 2FA behavior and add separately scoped opaque personal access tokens stored only as hashes. The current native access-token feature is limited to user-principal-owned PATs; service-principal credentials require a separate feature and decision. Native PAT semantics SHALL follow adr:1018, standalone package and persistence ownership SHALL follow adr:1019, native tokens SHALL NOT alter compatibility JWT semantics, and every credential or privilege transition SHALL be attributed and audited."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,9 +17,13 @@ status_notes:
     note: "Proposed for Portwyrm contract review."
     status: "draft"
   -
-    status: "accepted"
-    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
     at: "2026-07-13T23:15:45Z"
+    note: "Accepted as the frozen architecture basis for T1/T2 implementation."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Clarified user-principal PAT scope, deferred service credentials, and linked the narrower authority and standalone-package decisions."
+    at: "2026-08-11T09:38:05Z"
 references: []
 body: |-
-  Context: NPM compatibility requires JWT, user visibility, section permissions, and TOTP while operators also require revocable automation credentials. Decision: preserve compatible JWT/RBAC/2FA behavior and add separately scoped opaque personal and service tokens stored only as hashes. Consequences: native tokens never alter compatibility JWT semantics and every privilege transition is audited. Governs: feat:identity.users-rbac, feat:identity.auth-2fa, feat:identity.access-tokens.
+  NPM compatibility requires JWT, user visibility, section permissions, and TOTP while operators also require revocable automation credentials. Portwyrm SHALL preserve compatible JWT, RBAC, and 2FA behavior and add separately scoped opaque personal access tokens stored only as hashes. The current native access-token feature is limited to user-principal-owned PATs; service-principal credentials require a separate feature and decision. Native PAT semantics SHALL follow adr:1018, standalone package and persistence ownership SHALL follow adr:1019, native tokens SHALL NOT alter compatibility JWT semantics, and every credential or privilege transition SHALL be attributed and audited.

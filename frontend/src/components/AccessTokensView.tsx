@@ -13,10 +13,12 @@ const ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete'];
 
 interface Props {
   currentUser: User;
-  onList: () => Promise<AccessToken[]>;
-  onCreate: (data: {name: string; scopes: string[]; expiresAt: number | null}) => Promise<CreatedAccessToken>;
-  onRotate: (id: string) => Promise<CreatedAccessToken>;
-  onRevoke: (id: string) => Promise<void>;
+  users: User[];
+  onList: (userId: string) => Promise<AccessToken[]>;
+  onCreate: (data: {name: string; scopes: string[]; expiresAt: number | null}, userId: string) => Promise<CreatedAccessToken>;
+  onUpdateExpiry: (id: string, expiresAt: number, userId: string) => Promise<AccessToken>;
+  onRotate: (id: string, userId: string) => Promise<CreatedAccessToken>;
+  onRevoke: (id: string, userId: string) => Promise<void>;
 }
 
 function timeLabel(epoch: number | null): string {
@@ -30,7 +32,7 @@ function tokenStatus(token: AccessToken): 'Active' | 'Expired' | 'Revoked' {
   return 'Active';
 }
 
-export default function AccessTokensView({currentUser, onList, onCreate, onRotate, onRevoke}: Props) {
+export default function AccessTokensView({currentUser, users, onList, onCreate, onUpdateExpiry, onRotate, onRevoke}: Props) {
   const feedback = useFeedback();
   const [tokens, setTokens] = useState<AccessToken[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,21 +46,23 @@ export default function AccessTokensView({currentUser, onList, onCreate, onRotat
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [actionTokenId, setActionTokenId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState(currentUser.id);
+  const selectedUser = users.find(user => user.id === selectedUserId) || currentUser;
 
   const reload = async () => {
     setLoading(true); setError('');
-    try { setTokens((await onList()).sort((a, b) => b.createdAt - a.createdAt)); }
+    try { setTokens((await onList(selectedUserId)).sort((a, b) => b.createdAt - a.createdAt)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to load access tokens'); }
     finally { setLoading(false); }
   };
 
   useEffect(() => {
     void reload();
-  }, []);
+  }, [selectedUserId]);
 
   const permittedScopes = useMemo(() => RESOURCES.flatMap(resource => ACTIONS
-    .filter(action => currentUser.role === 'Administrator' || currentUser.permissions[resource.id][action])
-    .map(action => `${resource.id}:${action}`)), [currentUser]);
+    .filter(action => selectedUser.role === 'Administrator' || selectedUser.permissions[resource.id][action])
+    .map(action => `${resource.id}:${action}`)), [selectedUser]);
   const readScopes = permittedScopes.filter(scope => scope.endsWith(':read'));
   const filtered = tokens.filter(token => `${token.name} ${token.scopes.join(' ')}`.toLowerCase().includes(search.toLowerCase()));
   const actionToken = tokens.find(token => token.id === actionTokenId) || null;
@@ -71,7 +75,7 @@ export default function AccessTokensView({currentUser, onList, onCreate, onRotat
     const days = Number(expiry);
     const expiresAt = expiry === 'never' ? null : Math.floor(Date.now() / 1000) + days * 86_400;
     setBusy(true); setError('');
-    try { const created = await onCreate({name, scopes, expiresAt}); setSecret(created); resetCreate(); await reload(); }
+    try { const created = await onCreate({name, scopes, expiresAt}, selectedUserId); setSecret(created); resetCreate(); await reload(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to create access token'); }
     finally { setBusy(false); }
   };
@@ -81,7 +85,7 @@ export default function AccessTokensView({currentUser, onList, onCreate, onRotat
     const accepted = await feedback.confirm({title: 'Rotate access token?', description: `This immediately revokes “${token.name}”. Apps using it will stop working until you replace the token.`, confirmLabel: 'Rotate token'});
     if (!accepted) return;
     setBusy(true);
-    try { const replacement = await onRotate(token.id); setSecret(replacement); await reload(); feedback.toast('Access token rotated', 'success'); }
+    try { const replacement = await onRotate(token.id, selectedUserId); setSecret(replacement); await reload(); feedback.toast('Access token rotated', 'success'); }
     catch (reason) { feedback.toast(reason instanceof Error ? reason.message : 'Unable to rotate token', 'error'); }
     finally { setBusy(false); }
   };
@@ -90,8 +94,14 @@ export default function AccessTokensView({currentUser, onList, onCreate, onRotat
     const accepted = await feedback.confirm({title: 'Revoke access token?', description: `“${token.name}” will stop authenticating immediately. This cannot be undone.`, confirmLabel: 'Revoke token', destructive: true});
     if (!accepted) return;
     setBusy(true);
-    try { await onRevoke(token.id); await reload(); feedback.toast('Access token revoked', 'success'); }
+    try { await onRevoke(token.id, selectedUserId); await reload(); feedback.toast('Access token revoked', 'success'); }
     catch (reason) { feedback.toast(reason instanceof Error ? reason.message : 'Unable to revoke token', 'error'); }
+    finally { setBusy(false); }
+  };
+  const extend = async (token: AccessToken) => {
+    setActionTokenId(null); setBusy(true);
+    try { await onUpdateExpiry(token.id, Math.floor(Date.now() / 1000) + 90 * 86_400, selectedUserId); await reload(); feedback.toast('Token expiry extended by 90 days', 'success'); }
+    catch (reason) { feedback.toast(reason instanceof Error ? reason.message : 'Unable to update token expiry', 'error'); }
     finally { setBusy(false); }
   };
 
@@ -101,6 +111,7 @@ export default function AccessTokensView({currentUser, onList, onCreate, onRotat
         <div><div className="mb-1 flex items-center gap-2 text-indigo-600 dark:text-indigo-400"><KeyRound className="h-4 w-4" /><span className="text-[10px] font-extrabold uppercase tracking-[0.18em]">Personal security</span></div><h2 id="access-tokens-title" className="text-2xl font-extrabold tracking-tight">Access tokens</h2><p className="mt-1 text-sm text-slate-500">Create and manage scoped credentials for integrations and API access.</p></div>
       </header>
       <div className="flex-1 overflow-y-auto p-6">
+        {currentUser.role === 'Administrator' && <label className="mb-5 block max-w-sm text-xs font-bold">Token owner<select value={selectedUserId} onChange={event => { setSelectedUserId(event.target.value); setSecret(null); setCreating(false); }} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950">{users.map(user => <option key={user.id} value={user.id}>{user.id === currentUser.id ? `${user.displayName} (you)` : `${user.displayName} — ${user.email}`}</option>)}</select></label>}
         {error && <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
         {secret && <section className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/20" aria-label="New access token">
           <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" /><div className="min-w-0 flex-1"><h3 className="font-extrabold text-amber-950 dark:text-amber-200">Copy this token now</h3><p className="mt-1 text-xs leading-relaxed text-amber-800 dark:text-amber-300">Portwyrm stores only its secure hash. This value will not be shown again.</p><div className="mt-3 flex gap-2"><code className="min-w-0 flex-1 overflow-x-auto rounded-xl border border-amber-200 bg-white px-3 py-2.5 font-mono text-xs text-slate-800 dark:border-amber-900 dark:bg-zinc-950 dark:text-zinc-100">{secret.token}</code><button type="button" onClick={() => void copySecret()} className="flex shrink-0 items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700"><Clipboard className="h-4 w-4" />Copy</button></div></div><button type="button" onClick={() => setSecret(null)} aria-label="Dismiss token value" className="text-amber-700"><X className="h-4 w-4" /></button></div>
@@ -119,6 +130,6 @@ export default function AccessTokensView({currentUser, onList, onCreate, onRotat
         </div>
       </div>
     </section>
-    <ActionModal open={Boolean(actionToken)} title={actionToken ? `Token actions — ${actionToken.name}` : 'Token actions'} description="Token values cannot be recovered after creation." onClose={() => setActionTokenId(null)}>{actionToken && <><button type="button" onClick={() => void rotate(actionToken)} className="text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-800"><RotateCw className="h-4 w-4" />Rotate token</button><button type="button" onClick={() => void revoke(actionToken)} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Revoke token</button></>}</ActionModal>
+    <ActionModal open={Boolean(actionToken)} title={actionToken ? `Token actions — ${actionToken.name}` : 'Token actions'} description="Token values cannot be recovered after creation." onClose={() => setActionTokenId(null)}>{actionToken && <><button type="button" onClick={() => void extend(actionToken)} className="text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-800"><Clock3 className="h-4 w-4" />Extend expiry 90 days</button><button type="button" onClick={() => void rotate(actionToken)} className="text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-800"><RotateCw className="h-4 w-4" />Rotate token</button><button type="button" onClick={() => void revoke(actionToken)} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"><Trash2 className="h-4 w-4" />Revoke token</button></>}</ActionModal>
   </div>;
 }

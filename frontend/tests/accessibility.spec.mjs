@@ -47,10 +47,30 @@ test('login and authenticated operator surfaces pass automated WCAG checks', asy
   await expect(page.getByRole('heading', { name: 'Proxy Workspace Overview' })).toBeVisible();
 
   for (const route of ['overview', 'hosts', 'certificates', 'access-lists', 'users', 'access-tokens', 'audit', 'settings']) {
-    await page.evaluate(value => { window.location.hash = value; }, route);
-    await page.waitForTimeout(150);
+    await page.goto(route === 'overview' ? '/ui/' : `/ui/${route}`);
     await assertNoAxeViolations(page, route);
   }
+
+  await page.goto('/ui/access-tokens');
+  await expect(page.getByLabel('Token owner')).toBeVisible();
+  await page.getByRole('button', {name: 'Create token'}).click();
+  await page.getByLabel('Token name').fill('Browser lifecycle token');
+  await page.getByRole('button', {name: 'Create token'}).click();
+  await expect(page.getByRole('region', {name: 'New access token'})).toBeVisible();
+  await page.getByRole('button', {name: 'Dismiss token value'}).click();
+  await page.getByRole('button', {name: 'Actions for Browser lifecycle token'}).click();
+  await page.getByRole('button', {name: 'Extend expiry 90 days'}).click();
+  await expect(page.getByText('Token expiry extended by 90 days')).toBeVisible();
+  await page.getByRole('button', {name: 'Actions for Browser lifecycle token'}).click();
+  await page.getByRole('button', {name: 'Rotate token'}).click();
+  await page.getByRole('button', {name: 'Rotate token'}).last().click();
+  await expect(page.getByRole('region', {name: 'New access token'})).toBeVisible();
+  await page.getByRole('button', {name: 'Dismiss token value'}).click();
+  const activeTokenRow = page.getByRole('row').filter({hasText: /Browser lifecycle token.*Active/});
+  await activeTokenRow.getByRole('button', {name: 'Actions for Browser lifecycle token'}).click();
+  await page.getByRole('button', {name: 'Revoke token'}).click();
+  await page.getByRole('button', {name: 'Revoke token'}).last().click();
+  await expect(page.getByText('Access token revoked')).toBeVisible();
 
   const csrf = (await page.context().cookies()).find(cookie => cookie.name === 'portwyrm_csrf');
   expect(csrf).toBeTruthy();
@@ -66,7 +86,7 @@ test('login and authenticated operator surfaces pass automated WCAG checks', asy
     },
   });
   expect(created.ok(), await created.text()).toBeTruthy();
-  await page.goto('/ui/#hosts');
+  await page.goto('/ui/hosts');
   await page.reload();
   await expect(page.getByText('health-ui.example.test')).toBeVisible();
   await expect(page.getByText('Enabled', {exact: true})).toBeVisible();
