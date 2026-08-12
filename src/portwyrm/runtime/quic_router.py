@@ -233,6 +233,8 @@ class Session:
     client_scid: bytes
     server_cids: set[bytes] = field(default_factory=set)
     last_seen: float = field(default_factory=time.monotonic)
+    opened_at: float = field(default_factory=time.monotonic)
+    upstream_datagrams_received: int = 0
 
 
 class UpstreamProtocol(asyncio.DatagramProtocol):
@@ -248,6 +250,16 @@ class UpstreamProtocol(asyncio.DatagramProtocol):
         session = self.listener.sessions.get(self.session_key)
         if session is None:
             return
+        session.upstream_datagrams_received += 1
+        if session.upstream_datagrams_received == 1:
+            LOGGER.info(
+                "first upstream QUIC datagram client=%s:%s odcid=%s response_ms=%.1f bytes=%d",
+                session.client[0],
+                session.client[1],
+                self.session_key[1].hex(),
+                (time.monotonic() - session.opened_at) * 1000,
+                len(data),
+            )
         self.listener._register_server_connection_id(self.session_key, data)
         if self.listener.transport is not None:
             self.listener.transport.sendto(data, session.client)
@@ -269,6 +281,7 @@ class QuicRouter(asyncio.DatagramProtocol):
         self.pending: dict[tuple[tuple[Any, ...], bytes], list[bytes]] = {}
         self.pending_crypto: dict[tuple[tuple[Any, ...], bytes], dict[int, bytes]] = {}
         self.pending_seen: dict[tuple[tuple[Any, ...], bytes], float] = {}
+        self.pending_started: dict[tuple[tuple[Any, ...], bytes], float] = {}
         self.opening: set[tuple[tuple[Any, ...], bytes]] = set()
         self.routes: dict[str, Route] = {}
         self._config_mtime = -1.0
@@ -467,11 +480,13 @@ class QuicRouter(asyncio.DatagramProtocol):
             LOGGER.warning("dropping QUIC Initial because the pending-session limit was reached")
             return
         queue = self.pending.setdefault(session_key, [])
+        self.pending_started.setdefault(session_key, time.monotonic())
         self.pending_seen[session_key] = time.monotonic()
         if len(queue) >= 8:
             self.pending.pop(session_key, None)
             self.pending_crypto.pop(session_key, None)
             self.pending_seen.pop(session_key, None)
+            self.pending_started.pop(session_key, None)
             return
         queue.append(data)
         try:
@@ -487,6 +502,7 @@ class QuicRouter(asyncio.DatagramProtocol):
         if route is None or route.alpn not in alpns:
             LOGGER.warning("dropping QUIC Initial for unconfigured SNI %s", server_name)
             self.pending.pop(session_key, None)
+            self.pending_started.pop(session_key, None)
             return
         self.opening.add(session_key)
         self._spawn(self._open(session_key, addr, route, client_scid, initial_dcid))
@@ -499,6 +515,8 @@ class QuicRouter(asyncio.DatagramProtocol):
         client_scid: bytes,
         initial_dcid: bytes,
     ) -> None:
+        started_at = self.pending_started.get(session_key, time.monotonic())
+        socket_started_at = time.monotonic()
         try:
             if session_key in self.sessions:
                 return
@@ -507,6 +525,7 @@ class QuicRouter(asyncio.DatagramProtocol):
                 lambda: UpstreamProtocol(self, session_key),
                 remote_addr=(route.target, route.target_port),
             )
+            opened_at = time.monotonic()
             self._add_session(
                 session_key,
                 Session(
@@ -514,10 +533,13 @@ class QuicRouter(asyncio.DatagramProtocol):
                     timeout=route.idle_timeout_seconds,  # type: ignore[arg-type]
                     client=addr,
                     client_scid=client_scid,
+                    opened_at=opened_at,
                 ),
             )
+            queued_datagrams = len(self.pending.get(session_key, []))
             LOGGER.info(
-                "opened QUIC route client=%s:%s scid=%s odcid=%s target=%s:%s concurrent=%d",
+                "opened QUIC route client=%s:%s scid=%s odcid=%s "
+                "target=%s:%s concurrent=%d route_ms=%.1f socket_ms=%.1f queued=%d",
                 addr[0],
                 addr[1],
                 client_scid.hex(),
@@ -525,9 +547,13 @@ class QuicRouter(asyncio.DatagramProtocol):
                 route.target,
                 route.target_port,
                 len(self.sessions_by_addr.get(addr, set())),
+                (opened_at - started_at) * 1000,
+                (opened_at - socket_started_at) * 1000,
+                queued_datagrams,
             )
             self.pending_crypto.pop(session_key, None)
             self.pending_seen.pop(session_key, None)
+            self.pending_started.pop(session_key, None)
             for datagram in self.pending.pop(session_key, []):
                 transport.sendto(datagram)  # type: ignore[attr-defined]
         except (OSError, ValueError) as exc:
@@ -535,6 +561,7 @@ class QuicRouter(asyncio.DatagramProtocol):
             self.pending.pop(session_key, None)
             self.pending_crypto.pop(session_key, None)
             self.pending_seen.pop(session_key, None)
+            self.pending_started.pop(session_key, None)
         finally:
             self.opening.discard(session_key)
 
@@ -547,6 +574,7 @@ class QuicRouter(asyncio.DatagramProtocol):
                     self.pending.pop(session_key, None)
                     self.pending_crypto.pop(session_key, None)
                     self.pending_seen.pop(session_key, None)
+                    self.pending_started.pop(session_key, None)
             for session_key, session in tuple(self.sessions.items()):
                 if now - session.last_seen > session.timeout:
                     self._remove_session(session_key)

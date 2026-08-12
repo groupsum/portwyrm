@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from pathlib import Path
 
 import pytest
@@ -389,7 +391,7 @@ def test_ambiguous_short_header_is_not_mixed_into_concurrent_sessions(
 
 
 def test_upstream_response_registers_server_connection_id_for_return_routing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     class FakeUpstream:
         def __init__(self) -> None:
@@ -421,6 +423,7 @@ def test_upstream_response_registers_server_connection_id_for_return_routing(
             timeout=1800,
             client=address,
             client_scid=key[1],
+            opened_at=time.monotonic() - 0.05,
         ),
     )
     monkeypatch.setattr(
@@ -430,11 +433,14 @@ def test_upstream_response_registers_server_connection_id_for_return_routing(
     )
 
     response = b"\xc0server Initial"
-    UpstreamProtocol(router, key).datagram_received(response, ("192.0.2.9", 4443))
+    with caplog.at_level(logging.INFO, logger="portwyrm.quic_router"):
+        UpstreamProtocol(router, key).datagram_received(response, ("192.0.2.9", 4443))
 
     assert frontend.sent == [(response, address)]
     assert router.sessions[key].server_cids == {b"server-cid"}
     assert router.sessions_by_server_cid[b"server-cid"] == key
+    assert "first upstream QUIC datagram client=203.0.113.7:54321" in caplog.text
+    assert "bytes=15" in caplog.text
 
     client_packet = b"\x40" + b"server-cid" + b"encrypted payload"
     router.datagram_received(client_packet, address)
