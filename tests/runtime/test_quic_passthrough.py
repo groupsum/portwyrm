@@ -16,7 +16,9 @@ from portwyrm.runtime.quic_router import (
     UpstreamProtocol,
     _initial_keys,
     assemble_crypto,
+    create_listener_socket,
     initial_connection_ids,
+    listener_receive_buffer_bytes,
     parse_client_hello,
 )
 from portwyrm.tables.quic_passthrough import (
@@ -236,6 +238,90 @@ def test_short_header_connection_id_selects_one_of_concurrent_sessions(
 
     assert left.sent == []
     assert right.sent == [packet]
+
+
+def test_established_datagram_hot_path_does_not_touch_route_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeUpstream:
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+
+        def close(self) -> None:
+            pass
+
+        def sendto(self, data: bytes) -> None:
+            self.sent.append(data)
+
+    router = QuicRouter(tmp_path / "routes.json")
+    address = ("203.0.113.7", 54321)
+    upstream = FakeUpstream()
+    router._add_session(
+        (address, b"client"),
+        Session(  # type: ignore[arg-type]
+            upstream=upstream,
+            timeout=1800,
+            client=address,
+            client_scid=b"client",
+            server_cids={b"server"},
+        ),
+    )
+    monkeypatch.setattr(router, "reload", lambda: pytest.fail("hot path reloaded routes"))
+
+    packets = [b"\x40server" + index.to_bytes(2, "big") for index in range(1000)]
+    for packet in packets:
+        router.datagram_received(packet, address)
+
+    assert upstream.sent == packets
+
+
+def test_server_connection_id_index_is_removed_with_session(tmp_path: Path) -> None:
+    class FakeUpstream:
+        def close(self) -> None:
+            pass
+
+    router = QuicRouter(tmp_path / "routes.json")
+    address = ("203.0.113.7", 54321)
+    key = (address, b"client")
+    router._add_session(
+        key,
+        Session(  # type: ignore[arg-type]
+            upstream=FakeUpstream(),
+            timeout=1800,
+            client=address,
+            client_scid=b"client",
+            server_cids={b"server", b"long-server"},
+        ),
+    )
+
+    assert router._server_cid_lengths == (11, 6)
+    router._remove_session(key)
+    assert router.sessions_by_server_cid == {}
+    assert router._server_cid_lengths == ()
+
+
+def test_listener_receive_buffer_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PORTWYRM_QUIC_RCVBUF_BYTES", "1048576")
+    requested = listener_receive_buffer_bytes()
+    listener = create_listener_socket("127.0.0.1", 0, requested)
+    try:
+        assert listener.getblocking() is False
+        assert listener.getsockname()[1] > 0
+        assert listener.getsockopt(quic_router.socket.SOL_SOCKET, quic_router.socket.SO_RCVBUF) > 0
+    finally:
+        listener.close()
+
+
+@pytest.mark.parametrize("value", ["invalid", "1024", str(256 * 1024 * 1024)])
+def test_listener_receive_buffer_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("PORTWYRM_QUIC_RCVBUF_BYTES", value)
+
+    with pytest.raises(ValueError, match="PORTWYRM_QUIC_RCVBUF_BYTES"):
+        listener_receive_buffer_bytes()
 
 
 def test_ambiguous_short_header_is_not_mixed_into_concurrent_sessions(

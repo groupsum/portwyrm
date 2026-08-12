@@ -29,6 +29,10 @@ _SALTS = {
     _V1: bytes.fromhex("38762cf7f55934b34d179ae6a4c80cadccbb7f0a"),
     _V2: bytes.fromhex("0dede3def700a6db819381be6e269dcbf9bd2ed9"),
 }
+_DEFAULT_RECEIVE_BUFFER_BYTES = 8 * 1024 * 1024
+_MIN_RECEIVE_BUFFER_BYTES = 64 * 1024
+_MAX_RECEIVE_BUFFER_BYTES = 128 * 1024 * 1024
+_CONFIG_RELOAD_INTERVAL_SECONDS = 1.0
 
 
 class QuicParseError(ValueError):
@@ -249,6 +253,9 @@ class UpstreamProtocol(asyncio.DatagramProtocol):
             self.listener.transport.sendto(data, session.client)
         session.last_seen = time.monotonic()
 
+    def error_received(self, exc: Exception) -> None:
+        LOGGER.warning("QUIC upstream socket error session=%r: %s", self.session_key, exc)
+
 
 class QuicRouter(asyncio.DatagramProtocol):
     def __init__(self, config_path: Path) -> None:
@@ -257,6 +264,8 @@ class QuicRouter(asyncio.DatagramProtocol):
         self.sessions: dict[tuple[tuple[Any, ...], bytes], Session] = {}
         self.sessions_by_addr: dict[tuple[Any, ...], set[tuple[tuple[Any, ...], bytes]]] = {}
         self.sessions_by_server_cid: dict[bytes, tuple[tuple[Any, ...], bytes]] = {}
+        self._server_cid_length_counts: dict[int, int] = {}
+        self._server_cid_lengths: tuple[int, ...] = ()
         self.pending: dict[tuple[tuple[Any, ...], bytes], list[bytes]] = {}
         self.pending_crypto: dict[tuple[tuple[Any, ...], bytes], dict[int, bytes]] = {}
         self.pending_seen: dict[tuple[tuple[Any, ...], bytes], float] = {}
@@ -273,6 +282,7 @@ class QuicRouter(asyncio.DatagramProtocol):
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = transport  # type: ignore[assignment]
         self.reload()
+        self._spawn(self._config_reloader())
         self._spawn(self._reaper())
 
     def connection_lost(self, _exc: Exception | None) -> None:
@@ -280,6 +290,9 @@ class QuicRouter(asyncio.DatagramProtocol):
             task.cancel()
         for session in self.sessions.values():
             session.upstream.close()
+
+    def error_received(self, exc: Exception) -> None:
+        LOGGER.warning("QUIC listener socket error: %s", exc)
 
     @staticmethod
     def _session_key(addr: tuple[Any, ...], initial_dcid: bytes) -> tuple[tuple[Any, ...], bytes]:
@@ -298,6 +311,8 @@ class QuicRouter(asyncio.DatagramProtocol):
     ) -> None:
         self.sessions[key] = session
         self.sessions_by_addr.setdefault(session.client, set()).add(key)
+        for server_cid in tuple(session.server_cids):
+            self._index_server_connection_id(key, server_cid)
 
     def _remove_session(
         self,
@@ -316,6 +331,7 @@ class QuicRouter(asyncio.DatagramProtocol):
         for server_cid in tuple(session.server_cids):
             if self.sessions_by_server_cid.get(server_cid) == key:
                 self.sessions_by_server_cid.pop(server_cid, None)
+                self._remove_server_cid_length(len(server_cid))
         if close:
             session.upstream.close()
         return session
@@ -336,6 +352,16 @@ class QuicRouter(asyncio.DatagramProtocol):
         session = self.sessions.get(key)
         if session is None:
             return
+        self._index_server_connection_id(key, server_scid)
+
+    def _index_server_connection_id(
+        self,
+        key: tuple[tuple[Any, ...], bytes],
+        server_scid: bytes,
+    ) -> None:
+        session = self.sessions.get(key)
+        if session is None:
+            return
         owner = self.sessions_by_server_cid.get(server_scid)
         if owner is not None and owner != key:
             LOGGER.warning(
@@ -343,8 +369,21 @@ class QuicRouter(asyncio.DatagramProtocol):
                 server_scid.hex(),
             )
             return
+        if owner == key:
+            return
         session.server_cids.add(server_scid)
         self.sessions_by_server_cid[server_scid] = key
+        length = len(server_scid)
+        self._server_cid_length_counts[length] = self._server_cid_length_counts.get(length, 0) + 1
+        self._server_cid_lengths = tuple(sorted(self._server_cid_length_counts, reverse=True))
+
+    def _remove_server_cid_length(self, length: int) -> None:
+        count = self._server_cid_length_counts.get(length, 0)
+        if count <= 1:
+            self._server_cid_length_counts.pop(length, None)
+        else:
+            self._server_cid_length_counts[length] = count - 1
+        self._server_cid_lengths = tuple(sorted(self._server_cid_length_counts, reverse=True))
 
     def _session_for_datagram(
         self,
@@ -369,13 +408,9 @@ class QuicRouter(asyncio.DatagramProtocol):
             return None
 
         keys = self.sessions_by_addr.get(addr, set())
-        candidates = sorted(
-            ((server_cid, key) for key in keys for server_cid in self.sessions[key].server_cids),
-            key=lambda item: len(item[0]),
-            reverse=True,
-        )
-        for server_cid, key in candidates:
-            if server_cid and data[1 : 1 + len(server_cid)] == server_cid:
+        for length in self._server_cid_lengths:
+            key = self.sessions_by_server_cid.get(data[1 : 1 + length])
+            if key is not None and key in keys:
                 return key
 
         if len(keys) == 1:
@@ -400,7 +435,6 @@ class QuicRouter(asyncio.DatagramProtocol):
             LOGGER.warning("retaining previous QUIC routes: %s", exc)
 
     def datagram_received(self, data: bytes, addr: tuple[Any, ...]) -> None:
-        self.reload()
         session_key = self._session_for_datagram(data, addr)
         if session_key is not None:
             session = self.sessions.get(session_key)
@@ -517,12 +551,55 @@ class QuicRouter(asyncio.DatagramProtocol):
                 if now - session.last_seen > session.timeout:
                     self._remove_session(session_key)
 
+    async def _config_reloader(self) -> None:
+        while True:
+            await asyncio.sleep(_CONFIG_RELOAD_INTERVAL_SECONDS)
+            self.reload()
+
+
+def listener_receive_buffer_bytes() -> int:
+    raw = os.getenv("PORTWYRM_QUIC_RCVBUF_BYTES", str(_DEFAULT_RECEIVE_BUFFER_BYTES))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError("PORTWYRM_QUIC_RCVBUF_BYTES must be an integer") from exc
+    if not _MIN_RECEIVE_BUFFER_BYTES <= value <= _MAX_RECEIVE_BUFFER_BYTES:
+        raise ValueError(
+            "PORTWYRM_QUIC_RCVBUF_BYTES must be between "
+            f"{_MIN_RECEIVE_BUFFER_BYTES} and {_MAX_RECEIVE_BUFFER_BYTES}"
+        )
+    return value
+
+
+def create_listener_socket(host: str, port: int, receive_buffer_bytes: int) -> socket.socket:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer_bytes)
+        listener.bind((host, port))
+        listener.setblocking(False)
+    except Exception:
+        listener.close()
+        raise
+    effective = listener.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    log = LOGGER.info if effective >= receive_buffer_bytes else LOGGER.warning
+    log(
+        "QUIC listener receive buffer requested=%d effective=%d host=%s port=%d",
+        receive_buffer_bytes,
+        effective,
+        host,
+        listener.getsockname()[1],
+    )
+    return listener
+
 
 async def serve(config_path: Path, host: str, port: int) -> None:
     loop = asyncio.get_running_loop()
-    await loop.create_datagram_endpoint(
-        lambda: QuicRouter(config_path), local_addr=(host, port), family=socket.AF_INET
-    )
+    listener = create_listener_socket(host, port, listener_receive_buffer_bytes())
+    try:
+        await loop.create_datagram_endpoint(lambda: QuicRouter(config_path), sock=listener)
+    except Exception:
+        listener.close()
+        raise
     await asyncio.Future()
 
 
