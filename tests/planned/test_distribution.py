@@ -42,8 +42,8 @@ def test_container_vulnerability_scan_fails_closed_and_retains_evidence() -> Non
     assert 'exit-code: "1"' in workflow
     assert "limit-severities-for-sarif: true" in workflow
     assert "output: trivy-results.sarif" in workflow
-    assert "uses: actions/upload-artifact@v4" in workflow
-    assert "uses: github/codeql-action/upload-sarif@v3" in workflow
+    assert "uses: actions/upload-artifact@v7.0.1" in workflow
+    assert "uses: github/codeql-action/upload-sarif@v4" in workflow
 
 
 def test_container_publication_has_only_protected_semver_channels() -> None:
