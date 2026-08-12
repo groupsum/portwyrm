@@ -1,8 +1,12 @@
 # Portwyrm 0.1.0a18 release operations
 
 Release type: alpha patch
-PyPI version: 0.1.0a18
+Package version: 0.1.0a18
 Git tag: v0.1.0a18
+
+The wheel is attached to the GitHub release but is not uploaded to PyPI while
+Portwyrm depends on direct-source Tigrbl Auth packages that PyPI metadata does
+not accept.
 
 ## Scope
 
