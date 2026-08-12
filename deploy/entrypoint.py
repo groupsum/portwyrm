@@ -30,6 +30,17 @@ async def prepare_runtime() -> None:
         await app.state.runtime.reconcile()
 
 
+def quic_worker_count() -> int:
+    raw = os.getenv("PORTWYRM_QUIC_WORKERS", "1")
+    try:
+        workers = int(raw)
+    except ValueError as exc:
+        raise ValueError("PORTWYRM_QUIC_WORKERS must be an integer") from exc
+    if not 1 <= workers <= 32:
+        raise ValueError("PORTWYRM_QUIC_WORKERS must be between 1 and 32")
+    return workers
+
+
 def main() -> int:
     for directory in (
         Path("/data"),
@@ -68,21 +79,22 @@ def main() -> int:
         ),
     ]
     if os.getenv("PORTWYRM_QUIC_ROUTER", "0").casefold() in {"1", "true", "yes", "on"}:
-        children.append(
-            subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "portwyrm.runtime.quic_router",
-                    "--config",
-                    "/data/nginx/current/quic/routes.json",
-                    "--host",
-                    os.getenv("PORTWYRM_QUIC_HOST", "0.0.0.0"),
-                    "--port",
-                    os.getenv("PORTWYRM_QUIC_PORT", "443"),
-                ]
-            )
-        )
+        worker_count = quic_worker_count()
+        for _worker in range(worker_count):
+            command = [
+                sys.executable,
+                "-m",
+                "portwyrm.runtime.quic_router",
+                "--config",
+                "/data/nginx/current/quic/routes.json",
+                "--host",
+                os.getenv("PORTWYRM_QUIC_HOST", "0.0.0.0"),
+                "--port",
+                os.getenv("PORTWYRM_QUIC_PORT", "443"),
+            ]
+            if worker_count > 1:
+                command.append("--reuse-port")
+            children.append(subprocess.Popen(command))
     stopping = False
     rotation_interval = max(60, int(os.getenv("PORTWYRM_LOG_ROTATION_INTERVAL", "172800")))
     next_rotation = time.monotonic() + rotation_interval

@@ -571,9 +571,19 @@ def listener_receive_buffer_bytes() -> int:
     return value
 
 
-def create_listener_socket(host: str, port: int, receive_buffer_bytes: int) -> socket.socket:
+def create_listener_socket(
+    host: str,
+    port: int,
+    receive_buffer_bytes: int,
+    *,
+    reuse_port: bool = False,
+) -> socket.socket:
     listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
+        if reuse_port:
+            if not hasattr(socket, "SO_REUSEPORT"):
+                raise RuntimeError("SO_REUSEPORT is unavailable on this platform")
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer_bytes)
         listener.bind((host, port))
         listener.setblocking(False)
@@ -592,9 +602,14 @@ def create_listener_socket(host: str, port: int, receive_buffer_bytes: int) -> s
     return listener
 
 
-async def serve(config_path: Path, host: str, port: int) -> None:
+async def serve(config_path: Path, host: str, port: int, *, reuse_port: bool = False) -> None:
     loop = asyncio.get_running_loop()
-    listener = create_listener_socket(host, port, listener_receive_buffer_bytes())
+    listener = create_listener_socket(
+        host,
+        port,
+        listener_receive_buffer_bytes(),
+        reuse_port=reuse_port,
+    )
     try:
         await loop.create_datagram_endpoint(lambda: QuicRouter(config_path), sock=listener)
     except Exception:
@@ -608,9 +623,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=443)
+    parser.add_argument("--reuse-port", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=os.getenv("PORTWYRM_LOG_LEVEL", "INFO"))
-    asyncio.run(serve(args.config, args.host, args.port))
+    asyncio.run(serve(args.config, args.host, args.port, reuse_port=args.reuse_port))
     return 0
 
 

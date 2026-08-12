@@ -5,6 +5,8 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 ENTRYPOINT = Path(__file__).parents[2] / "deploy" / "entrypoint.py"
 spec = importlib.util.spec_from_file_location("portwyrm_deploy_entrypoint", ENTRYPOINT)
 assert spec is not None and spec.loader is not None
@@ -40,3 +42,13 @@ def test_prepare_runtime_migrates_persistent_schema_before_reconcile(monkeypatch
     asyncio.run(entrypoint.prepare_runtime())
 
     assert events == ["migration", "seed", "reconcile"]
+
+
+def test_quic_worker_count_is_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("PORTWYRM_QUIC_WORKERS", "4")
+    assert entrypoint.quic_worker_count() == 4
+
+    for value in ("0", "33", "invalid"):
+        monkeypatch.setenv("PORTWYRM_QUIC_WORKERS", value)
+        with pytest.raises(ValueError, match="PORTWYRM_QUIC_WORKERS"):
+            entrypoint.quic_worker_count()

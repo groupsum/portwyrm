@@ -12,6 +12,7 @@ services:
       PORTWYRM_SQLITE_PATH: /data/portwyrm.sqlite
       PORTWYRM_QUIC_ROUTER: "1"
       PORTWYRM_QUIC_RCVBUF_BYTES: "8388608"
+      PORTWYRM_QUIC_WORKERS: "4"
       PORTWYRM_DEMO_HOST: ""
     ports:
       - "443:443/udp"

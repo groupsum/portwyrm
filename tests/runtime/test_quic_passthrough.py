@@ -314,6 +314,37 @@ def test_listener_receive_buffer_configuration(
         listener.close()
 
 
+def test_listener_enables_reuse_port_before_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[tuple[object, ...]] = []
+
+    class FakeSocket:
+        def setsockopt(self, *args: object) -> None:
+            events.append(("setsockopt", *args))
+
+        def bind(self, address: tuple[str, int]) -> None:
+            events.append(("bind", address))
+
+        def setblocking(self, blocking: bool) -> None:
+            events.append(("setblocking", blocking))
+
+        def getsockopt(self, *_args: object) -> int:
+            return 2 * 1024 * 1024
+
+        def getsockname(self) -> tuple[str, int]:
+            return ("127.0.0.1", 443)
+
+        def close(self) -> None:
+            events.append(("close",))
+
+    monkeypatch.setattr(quic_router.socket, "SO_REUSEPORT", 15, raising=False)
+    monkeypatch.setattr(quic_router.socket, "socket", lambda *_args: FakeSocket())
+
+    create_listener_socket("127.0.0.1", 443, 1024 * 1024, reuse_port=True)
+
+    assert events[0] == ("setsockopt", quic_router.socket.SOL_SOCKET, 15, 1)
+    assert events[2] == ("bind", ("127.0.0.1", 443))
+
+
 @pytest.mark.parametrize("value", ["invalid", "1024", str(256 * 1024 * 1024)])
 def test_listener_receive_buffer_rejects_invalid_values(
     monkeypatch: pytest.MonkeyPatch, value: str
