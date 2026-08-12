@@ -282,8 +282,14 @@ class QuicRouter(asyncio.DatagramProtocol):
             session.upstream.close()
 
     @staticmethod
-    def _session_key(addr: tuple[Any, ...], client_scid: bytes) -> tuple[tuple[Any, ...], bytes]:
-        return addr, client_scid
+    def _session_key(addr: tuple[Any, ...], initial_dcid: bytes) -> tuple[tuple[Any, ...], bytes]:
+        """Identify an opening connection by its client-chosen destination CID.
+
+        Chromium commonly sends an empty source CID. The original destination
+        CID is still client-selected and unique, so it can distinguish multiple
+        connections sharing one UDP address until server-issued CIDs are known.
+        """
+        return addr, initial_dcid
 
     def _add_session(
         self,
@@ -349,7 +355,7 @@ class QuicRouter(asyncio.DatagramProtocol):
             return None
         if data[0] & 0x80:
             try:
-                dcid, client_scid = initial_connection_ids(data)
+                dcid, _client_scid = initial_connection_ids(data)
             except QuicParseError:
                 return None
             key = self.sessions_by_server_cid.get(dcid)
@@ -357,7 +363,7 @@ class QuicRouter(asyncio.DatagramProtocol):
                 session = self.sessions.get(key)
                 if session is not None and session.client == addr:
                     return key
-            key = self._session_key(addr, client_scid)
+            key = self._session_key(addr, dcid)
             if key in self.sessions:
                 return key
             return None
@@ -416,7 +422,7 @@ class QuicRouter(asyncio.DatagramProtocol):
             initial_dcid, client_scid = initial_connection_ids(data)
         except QuicParseError:
             return
-        session_key = self._session_key(addr, client_scid)
+        session_key = self._session_key(addr, initial_dcid)
 
         if session_key in self.opening:
             queue = self.pending.setdefault(session_key, [])

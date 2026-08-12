@@ -111,7 +111,7 @@ def test_new_client_connection_id_preserves_established_udp_affinity(
     new_initial = b"\xc0new QUIC Initial"
     router.datagram_received(new_initial, address)
 
-    new_key = (address, b"new-client-connection")
+    new_key = (address, b"dcid")
     assert upstream.closed is False
     assert router.sessions[old_key].upstream is upstream
     assert router.pending[new_key] == [new_initial]
@@ -136,16 +136,18 @@ def test_same_client_connection_id_preserves_retry_affinity(
     router = QuicRouter(tmp_path / "missing-routes.json")
     address = ("203.0.113.7", 54321)
     upstream = FakeUpstream()
-    session_key = (address, b"same-client-connection")
+    session_key = (address, b"original-dcid")
     router._add_session(
         session_key,
         Session(  # type: ignore[arg-type]
             upstream=upstream,
             timeout=1800,
             client=address,
-            client_scid=session_key[1],
+            client_scid=b"same-client-connection",
+            server_cids={b"retry-dcid"},
         ),
     )
+    router.sessions_by_server_cid[b"retry-dcid"] = session_key
     monkeypatch.setattr(
         quic_router,
         "initial_connection_ids",
@@ -158,6 +160,42 @@ def test_same_client_connection_id_preserves_retry_affinity(
     assert upstream.closed is False
     assert upstream.sent == [b"retried QUIC Initial"]
     assert router.sessions[session_key].upstream is upstream
+
+
+def test_empty_client_source_ids_open_distinct_same_address_connections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    router = QuicRouter(tmp_path / "missing-routes.json")
+    route = Route("present.example", "presentation-backend", 4443)
+    router.routes[route.server_name] = route
+    address = ("203.0.113.7", 54321)
+    opened: list[object] = []
+
+    def capture(coroutine: object) -> None:
+        opened.append(coroutine)
+        coroutine.close()  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(router, "_spawn", capture)
+    monkeypatch.setattr(
+        quic_router,
+        "initial_connection_ids",
+        lambda data: (b"first-dcid", b"") if b"first" in data else (b"second-dcid", b""),
+    )
+    monkeypatch.setattr(quic_router, "decrypt_initial", lambda _data: b"hello")
+    monkeypatch.setattr(quic_router, "crypto_fragments", lambda _data: {0: b"hello"})
+    monkeypatch.setattr(
+        quic_router, "parse_client_hello", lambda _data: ("present.example", ("h3",))
+    )
+
+    router.datagram_received(b"\xc0first Initial", address)
+    router.datagram_received(b"\xc0second Initial", address)
+
+    assert set(router.pending) == {
+        (address, b"first-dcid"),
+        (address, b"second-dcid"),
+    }
+    assert router.opening == set(router.pending)
+    assert len(opened) == 2
 
 
 def test_short_header_connection_id_selects_one_of_concurrent_sessions(
