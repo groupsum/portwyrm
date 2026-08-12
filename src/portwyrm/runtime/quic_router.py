@@ -33,6 +33,7 @@ _DEFAULT_RECEIVE_BUFFER_BYTES = 8 * 1024 * 1024
 _MIN_RECEIVE_BUFFER_BYTES = 64 * 1024
 _MAX_RECEIVE_BUFFER_BYTES = 128 * 1024 * 1024
 _CONFIG_RELOAD_INTERVAL_SECONDS = 1.0
+_FIRST_UPSTREAM_PAUSE_TIMEOUT_SECONDS = 0.25
 
 
 class QuicParseError(ValueError):
@@ -263,6 +264,8 @@ class UpstreamProtocol(asyncio.DatagramProtocol):
         self.listener._register_server_connection_id(self.session_key, data)
         if self.listener.transport is not None:
             self.listener.transport.sendto(data, session.client)
+        if session.upstream_datagrams_received == 1:
+            self.listener._release_ingress_pause(self.session_key, reason="response")
         session.last_seen = time.monotonic()
 
     def error_received(self, exc: Exception) -> None:
@@ -286,6 +289,8 @@ class QuicRouter(asyncio.DatagramProtocol):
         self.routes: dict[str, Route] = {}
         self._config_mtime = -1.0
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._awaiting_first_upstream: set[tuple[tuple[Any, ...], bytes]] = set()
+        self._ingress_pause_timers: dict[tuple[tuple[Any, ...], bytes], asyncio.TimerHandle] = {}
 
     def _spawn(self, coroutine: Any) -> None:
         task = asyncio.create_task(coroutine)
@@ -301,6 +306,10 @@ class QuicRouter(asyncio.DatagramProtocol):
     def connection_lost(self, _exc: Exception | None) -> None:
         for task in self._tasks:
             task.cancel()
+        for timer in self._ingress_pause_timers.values():
+            timer.cancel()
+        self._ingress_pause_timers.clear()
+        self._awaiting_first_upstream.clear()
         for session in self.sessions.values():
             session.upstream.close()
 
@@ -336,6 +345,7 @@ class QuicRouter(asyncio.DatagramProtocol):
         session = self.sessions.pop(key, None)
         if session is None:
             return None
+        self._release_ingress_pause(key, reason="session-removed")
         keys = self.sessions_by_addr.get(session.client)
         if keys is not None:
             keys.discard(key)
@@ -348,6 +358,45 @@ class QuicRouter(asyncio.DatagramProtocol):
         if close:
             session.upstream.close()
         return session
+
+    def _pause_ingress_for_first_upstream(
+        self,
+        key: tuple[tuple[Any, ...], bytes],
+    ) -> None:
+        if key in self._awaiting_first_upstream:
+            return
+        self._awaiting_first_upstream.add(key)
+        if len(self._awaiting_first_upstream) == 1 and self.transport is not None:
+            self.transport.pause_reading()
+        self._ingress_pause_timers[key] = asyncio.get_running_loop().call_later(
+            _FIRST_UPSTREAM_PAUSE_TIMEOUT_SECONDS,
+            self._release_ingress_pause,
+            key,
+            "timeout",
+        )
+        LOGGER.info(
+            "paused public QUIC ingress awaiting first upstream response odcid=%s",
+            key[1].hex(),
+        )
+
+    def _release_ingress_pause(
+        self,
+        key: tuple[tuple[Any, ...], bytes],
+        reason: str,
+    ) -> None:
+        if key not in self._awaiting_first_upstream:
+            return
+        self._awaiting_first_upstream.discard(key)
+        timer = self._ingress_pause_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+        if not self._awaiting_first_upstream and self.transport is not None:
+            self.transport.resume_reading()
+        LOGGER.info(
+            "resumed public QUIC ingress after first upstream wait odcid=%s reason=%s",
+            key[1].hex(),
+            reason,
+        )
 
     def _register_server_connection_id(
         self,
@@ -554,6 +603,7 @@ class QuicRouter(asyncio.DatagramProtocol):
             self.pending_crypto.pop(session_key, None)
             self.pending_seen.pop(session_key, None)
             self.pending_started.pop(session_key, None)
+            self._pause_ingress_for_first_upstream(session_key)
             for datagram in self.pending.pop(session_key, []):
                 transport.sendto(datagram)  # type: ignore[attr-defined]
         except (OSError, ValueError) as exc:
@@ -562,6 +612,7 @@ class QuicRouter(asyncio.DatagramProtocol):
             self.pending_crypto.pop(session_key, None)
             self.pending_seen.pop(session_key, None)
             self.pending_started.pop(session_key, None)
+            self._release_ingress_pause(session_key, reason="open-failed")
         finally:
             self.opening.discard(session_key)
 

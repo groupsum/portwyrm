@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -406,9 +407,13 @@ def test_upstream_response_registers_server_connection_id_for_return_routing(
     class FakeFrontend:
         def __init__(self) -> None:
             self.sent: list[tuple[bytes, tuple[str, int]]] = []
+            self.paused = True
 
         def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
             self.sent.append((data, addr))
+
+        def resume_reading(self) -> None:
+            self.paused = False
 
     router = QuicRouter(tmp_path / "missing-routes.json")
     address = ("203.0.113.7", 54321)
@@ -431,12 +436,14 @@ def test_upstream_response_registers_server_connection_id_for_return_routing(
         "initial_connection_ids",
         lambda _data: (b"client-cid", b"server-cid"),
     )
+    router._awaiting_first_upstream.add(key)
 
     response = b"\xc0server Initial"
     with caplog.at_level(logging.INFO, logger="portwyrm.quic_router"):
         UpstreamProtocol(router, key).datagram_received(response, ("192.0.2.9", 4443))
 
     assert frontend.sent == [(response, address)]
+    assert frontend.paused is False
     assert router.sessions[key].server_cids == {b"server-cid"}
     assert router.sessions_by_server_cid[b"server-cid"] == key
     assert "first upstream QUIC datagram client=203.0.113.7:54321" in caplog.text
@@ -445,6 +452,35 @@ def test_upstream_response_registers_server_connection_id_for_return_routing(
     client_packet = b"\x40" + b"server-cid" + b"encrypted payload"
     router.datagram_received(client_packet, address)
     assert upstream.sent == [client_packet]
+
+
+def test_opening_route_pauses_ingress_until_first_upstream_response(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        class FakeFrontend:
+            def __init__(self) -> None:
+                self.paused = False
+
+            def pause_reading(self) -> None:
+                self.paused = True
+
+            def resume_reading(self) -> None:
+                self.paused = False
+
+        router = QuicRouter(tmp_path / "missing-routes.json")
+        frontend = FakeFrontend()
+        router.transport = frontend  # type: ignore[assignment]
+        key = (("203.0.113.7", 54321), b"client-cid")
+
+        router._pause_ingress_for_first_upstream(key)
+        assert frontend.paused is True
+        assert key in router._awaiting_first_upstream
+
+        router._release_ingress_pause(key, reason="response")
+        assert frontend.paused is False
+        assert key not in router._awaiting_first_upstream
+        assert key not in router._ingress_pause_timers
+
+    asyncio.run(scenario())
 
 
 def test_client_hello_parser_extracts_sni_and_h3_alpn() -> None:
