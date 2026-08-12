@@ -23,6 +23,8 @@ async def prepare_runtime() -> None:
     settings = PortwyrmSettings.from_environment()
     app = create_app(settings=replace(settings, nginx_reload=False))
     resources = app.state.control_plane
+    if settings.backend not in {"memory", "in-memory", "in_memory"}:
+        await app.core.SchemaMigrationStore.apply({})
     await seed_demo_proxy_host(resources)
     if app.state.runtime is not None:
         await app.state.runtime.reconcile()
