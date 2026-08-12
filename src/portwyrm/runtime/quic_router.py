@@ -225,32 +225,42 @@ class Route:
 class Session:
     upstream: asyncio.DatagramTransport
     timeout: int
+    client: tuple[Any, ...]
     client_scid: bytes
+    server_cids: set[bytes] = field(default_factory=set)
     last_seen: float = field(default_factory=time.monotonic)
 
 
 class UpstreamProtocol(asyncio.DatagramProtocol):
-    def __init__(self, listener: QuicRouter, client: tuple[Any, ...]) -> None:
+    def __init__(
+        self,
+        listener: QuicRouter,
+        session_key: tuple[tuple[Any, ...], bytes],
+    ) -> None:
         self.listener = listener
-        self.client = client
+        self.session_key = session_key
 
     def datagram_received(self, data: bytes, _addr: tuple[Any, ...]) -> None:
+        session = self.listener.sessions.get(self.session_key)
+        if session is None:
+            return
+        self.listener._register_server_connection_id(self.session_key, data)
         if self.listener.transport is not None:
-            self.listener.transport.sendto(data, self.client)
-        session = self.listener.sessions.get(self.client)
-        if session is not None:
-            session.last_seen = time.monotonic()
+            self.listener.transport.sendto(data, session.client)
+        session.last_seen = time.monotonic()
 
 
 class QuicRouter(asyncio.DatagramProtocol):
     def __init__(self, config_path: Path) -> None:
         self.config_path = config_path
         self.transport: asyncio.DatagramTransport | None = None
-        self.sessions: dict[tuple[Any, ...], Session] = {}
-        self.pending: dict[tuple[Any, ...], list[bytes]] = {}
-        self.pending_crypto: dict[tuple[Any, ...], dict[int, bytes]] = {}
-        self.pending_seen: dict[tuple[Any, ...], float] = {}
-        self.opening: set[tuple[Any, ...]] = set()
+        self.sessions: dict[tuple[tuple[Any, ...], bytes], Session] = {}
+        self.sessions_by_addr: dict[tuple[Any, ...], set[tuple[tuple[Any, ...], bytes]]] = {}
+        self.sessions_by_server_cid: dict[bytes, tuple[tuple[Any, ...], bytes]] = {}
+        self.pending: dict[tuple[tuple[Any, ...], bytes], list[bytes]] = {}
+        self.pending_crypto: dict[tuple[tuple[Any, ...], bytes], dict[int, bytes]] = {}
+        self.pending_seen: dict[tuple[tuple[Any, ...], bytes], float] = {}
+        self.opening: set[tuple[tuple[Any, ...], bytes]] = set()
         self.routes: dict[str, Route] = {}
         self._config_mtime = -1.0
         self._tasks: set[asyncio.Task[Any]] = set()
@@ -271,6 +281,101 @@ class QuicRouter(asyncio.DatagramProtocol):
         for session in self.sessions.values():
             session.upstream.close()
 
+    @staticmethod
+    def _session_key(addr: tuple[Any, ...], client_scid: bytes) -> tuple[tuple[Any, ...], bytes]:
+        return addr, client_scid
+
+    def _add_session(
+        self,
+        key: tuple[tuple[Any, ...], bytes],
+        session: Session,
+    ) -> None:
+        self.sessions[key] = session
+        self.sessions_by_addr.setdefault(session.client, set()).add(key)
+
+    def _remove_session(
+        self,
+        key: tuple[tuple[Any, ...], bytes],
+        *,
+        close: bool = True,
+    ) -> Session | None:
+        session = self.sessions.pop(key, None)
+        if session is None:
+            return None
+        keys = self.sessions_by_addr.get(session.client)
+        if keys is not None:
+            keys.discard(key)
+            if not keys:
+                self.sessions_by_addr.pop(session.client, None)
+        for server_cid in tuple(session.server_cids):
+            if self.sessions_by_server_cid.get(server_cid) == key:
+                self.sessions_by_server_cid.pop(server_cid, None)
+        if close:
+            session.upstream.close()
+        return session
+
+    def _register_server_connection_id(
+        self,
+        key: tuple[tuple[Any, ...], bytes],
+        datagram: bytes,
+    ) -> None:
+        if not datagram or not datagram[0] & 0x80:
+            return
+        try:
+            _dcid, server_scid = initial_connection_ids(datagram)
+        except QuicParseError:
+            return
+        if not server_scid:
+            return
+        session = self.sessions.get(key)
+        if session is None:
+            return
+        owner = self.sessions_by_server_cid.get(server_scid)
+        if owner is not None and owner != key:
+            LOGGER.warning(
+                "ignoring duplicate upstream QUIC connection id %s",
+                server_scid.hex(),
+            )
+            return
+        session.server_cids.add(server_scid)
+        self.sessions_by_server_cid[server_scid] = key
+
+    def _session_for_datagram(
+        self,
+        data: bytes,
+        addr: tuple[Any, ...],
+    ) -> tuple[tuple[Any, ...], bytes] | None:
+        if not data:
+            return None
+        if data[0] & 0x80:
+            try:
+                dcid, client_scid = initial_connection_ids(data)
+            except QuicParseError:
+                return None
+            key = self.sessions_by_server_cid.get(dcid)
+            if key is not None:
+                session = self.sessions.get(key)
+                if session is not None and session.client == addr:
+                    return key
+            key = self._session_key(addr, client_scid)
+            if key in self.sessions:
+                return key
+            return None
+
+        keys = self.sessions_by_addr.get(addr, set())
+        candidates = sorted(
+            ((server_cid, key) for key in keys for server_cid in self.sessions[key].server_cids),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        )
+        for server_cid, key in candidates:
+            if server_cid and data[1 : 1 + len(server_cid)] == server_cid:
+                return key
+
+        if len(keys) == 1:
+            return next(iter(keys))
+        return None
+
     def reload(self) -> None:
         try:
             modified = self.config_path.stat().st_mtime
@@ -290,103 +395,121 @@ class QuicRouter(asyncio.DatagramProtocol):
 
     def datagram_received(self, data: bytes, addr: tuple[Any, ...]) -> None:
         self.reload()
-        session = self.sessions.get(addr)
-        if session is not None:
-            try:
-                _dcid, client_scid = initial_connection_ids(data)
-                server_name, alpns = inspect_sni(data)
-            except (QuicParseError, IndexError, UnicodeError):
-                session.last_seen = time.monotonic()
-                session.upstream.sendto(data)
-                return
-            if client_scid != session.client_scid:
-                route = self.routes.get(server_name)
-                if route is None or route.alpn not in alpns:
-                    LOGGER.warning("dropping QUIC Initial for unconfigured SNI %s", server_name)
-                    return
-                session.upstream.close()
-                self.sessions.pop(addr, None)
-                self.pending[addr] = [data]
-                self.pending_crypto.pop(addr, None)
-                self.pending_seen[addr] = time.monotonic()
-                self.opening.add(addr)
-                self._spawn(self._open(addr, route, client_scid))
+        session_key = self._session_for_datagram(data, addr)
+        if session_key is not None:
+            session = self.sessions.get(session_key)
+            if session is None:
                 return
             session.last_seen = time.monotonic()
             session.upstream.sendto(data)
             return
-        if addr in self.opening:
-            queue = self.pending.setdefault(addr, [])
+
+        if not data or not data[0] & 0x80:
+            if len(self.sessions_by_addr.get(addr, set())) > 1:
+                LOGGER.warning(
+                    "dropping ambiguous QUIC short-header packet from %s:%s",
+                    addr[0],
+                    addr[1],
+                )
+            return
+        try:
+            initial_dcid, client_scid = initial_connection_ids(data)
+        except QuicParseError:
+            return
+        session_key = self._session_key(addr, client_scid)
+
+        if session_key in self.opening:
+            queue = self.pending.setdefault(session_key, [])
             if len(queue) < 8:
                 queue.append(data)
             return
-        if addr not in self.pending and len(self.pending) >= 2048:
+        if session_key not in self.pending and len(self.pending) >= 2048:
             LOGGER.warning("dropping QUIC Initial because the pending-session limit was reached")
             return
-        queue = self.pending.setdefault(addr, [])
-        self.pending_seen[addr] = time.monotonic()
+        queue = self.pending.setdefault(session_key, [])
+        self.pending_seen[session_key] = time.monotonic()
         if len(queue) >= 8:
-            self.pending.pop(addr, None)
-            self.pending_crypto.pop(addr, None)
-            self.pending_seen.pop(addr, None)
+            self.pending.pop(session_key, None)
+            self.pending_crypto.pop(session_key, None)
+            self.pending_seen.pop(session_key, None)
             return
         queue.append(data)
         try:
             fragments = crypto_fragments(decrypt_initial(data))
-            pending_crypto = self.pending_crypto.setdefault(addr, {})
+            pending_crypto = self.pending_crypto.setdefault(session_key, {})
             pending_crypto.update(fragments)
             server_name, alpns = parse_client_hello(assemble_crypto(pending_crypto))
         except (QuicParseError, IndexError, UnicodeError):
             return
-        self.pending_crypto.pop(addr, None)
-        self.pending_seen.pop(addr, None)
+        self.pending_crypto.pop(session_key, None)
+        self.pending_seen.pop(session_key, None)
         route = self.routes.get(server_name)
         if route is None or route.alpn not in alpns:
             LOGGER.warning("dropping QUIC Initial for unconfigured SNI %s", server_name)
-            self.pending.pop(addr, None)
+            self.pending.pop(session_key, None)
             return
-        self.opening.add(addr)
-        _dcid, client_scid = initial_connection_ids(data)
-        self._spawn(self._open(addr, route, client_scid))
+        self.opening.add(session_key)
+        self._spawn(self._open(session_key, addr, route, client_scid, initial_dcid))
 
-    async def _open(self, addr: tuple[Any, ...], route: Route, client_scid: bytes) -> None:
+    async def _open(
+        self,
+        session_key: tuple[tuple[Any, ...], bytes],
+        addr: tuple[Any, ...],
+        route: Route,
+        client_scid: bytes,
+        initial_dcid: bytes,
+    ) -> None:
         try:
-            if addr in self.sessions:
+            if session_key in self.sessions:
                 return
             loop = asyncio.get_running_loop()
             transport, _ = await loop.create_datagram_endpoint(
-                lambda: UpstreamProtocol(self, addr), remote_addr=(route.target, route.target_port)
+                lambda: UpstreamProtocol(self, session_key),
+                remote_addr=(route.target, route.target_port),
             )
-            self.sessions[addr] = Session(
-                upstream=transport,
-                timeout=route.idle_timeout_seconds,  # type: ignore[arg-type]
-                client_scid=client_scid,
+            self._add_session(
+                session_key,
+                Session(
+                    upstream=transport,
+                    timeout=route.idle_timeout_seconds,  # type: ignore[arg-type]
+                    client=addr,
+                    client_scid=client_scid,
+                ),
             )
-            self.pending_crypto.pop(addr, None)
-            self.pending_seen.pop(addr, None)
-            for datagram in self.pending.pop(addr, []):
+            LOGGER.info(
+                "opened QUIC route client=%s:%s scid=%s odcid=%s target=%s:%s concurrent=%d",
+                addr[0],
+                addr[1],
+                client_scid.hex(),
+                initial_dcid.hex(),
+                route.target,
+                route.target_port,
+                len(self.sessions_by_addr.get(addr, set())),
+            )
+            self.pending_crypto.pop(session_key, None)
+            self.pending_seen.pop(session_key, None)
+            for datagram in self.pending.pop(session_key, []):
                 transport.sendto(datagram)  # type: ignore[attr-defined]
         except (OSError, ValueError) as exc:
             LOGGER.warning("unable to open QUIC upstream for %s: %s", route.server_name, exc)
-            self.pending.pop(addr, None)
-            self.pending_crypto.pop(addr, None)
-            self.pending_seen.pop(addr, None)
+            self.pending.pop(session_key, None)
+            self.pending_crypto.pop(session_key, None)
+            self.pending_seen.pop(session_key, None)
         finally:
-            self.opening.discard(addr)
+            self.opening.discard(session_key)
 
     async def _reaper(self) -> None:
         while True:
             await asyncio.sleep(15)
             now = time.monotonic()
-            for addr, last_seen in tuple(self.pending_seen.items()):
+            for session_key, last_seen in tuple(self.pending_seen.items()):
                 if now - last_seen > 10:
-                    self.pending.pop(addr, None)
-                    self.pending_crypto.pop(addr, None)
-                    self.pending_seen.pop(addr, None)
-            for addr, session in tuple(self.sessions.items()):
+                    self.pending.pop(session_key, None)
+                    self.pending_crypto.pop(session_key, None)
+                    self.pending_seen.pop(session_key, None)
+            for session_key, session in tuple(self.sessions.items()):
                 if now - session.last_seen > session.timeout:
-                    session.upstream.close()
-                    self.sessions.pop(addr, None)
+                    self._remove_session(session_key)
 
 
 async def serve(config_path: Path, host: str, port: int) -> None:

@@ -13,6 +13,7 @@ from portwyrm.runtime.quic_router import (
     QuicRouter,
     Route,
     Session,
+    UpstreamProtocol,
     _initial_keys,
     assemble_crypto,
     initial_connection_ids,
@@ -62,7 +63,7 @@ def test_initial_connection_ids_parse_client_long_header() -> None:
     assert initial_connection_ids(datagram) == (dcid, scid)
 
 
-def test_new_client_connection_id_replaces_stale_udp_affinity(
+def test_new_client_connection_id_preserves_established_udp_affinity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class FakeUpstream:
@@ -81,10 +82,15 @@ def test_new_client_connection_id_replaces_stale_udp_affinity(
     router.routes[route.server_name] = route
     address = ("203.0.113.7", 54321)
     upstream = FakeUpstream()
-    router.sessions[address] = Session(  # type: ignore[arg-type]
-        upstream=upstream,
-        timeout=1800,
-        client_scid=b"old-client-connection",
+    old_key = (address, b"old-client-connection")
+    router._add_session(
+        old_key,
+        Session(  # type: ignore[arg-type]
+            upstream=upstream,
+            timeout=1800,
+            client=address,
+            client_scid=old_key[1],
+        ),
     )
     spawned = []
 
@@ -96,14 +102,20 @@ def test_new_client_connection_id_replaces_stale_udp_affinity(
     monkeypatch.setattr(
         quic_router, "initial_connection_ids", lambda _data: (b"dcid", b"new-client-connection")
     )
-    monkeypatch.setattr(quic_router, "inspect_sni", lambda _data: ("present.example", ("h3",)))
+    monkeypatch.setattr(quic_router, "decrypt_initial", lambda _data: b"hello")
+    monkeypatch.setattr(quic_router, "crypto_fragments", lambda _data: {0: b"hello"})
+    monkeypatch.setattr(
+        quic_router, "parse_client_hello", lambda _data: ("present.example", ("h3",))
+    )
 
-    router.datagram_received(b"new QUIC Initial", address)
+    new_initial = b"\xc0new QUIC Initial"
+    router.datagram_received(new_initial, address)
 
-    assert upstream.closed is True
-    assert address not in router.sessions
-    assert router.pending[address] == [b"new QUIC Initial"]
-    assert address in router.opening
+    new_key = (address, b"new-client-connection")
+    assert upstream.closed is False
+    assert router.sessions[old_key].upstream is upstream
+    assert router.pending[new_key] == [new_initial]
+    assert new_key in router.opening
     assert len(spawned) == 1
 
 
@@ -124,10 +136,15 @@ def test_same_client_connection_id_preserves_retry_affinity(
     router = QuicRouter(tmp_path / "missing-routes.json")
     address = ("203.0.113.7", 54321)
     upstream = FakeUpstream()
-    router.sessions[address] = Session(  # type: ignore[arg-type]
-        upstream=upstream,
-        timeout=1800,
-        client_scid=b"same-client-connection",
+    session_key = (address, b"same-client-connection")
+    router._add_session(
+        session_key,
+        Session(  # type: ignore[arg-type]
+            upstream=upstream,
+            timeout=1800,
+            client=address,
+            client_scid=session_key[1],
+        ),
     )
     monkeypatch.setattr(
         quic_router,
@@ -140,7 +157,133 @@ def test_same_client_connection_id_preserves_retry_affinity(
 
     assert upstream.closed is False
     assert upstream.sent == [b"retried QUIC Initial"]
-    assert router.sessions[address].upstream is upstream
+    assert router.sessions[session_key].upstream is upstream
+
+
+def test_short_header_connection_id_selects_one_of_concurrent_sessions(
+    tmp_path: Path,
+) -> None:
+    class FakeUpstream:
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+
+        def close(self) -> None:
+            pass
+
+        def sendto(self, data: bytes) -> None:
+            self.sent.append(data)
+
+    router = QuicRouter(tmp_path / "missing-routes.json")
+    address = ("203.0.113.7", 54321)
+    left_key = (address, b"left-client")
+    right_key = (address, b"right-client")
+    left = FakeUpstream()
+    right = FakeUpstream()
+    for key, upstream, server_cid in (
+        (left_key, left, b"left-srv"),
+        (right_key, right, b"right-srv"),
+    ):
+        session = Session(  # type: ignore[arg-type]
+            upstream=upstream,
+            timeout=1800,
+            client=address,
+            client_scid=key[1],
+            server_cids={server_cid},
+        )
+        router._add_session(key, session)
+        router.sessions_by_server_cid[server_cid] = key
+
+    packet = b"\x40" + b"right-srv" + b"encrypted payload"
+    router.datagram_received(packet, address)
+
+    assert left.sent == []
+    assert right.sent == [packet]
+
+
+def test_ambiguous_short_header_is_not_mixed_into_concurrent_sessions(
+    tmp_path: Path,
+) -> None:
+    class FakeUpstream:
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+
+        def close(self) -> None:
+            pass
+
+        def sendto(self, data: bytes) -> None:
+            self.sent.append(data)
+
+    router = QuicRouter(tmp_path / "missing-routes.json")
+    address = ("203.0.113.7", 54321)
+    upstreams = [FakeUpstream(), FakeUpstream()]
+    for client_scid, upstream in zip((b"left", b"right"), upstreams, strict=True):
+        key = (address, client_scid)
+        router._add_session(
+            key,
+            Session(  # type: ignore[arg-type]
+                upstream=upstream,
+                timeout=1800,
+                client=address,
+                client_scid=client_scid,
+            ),
+        )
+
+    router.datagram_received(b"\x40unknown encrypted payload", address)
+
+    assert [upstream.sent for upstream in upstreams] == [[], []]
+
+
+def test_upstream_response_registers_server_connection_id_for_return_routing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeUpstream:
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+
+        def close(self) -> None:
+            pass
+
+        def sendto(self, data: bytes) -> None:
+            self.sent.append(data)
+
+    class FakeFrontend:
+        def __init__(self) -> None:
+            self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+            self.sent.append((data, addr))
+
+    router = QuicRouter(tmp_path / "missing-routes.json")
+    address = ("203.0.113.7", 54321)
+    key = (address, b"client-cid")
+    upstream = FakeUpstream()
+    frontend = FakeFrontend()
+    router.transport = frontend  # type: ignore[assignment]
+    router._add_session(
+        key,
+        Session(  # type: ignore[arg-type]
+            upstream=upstream,
+            timeout=1800,
+            client=address,
+            client_scid=key[1],
+        ),
+    )
+    monkeypatch.setattr(
+        quic_router,
+        "initial_connection_ids",
+        lambda _data: (b"client-cid", b"server-cid"),
+    )
+
+    response = b"\xc0server Initial"
+    UpstreamProtocol(router, key).datagram_received(response, ("192.0.2.9", 4443))
+
+    assert frontend.sent == [(response, address)]
+    assert router.sessions[key].server_cids == {b"server-cid"}
+    assert router.sessions_by_server_cid[b"server-cid"] == key
+
+    client_packet = b"\x40" + b"server-cid" + b"encrypted payload"
+    router.datagram_received(client_packet, address)
+    assert upstream.sent == [client_packet]
 
 
 def test_client_hello_parser_extracts_sni_and_h3_alpn() -> None:
