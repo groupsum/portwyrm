@@ -1,0 +1,23 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "release",
+  "id": "release-portwyrm-0.1.0a22",
+  "version": "0.1.0",
+  "owner": "Groupsum",
+  "status": "candidate",
+  "review_date": "2026-10-29",
+  "sources": ["docs/testing/ui-error-messages.md", ".github/workflows/release.yml", ".github/workflows/container.yml"],
+  "facts": ["UI fix commit: 93465a2e3443154a62db5b78c431d2cc94bb4adc", "Local pytest: 261 passed, 3 skipped", "Ruff lint and format checks passed", "Wheel and source distribution built successfully", "UI browser regression passed"],
+  "assumptions": ["Existing GitHub Actions publication credentials remain available"],
+  "inferences": [],
+  "dependencies": [],
+  "risks": ["Full p100 certification remains incomplete", "Live database, container protocol, vulnerability, signing and provenance gates require release CI"],
+  "metrics": ["261 passing local tests", "3 environment-dependent local skips"],
+  "acceptance_criteria": ["Release CI passes before publication", "Python distributions are attached to the GitHub release", "GHCR multi-architecture digest and verification evidence are available"],
+  "release_version": ["0.1.0a22"],
+  "scope": ["Hide Python exception-class prefixes in operator-facing API errors", "Bundle rebuilt frontend assets", "Update version metadata and normalize required Python formatting"],
+  "gates": ["Local checks passed", "GitHub Actions release gates pending tag publication"],
+  "artifacts": ["portwyrm-0.1.0a22-py3-none-any.whl", "portwyrm-0.1.0a22.tar.gz", "ghcr.io/groupsum/portwyrm"],
+  "rollout": ["Publish prerelease through existing tag-triggered workflows", "No deployment included"],
+  "rollback": ["Select the previously verified image digest; preserve existing published versions"]
+}
