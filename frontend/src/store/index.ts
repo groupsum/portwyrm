@@ -29,7 +29,12 @@ async function api(path: string, options: RequestInit = {}): Promise<any> {
   }
   const response = await fetch(path, {...options, headers, credentials: 'same-origin'});
   const result = response.status === 204 ? null : await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result?.detail || `${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    const detail = typeof result?.detail === 'string' ? result.detail : '';
+    // Tigrbl can prefix validation messages with the Python exception class.
+    const message = detail.replace(/^<class ['"][\w.]+['"]>:\s*/, '').trim();
+    throw new Error(message || `${response.status} ${response.statusText}`);
+  }
   return result;
 }
 

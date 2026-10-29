@@ -127,6 +127,10 @@ Exact method/path inventory is in [S5]. Compatibility must be driven by recorded
 
 ## Suggested p100 acceptance gates
 
+UI-01 error presentation: Python exception-class prefixes are removed from
+operator-facing API errors. Password rejection retains its actionable message.
+Acceptance and verification: [UI error messages](../testing/ui-error-messages.md).
+
 1. **Traceability:** every `P` matrix row maps to at least one automated test and source link; no unresolved `missing` evidence is counted complete.
 2. **Golden config parity:** canonical fixtures for every host/access/certificate option render semantically equivalent Nginx behavior; raw custom snippets remain byte-preserved.
 3. **Protocol suite:** HTTP/1.1, HTTPS, HTTP/2, WebSocket, TCP, UDP, stream TLS, redirects, 404, cache hit/miss/stale, and auth/IP combinations run in containers.

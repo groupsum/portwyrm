@@ -37,6 +37,16 @@ test('login and authenticated operator surfaces pass automated WCAG checks', asy
   await page.getByRole('button', { name: /create administrator|sign in/i }).click();
   await expect(page.getByRole('heading', { name: 'Change the temporary password' })).toBeVisible();
   await assertNoAxeViolations(page, 'forced password change');
+  await page.route('**/api/v2/browser/password', route => route.fulfill({
+    status: 400,
+    json: {detail: "<class 'ValueError'>: current password is invalid"},
+  }));
+  await page.getByLabel('Current password').fill('Incorrect-Password-123!');
+  await page.getByLabel('New password', { exact: true }).fill('Accessibility-Private-Password-456!');
+  await page.getByLabel('Confirm new password').fill('Accessibility-Private-Password-456!');
+  await page.getByRole('button', { name: 'Change password' }).click();
+  await expect(page.getByRole('alert')).toHaveText('current password is invalid');
+  await page.unroute('**/api/v2/browser/password');
   await page.getByLabel('Current password').fill('Accessibility-Test-Password-123!');
   await page.getByLabel('New password', { exact: true }).fill('Accessibility-Private-Password-456!');
   await page.getByLabel('Confirm new password').fill('Accessibility-Private-Password-456!');
