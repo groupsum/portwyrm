@@ -24,7 +24,7 @@ COPY . /app
 RUN uv pip install --system --no-cache "pip==26.1.2" .
 
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
-RUN mkdir -p /data/acme-challenge /data/nginx /data/logs /etc/letsencrypt/live /var/lib/nginx/cache/public
+RUN mkdir -p /data/acme /data/acme-challenge /data/nginx /data/logs /etc/letsencrypt/live /var/lib/nginx/cache/public
 
 ENV PYTHONUNBUFFERED=1 \
     PORTWYRM_DB_BACKEND=sqlite \
@@ -35,6 +35,7 @@ ENV PYTHONUNBUFFERED=1 \
     PORTWYRM_HOST_PROBES=1 \
     PORTWYRM_NGINX_ROOT=/data/nginx \
     PORTWYRM_CERTIFICATE_ROOT=/etc/letsencrypt/live \
+    PORTWYRM_ACME_CONFIG_ROOT=/data/acme \
     PORTWYRM_ACME_WEBROOT=/data/acme-challenge \
     PORTWYRM_AUTO_BOOTSTRAP_ADMIN=1 \
     PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE=/data/bootstrap-admin.json \

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import subprocess
 import zipfile
 from datetime import UTC, datetime, timedelta
@@ -12,6 +13,7 @@ import pytest
 from portwyrm.certificates import (
     DEFAULT_PROVIDER_CATALOG,
     ACMEOrder,
+    CertbotIssuer,
     CertificateConflict,
     CertificateLifecycle,
     CertificateMaterialStore,
@@ -34,6 +36,8 @@ PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
 MIIB
 -----END PRIVATE KEY-----
 """
+
+
 PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
 PUB
 -----END PUBLIC KEY-----
@@ -55,6 +59,51 @@ def fake_openssl(*args, **kwargs) -> subprocess.CompletedProcess[str]:
     else:
         stdout = PUBLIC_KEY
     return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+
+def test_certbot_reuses_persistent_account_config_and_isolates_domain_lineages(tmp_path) -> None:
+    config_root = tmp_path / "acme"
+    observed_commands: list[list[str]] = []
+
+    def issue(command, **_kwargs):
+        observed_commands.append(command)
+        name = command[command.index("--cert-name") + 1]
+        live = config_root / "live" / name
+        live.mkdir(parents=True, exist_ok=True)
+        (live / "cert.pem").write_text(CERTIFICATE, encoding="utf-8")
+        (live / "privkey.pem").write_text(PRIVATE_KEY, encoding="utf-8")
+        (live / "chain.pem").write_text(CERTIFICATE, encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    issuer = CertbotIssuer(
+        webroot=tmp_path / "challenge",
+        config_root=config_root,
+        runner=issue,
+        validator=OpenSSLPEMValidator(runner=fake_openssl),
+    )
+    issuer.issue(
+        ("app.example.com",),
+        challenge_type=ChallengeType.HTTP_01,
+        key_type="ecdsa",
+        email="admin@example.com",
+    )
+    issuer.issue(
+        ("api.example.com",),
+        challenge_type=ChallengeType.HTTP_01,
+        key_type="ecdsa",
+        email="admin@example.com",
+    )
+
+    expected_first = hashlib.sha256(b"app.example.com").hexdigest()[:20]
+    expected_second = hashlib.sha256(b"api.example.com").hexdigest()[:20]
+    assert observed_commands[0][observed_commands[0].index("--config-dir") + 1] == str(config_root)
+    assert observed_commands[1][observed_commands[1].index("--config-dir") + 1] == str(config_root)
+    assert observed_commands[0][observed_commands[0].index("--cert-name") + 1] == (
+        f"portwyrm-{expected_first}"
+    )
+    assert observed_commands[1][observed_commands[1].index("--cert-name") + 1] == (
+        f"portwyrm-{expected_second}"
+    )
 
 
 def test_custom_certificate_validates_dates_domains_and_key() -> None:

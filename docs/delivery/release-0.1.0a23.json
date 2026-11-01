@@ -1,0 +1,23 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "release",
+  "id": "release-portwyrm-0.1.0a23",
+  "version": "0.1.0",
+  "owner": "Groupsum",
+  "status": "candidate",
+  "review_date": "2026-10-31",
+  "sources": ["src/portwyrm/certificates/manager.py", "tests/runtime/test_certificates_runtime.py", ".github/workflows/release.yml", ".github/workflows/container.yml"],
+  "facts": ["Certbot account configuration is persisted under /data/acme", "Certificate lineages use deterministic domain-set identifiers", "Full local release validation passes"],
+  "assumptions": ["The existing /data volume remains durable across Portwyrm image upgrades"],
+  "inferences": [],
+  "dependencies": [],
+  "risks": ["The first issuance after upgrading an installation without persistent ACME state must create one account", "Full p100 certification remains incomplete"],
+  "metrics": ["262 passing local tests", "3 environment-dependent local skips"],
+  "acceptance_criteria": ["Release CI passes before publication", "Python distributions are published", "GHCR multi-architecture digest and verification evidence are available", "A second certificate issuance reuses the persisted ACME account"],
+  "release_version": ["0.1.0a23"],
+  "scope": ["Persist and reuse ACME account configuration", "Use independent deterministic certificate lineages", "Document the filesystem backup boundary"],
+  "gates": ["Ruff lint and format checks passed", "262 local tests passed with 3 environment-dependent skips"],
+  "artifacts": [],
+  "rollout": ["Publish prerelease through existing tag-triggered workflows", "Update the infrastructure Portwyrm deployment to the verified immutable digest", "Verify repeated certificate issuance without another ACME account registration"],
+  "rollback": ["Restore the previously verified Portwyrm image digest without deleting /data"]
+}

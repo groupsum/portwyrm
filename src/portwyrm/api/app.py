@@ -105,6 +105,7 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
             CertificateMaterialStore(certificate_root),
             issuer=CertbotIssuer(
                 webroot=os.getenv("PORTWYRM_ACME_WEBROOT", "/data/acme-challenge"),
+                config_root=os.getenv("PORTWYRM_ACME_CONFIG_ROOT", "/data/acme"),
                 server=os.getenv("PORTWYRM_ACME_SERVER") or None,
                 staging=os.getenv("PORTWYRM_ACME_STAGING", "0").lower() in {"1", "true", "yes"},
             ),

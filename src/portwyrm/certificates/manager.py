@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import shutil
@@ -151,12 +152,14 @@ class CertbotIssuer:
         self,
         *,
         webroot: str | Path = "/data/acme-challenge",
+        config_root: str | Path = "/data/acme",
         server: str | None = None,
         staging: bool = False,
         runner: Any = subprocess.run,
         validator: OpenSSLPEMValidator | None = None,
     ) -> None:
         self.webroot = Path(webroot)
+        self.config_root = Path(config_root)
         self.server = server
         self.staging = staging
         self.runner = runner
@@ -173,9 +176,11 @@ class CertbotIssuer:
         credentials_file: Path | None = None,
     ) -> IssuedCertificate:
         self.webroot.mkdir(parents=True, exist_ok=True)
+        self.config_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="portwyrm-certbot-") as directory:
             root = Path(directory)
-            name = "portwyrm-order"
+            lineage = hashlib.sha256("\n".join(sorted(domains)).encode("utf-8")).hexdigest()[:20]
+            name = f"portwyrm-{lineage}"
             command = [
                 "certbot",
                 "certonly",
@@ -186,7 +191,7 @@ class CertbotIssuer:
                 "--cert-name",
                 name,
                 "--config-dir",
-                str(root / "config"),
+                str(self.config_root),
                 "--work-dir",
                 str(root / "work"),
                 "--logs-dir",
@@ -218,7 +223,7 @@ class CertbotIssuer:
             result = self.runner(command, capture_output=True, text=True, check=False)
             if result.returncode:
                 raise RuntimeError((result.stderr or result.stdout or "Certbot failed").strip())
-            live = root / "config" / "live" / name
+            live = self.config_root / "live" / name
             certificate = (live / "cert.pem").read_text(encoding="utf-8")
             private_key = (live / "privkey.pem").read_text(encoding="utf-8")
             chain = (live / "chain.pem").read_text(encoding="utf-8")
