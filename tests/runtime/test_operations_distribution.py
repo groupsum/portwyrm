@@ -51,6 +51,14 @@ def test_distribution_workflow_retains_fail_closed_supply_chain_gates() -> None:
         assert contract in workflow
 
 
+def test_python_release_uses_supported_node24_release_action() -> None:
+    workflow = (Path(__file__).parents[2] / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64" in workflow
+    assert "softprops/action-gh-release@v2" not in workflow
+
+
 def test_local_compose_image_is_not_a_published_channel() -> None:
     compose = (Path(__file__).parents[2] / "compose.yaml").read_text(encoding="utf-8")
     assert "image: portwyrm:local" in compose
