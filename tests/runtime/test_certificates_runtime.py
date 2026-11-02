@@ -341,7 +341,6 @@ def test_certificate_renewal_normalizes_adopted_legacy_acme_metadata(tmp_path: P
                 "nice_name": "Automatic",
                 "provider": "letsencrypt",
                 "domain_names": ["app.example.com"],
-                "expires_on": datetime(2030, 1, 1, tzinfo=UTC).isoformat(),
                 "meta": {
                     "letsencrypt_email": "admin@example.test",
                     "dns_challenge": False,

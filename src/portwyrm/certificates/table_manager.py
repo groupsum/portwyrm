@@ -165,9 +165,12 @@ class TableCertificateManager:
             raise FileNotFoundError(f"certificate {certificate_id} was not found")
         if record.get("provider") != "letsencrypt":
             raise CertificateConflict("only ACME certificates can be renewed")
-        expires = datetime.fromisoformat(str(record["expires_on"]))
-        if not force and not CertificateLifecycle.renewal_due(expires, now=datetime.now(UTC)):
-            return record
+        if not force:
+            expires_value = record.get("expires_on")
+            if expires_value is not None:
+                expires = datetime.fromisoformat(str(expires_value))
+                if not CertificateLifecycle.renewal_due(expires, now=datetime.now(UTC)):
+                    return record
         meta = dict(record.get("meta") or {})
         dns_challenge = bool(meta.get("dns_challenge"))
         return await self._replace_acme(
