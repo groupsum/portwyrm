@@ -1,0 +1,23 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "release",
+  "id": "release-portwyrm-0.1.0a27",
+  "version": "0.1.0",
+  "owner": "Groupsum",
+  "status": "candidate",
+  "review_date": "2026-11-01",
+  "sources": ["src/portwyrm/certificates/table_manager.py", "tests/runtime/test_certificates_runtime.py"],
+  "facts": ["Renewed certificate material is atomically published before metadata triggers runtime reconciliation", "Previous certificate material is quarantined until metadata and reconciliation complete", "Failed replacement restores prior material and metadata"],
+  "assumptions": ["Certificate metadata updates trigger the configured post-commit runtime reconciliation"],
+  "inferences": [],
+  "dependencies": ["Portwyrm certificate material store", "Portwyrm table lifecycle reconciliation"],
+  "risks": ["Forced renewal contacts the configured ACME authority and remains subject to rate limits"],
+  "metrics": ["Renewal-order regression asserts new material exists when reconciliation metadata is persisted"],
+  "acceptance_criteria": ["A renewed SAN certificate is loaded by Nginx in the same operation", "Canonical and alias hostnames serve one verified certificate", "Replacement failures preserve prior certificate material"],
+  "release_version": ["0.1.0a27"],
+  "scope": ["Make certificate renewal material publication and runtime reload ordering atomic"],
+  "gates": ["Ruff lint and format checks", "Focused certificate tests", "Tag-triggered container publication"],
+  "artifacts": [],
+  "rollout": ["Publish the immutable GHCR prerelease", "Update all three gateway pins", "Force-renew the five affected engine-demo certificates", "Verify every canonical and alias TLS identity"],
+  "rollback": ["Restore the previously verified Portwyrm image digest"]
+}
