@@ -37,6 +37,20 @@ jobs:
           name: python-distributions
           path: dist/
 
+  pypi:
+    if: github.ref_type == 'tag'
+    needs: build
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: cobycloud/actions/.github/workflows/reusable-pypi-publish.yml@master
+    with:
+      environment: pypi
+      publish-mode: trusted
+      artifact-name: python-distributions
+      packages-dir: dist
+
   github-release:
     if: github.ref_type == 'tag'
     needs: build
