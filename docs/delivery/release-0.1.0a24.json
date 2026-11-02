@@ -1,0 +1,23 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "release",
+  "id": "release-portwyrm-0.1.0a24",
+  "version": "0.1.0",
+  "owner": "Groupsum",
+  "status": "candidate",
+  "review_date": "2026-11-01",
+  "sources": ["src/portwyrm/runtime/nginx_platform.py", "tests/runtime/test_nginx_runtime.py", ".github/workflows/release.yml", ".github/workflows/container.yml"],
+  "facts": ["The HTTPS default server rejects unknown SNI during the TLS handshake", "Known managed hostnames continue to receive their configured certificates", "PyPI publication uses the shared trusted-publishing workflow"],
+  "assumptions": ["The existing PyPI trusted publisher authorizes the pypi environment and release workflow"],
+  "inferences": [],
+  "dependencies": ["cobycloud/actions reusable PyPI and GHCR publication workflows"],
+  "risks": ["Clients using an unconfigured SNI hostname now fail closed instead of receiving a default certificate", "Full p100 certification remains incomplete"],
+  "metrics": ["12 focused package and Nginx runtime tests passed locally", "Full release validation delegated to protected CI"],
+  "acceptance_criteria": ["Release CI passes before publication", "PyPI wheel and source distribution hashes are verified", "GHCR multi-architecture digest and verification evidence are available", "Unknown SNI fails the TLS handshake without presenting a managed certificate"],
+  "release_version": ["0.1.0a24"],
+  "scope": ["Fail closed for unknown TLS SNI", "Publish Python distributions through the shared trusted-publishing contract"],
+  "gates": ["Ruff lint and format checks", "Full pytest suite", "Tag-triggered Python and container workflows"],
+  "artifacts": [],
+  "rollout": ["Publish prerelease through existing tag-triggered workflows", "Update the infrastructure Portwyrm deployment to the verified immutable digest", "Verify known and unknown SNI behavior on the deployment"],
+  "rollback": ["Restore the previously verified Portwyrm image digest"]
+}
