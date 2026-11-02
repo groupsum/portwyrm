@@ -355,6 +355,43 @@ def test_certificate_renewal_normalizes_adopted_legacy_acme_metadata(tmp_path: P
     assert issuer.requests[0][1]["key_type"] == "rsa"
 
 
+def test_certificate_renewal_publishes_material_before_reconcile_metadata(tmp_path: Path) -> None:
+    store = CertificateMaterialStore(tmp_path / "live")
+
+    class ReconcileObservingService(CertificateService):
+        async def update_resource(self, collection, resource_id, payload, **kwargs):
+            if collection == "certificates" and "expires_on" in payload:
+                material = store._directory(resource_id) / "cert.pem"
+                assert material.read_text(encoding="utf-8") == CERTIFICATE
+            return await super().update_resource(collection, resource_id, payload, **kwargs)
+
+    service = ReconcileObservingService()
+    manager = TableCertificateManager(service, store, issuer=FakeIssuer())
+    old_certificate = """-----BEGIN CERTIFICATE-----
+OLD
+-----END CERTIFICATE-----
+"""
+
+    async def exercise() -> None:
+        certificate = await service.create_resource(
+            "certificates",
+            {
+                "nice_name": "Automatic",
+                "provider": "letsencrypt",
+                "domain_names": ["app.example.com"],
+                "meta": {"email": "admin@example.test"},
+            },
+        )
+        store.put(
+            certificate["id"],
+            CustomCertificateBundle(old_certificate, PRIVATE_KEY, old_certificate),
+        )
+        renewed = await manager.renew(certificate["id"], force=True)
+        assert renewed["status"] == "active"
+
+    asyncio.run(exercise())
+
+
 def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_path: Path) -> None:
     service = CertificateService()
     manager = TableCertificateManager(

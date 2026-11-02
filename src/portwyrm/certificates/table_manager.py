@@ -214,26 +214,33 @@ class TableCertificateManager:
             provider=request.provider,
         )
         previous = dict(await self.resources.get_resource("certificates", certificate_id) or {})
-        result = await self.resources.update_resource(
-            "certificates",
-            certificate_id,
-            {
-                "expires_at": int(issued.expires_at.timestamp()),
-                "expires_on": issued.expires_at.isoformat(),
-                "status": "active",
-            },
-            **({"actor": actor} if actor is not None else {}),
-        )
-        if result is None:
-            raise FileNotFoundError(f"certificate {certificate_id} was not found")
+        quarantine = await asyncio.to_thread(self.store.detach, certificate_id)
+        metadata_updated = False
         try:
             await asyncio.to_thread(
                 self.store.put,
                 certificate_id,
                 CustomCertificateBundle(issued.certificate, issued.private_key, issued.chain),
             )
+            result = await self.resources.update_resource(
+                "certificates",
+                certificate_id,
+                {
+                    "expires_at": int(issued.expires_at.timestamp()),
+                    "expires_on": issued.expires_at.isoformat(),
+                    "status": "active",
+                },
+                **({"actor": actor} if actor is not None else {}),
+            )
+            if result is None:
+                raise FileNotFoundError(f"certificate {certificate_id} was not found")
+            metadata_updated = True
+            await asyncio.to_thread(self.store.commit_detach, quarantine)
         except BaseException:
-            await self.resources.update_resource("certificates", certificate_id, previous)
+            await asyncio.to_thread(self.store.delete, certificate_id)
+            await asyncio.to_thread(self.store.rollback_detach, certificate_id, quarantine)
+            if metadata_updated:
+                await self.resources.update_resource("certificates", certificate_id, previous)
             raise
         return result
 
