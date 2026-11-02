@@ -8,7 +8,7 @@ status: "accepted"
 origin: "repo-local"
 decision_date: null
 tags: []
-summary: "The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access and error logs, rotation, retention and reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics. An administratively disabled proxy hostname SHALL render an explicit non-proxying server block returning 503 and SHALL never fall through to the default site or retain proxy_pass behavior. Nginx platform and reconciliation health SHALL remain distinct from upstream reachability."
+summary: "The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access and error logs, rotation, retention and reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics. The HTTPS default server SHALL reject unknown SNI handshakes without presenting any configured application or control-plane certificate. An administratively disabled proxy hostname SHALL render an explicit non-proxying server block returning 503 and SHALL never fall through to the default site or retain proxy_pass behavior. Nginx platform and reconciliation health SHALL remain distinct from upstream reachability."
 supersedes: []
 superseded_by: []
 status_notes:
@@ -17,12 +17,16 @@ status_notes:
     note: "Accepted for the Portwyrm p100 boundary."
     status: "accepted"
   -
-    status: "accepted"
-    note: "Added deterministic disabled-host isolation and separated platform from upstream health."
     at: "2026-07-17T15:20:09Z"
+    note: "Added deterministic disabled-host isolation and separated platform from upstream health."
+    status: "accepted"
+  -
+    status: "accepted"
+    note: "Fail closed for unknown HTTPS SNI so unrelated routes never present a control-plane certificate."
+    at: "2026-11-02T02:22:48Z"
 references: []
 body: |-
-  The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access and error logs, rotation, retention and reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics. An administratively disabled proxy hostname SHALL render an explicit non-proxying server block returning 503 and SHALL never fall through to the default site or retain proxy_pass behavior. Nginx platform and reconciliation health SHALL remain distinct from upstream reachability.
+  The runtime SHALL implement global include points, five default-site modes, IPv6 and resolver controls, offline-safe trusted proxy range refresh, stable per-object access and error logs, rotation, retention and reopen, semantic health states, startup migrations, version reporting, and forward-only upgrade diagnostics. The HTTPS default server SHALL reject unknown SNI handshakes without presenting any configured application or control-plane certificate. An administratively disabled proxy hostname SHALL render an explicit non-proxying server block returning 503 and SHALL never fall through to the default site or retain proxy_pass behavior. Nginx platform and reconciliation health SHALL remain distinct from upstream reachability.
 spec_kind: "normative"
 adr_ids:
   - "adr:1003"

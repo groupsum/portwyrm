@@ -12,6 +12,8 @@ Proxy-host operational state is now split into administrative, Nginx deployment,
 reachability dimensions. A native Tigrbl probe operation persists observations, the scheduler
 invokes that same operation, and disabled hostnames retain an explicit non-proxying 503 server
 block instead of falling through to the default site.
+The HTTPS default server rejects unknown SNI handshakes without presenting a configured
+application or Portwyrm control-plane certificate.
 Verification is recorded in
 [`artifacts/tigrbl-lifecycle-refactor-2026-07-16.md`](../../artifacts/tigrbl-lifecycle-refactor-2026-07-16.md).
 
