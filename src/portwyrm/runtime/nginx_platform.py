@@ -87,12 +87,18 @@ def render_default_site(platform: PlatformConfig) -> str:
         body = f"return 301 {platform.default_redirect};"
     else:
         body = "root /data/nginx/default_www;\n    try_files $uri /index.html;"
-    ipv6 = "  listen [::]:80 default_server;\n" if platform.ipv6 else ""
+    ipv6 = (
+        "  listen [::]:80 default_server;\n  listen [::]:443 ssl default_server;\n"
+        if platform.ipv6
+        else ""
+    )
     return (
         "server {\n"
         "  listen 80 default_server;\n"
+        "  listen 443 ssl default_server;\n"
         f"{ipv6}"
         "  server_name _;\n"
+        "  ssl_reject_handshake on;\n"
         "  location ^~ /.well-known/acme-challenge/ {\n"
         "    root /data/acme-challenge;\n"
         "    try_files $uri =404;\n"

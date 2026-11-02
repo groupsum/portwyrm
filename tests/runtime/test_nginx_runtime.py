@@ -177,6 +177,8 @@ def test_unmatched_hosts_are_silent_by_default() -> None:
     config = NginxRenderer().render().files["http/default.conf"]
 
     assert "listen 80 default_server" in config
+    assert "listen 443 ssl default_server" in config
+    assert "ssl_reject_handshake on" in config
     assert "return 444;" in config
     assert "Congratulations" not in config
 
