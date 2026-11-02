@@ -88,8 +88,7 @@ def render_default_site(platform: PlatformConfig) -> str:
     else:
         body = "root /data/nginx/default_www;\n    try_files $uri /index.html;"
     ipv6 = (
-        "  listen [::]:80 default_server;\n"
-        "  listen [::]:443 ssl default_server;\n"
+        "  listen [::]:80 default_server;\n  listen [::]:443 ssl default_server;\n"
         if platform.ipv6
         else ""
     )
