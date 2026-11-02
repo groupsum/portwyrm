@@ -169,15 +169,26 @@ class TableCertificateManager:
         if not force and not CertificateLifecycle.renewal_due(expires, now=datetime.now(UTC)):
             return record
         meta = dict(record.get("meta") or {})
+        dns_challenge = bool(meta.get("dns_challenge"))
         return await self._replace_acme(
             certificate_id,
             CertificateRequest(
                 nice_name=str(record.get("nice_name") or "Certificate"),
                 domain_names=tuple(record.get("domain_names") or ()),
-                email=str(meta.get("email") or ""),
-                challenge_type=ChallengeType(meta.get("challenge_type", "http-01")),
-                key_type=str(meta.get("key_type") or "rsa"),
-                provider=meta.get("dns_provider"),
+                email=str(
+                    record.get("email")
+                    or record.get("letsencrypt_email")
+                    or meta.get("email")
+                    or meta.get("letsencrypt_email")
+                    or ""
+                ),
+                challenge_type=ChallengeType(
+                    record.get("challenge_type")
+                    or meta.get("challenge_type")
+                    or ("dns-01" if dns_challenge else "http-01")
+                ),
+                key_type=str(record.get("key_type") or meta.get("key_type") or "rsa"),
+                provider=record.get("dns_provider") or meta.get("dns_provider"),
             ),
             actor=actor,
         )

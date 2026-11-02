@@ -234,9 +234,13 @@ def test_dns_provider_status_distinguishes_catalog_from_executable_support() -> 
 
 
 class FakeIssuer:
+    def __init__(self) -> None:
+        self.requests = []
+
     def issue(self, domains, **kwargs):
         assert domains == ("app.example.com",)
         assert kwargs["email"] == "admin@example.test"
+        self.requests.append((domains, kwargs))
         return IssuedCertificate(
             CERTIFICATE,
             PRIVATE_KEY,
@@ -318,6 +322,38 @@ def test_certificate_manager_atomically_publishes_custom_and_acme_material(tmp_p
             assert PRIVATE_KEY in archive.read("privkey.pem").decode()
 
     asyncio.run(exercise())
+
+
+def test_certificate_renewal_normalizes_adopted_legacy_acme_metadata(tmp_path: Path) -> None:
+    service = CertificateService()
+    issuer = FakeIssuer()
+    manager = TableCertificateManager(
+        service,
+        CertificateMaterialStore(tmp_path / "live"),
+        validator=OpenSSLPEMValidator(runner=fake_openssl),
+        issuer=issuer,
+    )
+
+    async def exercise() -> None:
+        certificate = await service.create_resource(
+            "certificates",
+            {
+                "nice_name": "Automatic",
+                "provider": "letsencrypt",
+                "domain_names": ["app.example.com"],
+                "expires_on": datetime(2030, 1, 1, tzinfo=UTC).isoformat(),
+                "meta": {
+                    "letsencrypt_email": "admin@example.test",
+                    "dns_challenge": False,
+                },
+            },
+        )
+        renewed = await manager.renew(certificate["id"], force=True)
+        assert renewed["status"] == "active"
+
+    asyncio.run(exercise())
+    assert issuer.requests[0][1]["challenge_type"] == ChallengeType.HTTP_01
+    assert issuer.requests[0][1]["key_type"] == "rsa"
 
 
 def test_certificate_manager_refuses_delete_while_certificate_is_assigned(tmp_path: Path) -> None:
