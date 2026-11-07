@@ -16,7 +16,7 @@ export function generateNginxConfig(host: Host): string {
   if (host.hsts) lines.push(`    add_header Strict-Transport-Security "max-age=31536000${host.hstsSubdomains ? '; includeSubDomains' : ''}" always;`);
   if (host.accessListIds.length) {
     lines.push('    satisfy all;', '    auth_basic "Protected Area";');
-    lines.push(`    auth_basic_user_file /data/access/${host.accessListIds.length > 1 ? `proxy-host-${host.id.split(':').pop()}` : host.accessListIds[0]};`);
+    lines.push(`    auth_basic_user_file access/${host.accessListIds.length > 1 ? `proxy-host-${host.id.split(':').pop()}` : host.accessListIds[0]};`);
   }
   if (host.customNginxConfig) lines.push(indent(host.customNginxConfig, 4).trimEnd());
   if (host.type === 'redirect') lines.push(`    return ${host.destination.includes('308') ? '308' : host.destination.includes('302') ? '302' : '301'} ${host.destination.replace(/^\w+:\/\//, 'https://').split(' (')[0]};`);

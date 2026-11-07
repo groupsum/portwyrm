@@ -65,7 +65,7 @@ def test_proxy_render_covers_websocket_cache_tls_access_and_advanced_config() ->
     assert "proxy_cache_valid any 30m" in config
     assert "proxy_cache_valid 404 1m" in config
     assert "include conf.d/include/block-exploits.conf" in config
-    assert "auth_basic_user_file /data/access/8" in config
+    assert "auth_basic_user_file access/8;" in config
     assert 'proxy_set_header Authorization ""' in config
     assert "allow 10.0.0.0/8" in config and "deny all" in config and "satisfy any" in config
     assert "client_max_body_size 2g" in config
@@ -100,7 +100,7 @@ def test_proxy_render_combines_multiple_access_lists_into_host_policy() -> None:
     rendered = NginxRenderer().render(proxy_hosts=[host], access_lists=[second, first])
     config = rendered.files["http/proxy-2.conf"]
 
-    assert "auth_basic_user_file /data/access/proxy-host-2" in config
+    assert "auth_basic_user_file access/proxy-host-2;" in config
     assert "allow 10.0.0.0/8" in config
     assert "satisfy all" in config
     assert 'proxy_set_header Authorization ""' in config

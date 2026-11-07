@@ -63,10 +63,11 @@ def access_lines(access_list: AccessList | None, password_file: str | None = Non
         return []
     lines: list[str] = []
     if access_list.credentials:
+        # NGINX resolves this path relative to the generated nginx.conf.
         lines.extend(
             [
                 'auth_basic "Authorization required";',
-                f"auth_basic_user_file /data/access/{password_file or access_list.id};",
+                f"auth_basic_user_file access/{password_file or access_list.id};",
             ]
         )
         if not access_list.pass_auth:

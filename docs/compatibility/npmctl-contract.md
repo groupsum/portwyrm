@@ -57,7 +57,8 @@ ownership is conflict-safe. Adoption and pruning remain explicit and owner-scope
 5. Swap the container endpoint.
 6. Run current npmctl `doctor`, `schema check`, `plan`, `apply`, `adopt`, `drift`,
    and `audit-log`; the initial plan must show no unintended drift.
-7. Verify HTTPS, HTTP-to-HTTPS, HSTS, cache semantics, and WebSocket upgrades.
+7. Verify HTTPS, HTTP-to-HTTPS, HSTS, cache semantics, WebSocket upgrades, and Basic Auth with
+   both valid and incorrect credentials.
 
 ## Local evidence
 
