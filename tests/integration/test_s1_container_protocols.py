@@ -129,9 +129,14 @@ def _wait_ready(api_port: int, container: str) -> None:
     raise AssertionError(f"Portwyrm did not become ready:\n{logs}")
 
 
-def _http(port: int, host: str, path: str = "/") -> tuple[int, dict[str, str], bytes]:
+def _http(
+    port: int, host: str, path: str = "/", *, authorization: str | None = None
+) -> tuple[int, dict[str, str], bytes]:
+    headers = {"Host": host}
+    if authorization is not None:
+        headers["Authorization"] = authorization
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-    connection.request("GET", path, headers={"Host": host})
+    connection.request("GET", path, headers=headers)
     response = connection.getresponse()
     body = response.read()
     headers = {key.lower(): value for key, value in response.getheaders()}
@@ -319,8 +324,8 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
         )
         token = login["result"]["token"]
 
-        def create(path: str, payload: dict[str, Any]) -> None:
-            _json_request(
+        def create(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+            return _json_request(
                 f"http://127.0.0.1:{api_port}{path}",
                 method="POST",
                 token=token,
@@ -347,6 +352,36 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             )[2]
             == b"portwyrm-upstream:/"
         )
+        protected_host = "protected.example.test"
+        access_list = create(
+            "/api/nginx/access-lists",
+            {
+                "name": "Approved users",
+                "items": [{"username": "alice", "password": "approved-password"}],
+            },
+        )
+        create(
+            "/api/nginx/proxy-hosts",
+            {
+                "domain_names": [protected_host],
+                "forward_scheme": "http",
+                "forward_host": upstream_host,
+                "forward_port": http_server.server_port,
+                "access_list_id": access_list["id"],
+                "enabled": 1,
+            },
+        )
+        anonymous = _wait_http(http_port, protected_host, "/", lambda result: result[0] == 401)
+        assert anonymous[1]["www-authenticate"].startswith("Basic ")
+
+        wrong = base64.b64encode(b"alice:wrong-password").decode("ascii")
+        approved = base64.b64encode(b"alice:approved-password").decode("ascii")
+        rejected = _http(http_port, protected_host, authorization=f"Basic {wrong}")
+        accepted = _http(http_port, protected_host, authorization=f"Basic {approved}")
+        assert (rejected[0], accepted[0]) == (401, 200)
+        assert rejected[1]["www-authenticate"].startswith("Basic ")
+        assert accepted[2] == b"portwyrm-upstream:/"
+
         create(
             "/api/nginx/proxy-hosts",
             {

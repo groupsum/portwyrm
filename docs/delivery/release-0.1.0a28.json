@@ -1,0 +1,35 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "release",
+  "id": "release-portwyrm-0.1.0a28",
+  "version": "0.1.0",
+  "owner": "Groupsum",
+  "status": "candidate",
+  "review_date": "2026-11-07",
+  "sources": [
+    "src/portwyrm/runtime/nginx_primitives.py",
+    "tests/integration/test_s1_container_protocols.py",
+    ".ssot/evidence/routing.access-lists/nginx-credentials.junit.xml",
+    "Dockerfile",
+    "src/portwyrm/runtime/publisher.py"
+  ],
+  "facts": [
+    "Portwyrm generates access-list password files alongside its NGINX configuration.",
+    "The image installs zlib1g from the updated Debian package indexes."
+  ],
+  "assumptions": ["VM104 can use the existing reviewed Portwyrm image deployment workflow."],
+  "inferences": [],
+  "dependencies": [],
+  "risks": ["The first VM104 rollout must verify credential enforcement before retiring the Investor Funnel workaround."],
+  "metrics": ["The isolated container regression exercises valid, invalid, and absent credentials."],
+  "acceptance_criteria": ["Valid credentials reach the upstream. Invalid and absent credentials receive an HTTP 401 challenge."],
+  "release_version": ["0.1.0a28"],
+  "scope": [
+    "Resolve access-list password files relative to the generated NGINX configuration.",
+    "Install the patched Debian zlib1g package for CVE-2026-76844 and CVE-2026-85091."
+  ],
+  "gates": ["Portwyrm CI and container protocol regression", "Immutable GHCR publication", "Reviewed VM104 deployment plan"],
+  "artifacts": [],
+  "rollout": ["Publish the prerelease", "Promote the immutable image to VM104", "Verify HTTPS access and read-only MCP from local Codex"],
+  "rollback": ["Redeploy the prior verified VM104 image digest and retain the scoped ACL link during rollout."]
+}
