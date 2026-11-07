@@ -38,6 +38,18 @@ The container exposes two deliberately separate network surfaces:
 - ports `80` and `443` are the Nginx data plane for configured proxy traffic and do not serve a
   second administration UI.
 
+Check the control plane on port `81`:
+
+```shell
+curl --fail --silent --show-error http://127.0.0.1:81/health/live
+curl --fail --silent --show-error http://127.0.0.1:81/health/ready
+```
+
+Liveness reports that the API is responding and does not query the database.
+Readiness reads the settings collection and reports the database backend on
+success. If the settings read raises an unexpected error, readiness returns
+HTTP 500 with an error detail.
+
 On a fresh container data volume, Portwyrm creates the initial superuser as
 `admin@example.com` with a deployment-specific one-time password. Read that password from the
 first-start container log. The account cannot access control-plane resources until the UI's
