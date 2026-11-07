@@ -9,12 +9,14 @@
   "sources": [
     "src/portwyrm/runtime/nginx_primitives.py",
     "tests/integration/test_s1_container_protocols.py",
-    ".ssot/evidence/routing.access-lists/nginx-credentials.junit.xml"
+    ".ssot/evidence/routing.access-lists/nginx-credentials.junit.xml",
+    "Dockerfile",
+    "src/portwyrm/runtime/publisher.py"
   ],
   "facts": ["Portwyrm generates access-list password files alongside its NGINX configuration."],
   "assumptions": ["VM104 can use the existing reviewed Portwyrm image deployment workflow."],
   "inferences": [],
-  "dependencies": ["NGINX Basic Auth", "Portwyrm runtime generation store"],
+  "dependencies": [],
   "risks": ["The first VM104 rollout must verify credential enforcement before retiring the Investor Funnel workaround."],
   "metrics": ["The isolated container regression exercises valid, invalid, and absent credentials."],
   "acceptance_criteria": ["Valid credentials reach the upstream. Invalid and absent credentials receive an HTTP 401 challenge."],
