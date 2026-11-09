@@ -1,0 +1,28 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "release",
+  "id": "release-portwyrm-0.1.0a29",
+  "version": "0.1.0",
+  "owner": "Groupsum",
+  "status": "candidate",
+  "review_date": "2026-11-09",
+  "sources": [
+    "Dockerfile",
+    "src/portwyrm/certificates/table_manager.py",
+    "src/portwyrm/runtime/certificate_scheduler.py",
+    ".ssot/evidence/t1/namecheap-dns01.junit.xml"
+  ],
+  "facts": ["The image bundles the Namecheap DNS-01 authenticator and checks for due Namecheap certificate renewals hourly."],
+  "assumptions": ["VM104 retains the certificate and ACME configuration volumes across upgrades."],
+  "inferences": [],
+  "dependencies": ["Namecheap API access and an allowlisted issuer IP are required for live issuance."],
+  "risks": ["Live Namecheap issuance and renewal require verification on the target edge."],
+  "metrics": ["45 focused certificate and routing tests passed."],
+  "acceptance_criteria": ["A fresh wildcard hostname serves the expected certificate after issuance and after a renewal exercise."],
+  "release_version": ["0.1.0a29"],
+  "scope": ["Namecheap DNS-01 issuance and automatic renewal."],
+  "gates": ["Portwyrm CI", "Signed immutable OCI image", "Reviewed VM104 deployment plan"],
+  "artifacts": [],
+  "rollout": ["Publish the prerelease", "Pin the immutable image for VM104", "Verify wildcard TLS and renewal"],
+  "rollback": ["Redeploy the previous verified image digest with the persistent volumes."]
+}
