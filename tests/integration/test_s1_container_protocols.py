@@ -127,6 +127,7 @@ chmod +x /usr/local/bin/certbot""",
                 "exec", container, "cat", f"/etc/letsencrypt/live/npm-{certificate_id}/cert.pem"
             ).stdout
             context = ssl.create_default_context(cadata=certificate)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             last_error = None
             for _attempt in range(40):
                 try:
