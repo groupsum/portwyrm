@@ -4,18 +4,68 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to recover on PyPI (leave blank to build only)
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - if: inputs.release_tag != ''
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: resolve
+        name: Resolve release source
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$GITHUB_SHA
+          publish=false
+          if [[ -n "$RELEASE_TAG" ]]; then
+            if [[ "$GITHUB_REF" != refs/heads/master || "$RELEASE_TAG" != v* ]]; then
+              echo "::error::PyPI recovery requires a version tag and a dispatch from master."
+              exit 1
+            fi
+            git check-ref-format "refs/tags/$RELEASE_TAG"
+            sha=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+            git merge-base --is-ancestor "$sha" "$GITHUB_SHA"
+            draft=$(gh release view --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft -- "$RELEASE_TAG")
+            if [[ "$draft" != false ]]; then
+              echo "::error::The recovery tag must have a published GitHub release."
+              exit 1
+            fi
+            publish=true
+          elif [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            publish=true
+          fi
+          {
+            printf 'sha=%s\n' "$sha"
+            printf 'publish=%s\n' "$publish"
+          } >> "$GITHUB_OUTPUT"
+
   verify:
+    needs: source
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
       - uses: astral-sh/setup-uv@v10.0.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -26,10 +76,12 @@ jobs:
       - run: uv run pytest -q
 
   build:
-    needs: verify
+    needs: [source, verify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
       - uses: astral-sh/setup-uv@v10.0.0
       - run: uv build
       - uses: actions/upload-artifact@v7.0.1
@@ -38,18 +90,21 @@ jobs:
           path: dist/
 
   pypi:
-    if: github.ref_type == 'tag'
-    needs: build
+    if: needs.source.outputs.publish == 'true'
+    needs: [source, build]
+    runs-on: ubuntu-latest
+    environment: pypi
     permissions:
-      contents: read
-      actions: read
       id-token: write
-    uses: cobycloud/actions/.github/workflows/reusable-pypi-publish.yml@master
-    with:
-      environment: pypi
-      publish-mode: trusted
-      artifact-name: python-distributions
-      packages-dir: dist
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: python-distributions
+          path: dist/
+      - name: Publish distributions with PyPI Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          print-hash: true
 
   github-release:
     if: github.ref_type == 'tag'
