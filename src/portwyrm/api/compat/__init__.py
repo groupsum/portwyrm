@@ -9,6 +9,8 @@ import inspect
 import os
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
+from configparser import ConfigParser
+from configparser import Error as ConfigError
 from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any, Literal, cast
@@ -738,7 +740,7 @@ def create_compat_app(
             raise HTTPException(status_code=422, detail="domain_names must be an array")
         try:
             return await app.core.CertificateStore.request(
-                payload, ctx={"principal": _actor(principal)}
+                _certificate_request_payload(payload), ctx={"principal": _actor(principal)}
             )
         except (RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1221,6 +1223,30 @@ async def _service_get(
         raise
 
 
+def _certificate_request_payload(payload: Resource) -> Resource:
+    meta = dict(payload.get("meta") or {})
+    credentials = payload.get("dns_credentials") or meta.get("dns_credentials")
+    if credentials is None:
+        raw_credentials = meta.get("dns_provider_credentials")
+        if isinstance(raw_credentials, str) and raw_credentials.strip():
+            config = ConfigParser(interpolation=None)
+            try:
+                config.read_string("[credentials]\n" + raw_credentials)
+            except ConfigError:
+                raise ValueError("invalid DNS credential configuration") from None
+            credentials = dict(config["credentials"])
+    return {
+        **payload,
+        "email": payload.get("email") or meta.get("letsencrypt_email") or meta.get("email") or "",
+        "challenge_type": payload.get("challenge_type")
+        or meta.get("challenge_type")
+        or ("dns-01" if meta.get("dns_challenge") else "http-01"),
+        "dns_provider": payload.get("dns_provider") or meta.get("dns_provider"),
+        "dns_credentials": credentials,
+        "meta": meta,
+    }
+
+
 async def _service_create(
     service: CompatibilityService,
     collection: str,
@@ -1233,25 +1259,9 @@ async def _service_create(
         and str(payload.get("provider") or payload.get("certificate_type") or "").casefold()
         == "letsencrypt"
     ):
-        meta = dict(payload.get("meta") or {})
-        dns_challenge = bool(meta.get("dns_challenge"))
-        request_payload = {
-            **payload,
-            "email": (
-                payload.get("email") or meta.get("letsencrypt_email") or meta.get("email") or ""
-            ),
-            "challenge_type": (
-                payload.get("challenge_type")
-                or meta.get("challenge_type")
-                or ("dns-01" if dns_challenge else "http-01")
-            ),
-            "dns_provider": payload.get("dns_provider") or meta.get("dns_provider"),
-            "dns_credentials": payload.get("dns_credentials") or meta.get("dns_credentials"),
-            "meta": meta,
-        }
         try:
             return await service.app.core.CertificateStore.request(
-                request_payload,
+                _certificate_request_payload(payload),
                 ctx={"principal": _actor(principal)},
             )
         except (RuntimeError, ValueError) as exc:

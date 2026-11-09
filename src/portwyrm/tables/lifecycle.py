@@ -361,9 +361,16 @@ def _details(ctx: Mapping[str, Any]) -> dict[str, Any]:
         "private_key",
         "certificate",
         "certificate_key",
+        "dns_credentials",
+        "dns_provider_credentials",
     }:
         if secret in payload:
             payload[secret] = "[redacted]"
+    if _table_name(ctx) == "certificates" and isinstance(payload.get("meta"), Mapping):
+        payload["meta"] = {
+            key: "[redacted]" if key in {"dns_credentials", "dns_provider_credentials"} else value
+            for key, value in payload["meta"].items()
+        }
     attribution = ctx.get("audit_attribution")
     if isinstance(attribution, Mapping):
         payload["attribution"] = dict(attribution)

@@ -29,6 +29,8 @@ class Issuer(Protocol):
         email: str,
         provider: str | None = None,
         credentials_file: Path | None = None,
+        force_renewal: bool = False,
+        lineage: str | None = None,
     ) -> IssuedCertificate: ...
 
 
@@ -174,13 +176,15 @@ class CertbotIssuer:
         email: str,
         provider: str | None = None,
         credentials_file: Path | None = None,
+        force_renewal: bool = False,
+        lineage: str | None = None,
     ) -> IssuedCertificate:
         self.webroot.mkdir(parents=True, exist_ok=True)
         self.config_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="portwyrm-certbot-") as directory:
             root = Path(directory)
-            lineage = hashlib.sha256("\n".join(sorted(domains)).encode("utf-8")).hexdigest()[:20]
-            name = f"portwyrm-{lineage}"
+            default_lineage = hashlib.sha256("\n".join(sorted(domains)).encode()).hexdigest()[:20]
+            name = f"portwyrm-{lineage or default_lineage}"
             command = [
                 "certbot",
                 "certonly",
@@ -212,16 +216,25 @@ class CertbotIssuer:
                         f"install {dns_provider.package_name} before requesting a certificate"
                     )
                 command.extend(
-                    [f"--dns-{provider}", f"--dns-{provider}-credentials", str(credentials_file)]
+                    [
+                        "--authenticator",
+                        f"dns-{provider}",
+                        f"--dns-{provider}-credentials",
+                        str(credentials_file),
+                    ]
                 )
             if self.server:
                 command.extend(["--server", self.server])
             if self.staging:
                 command.append("--staging")
+            if force_renewal:
+                command.append("--force-renewal")
             for domain in domains:
                 command.extend(["-d", domain])
             result = self.runner(command, capture_output=True, text=True, check=False)
             if result.returncode:
+                if challenge_type == ChallengeType.DNS_01:
+                    raise RuntimeError(f"Certbot DNS-01 failed for provider {provider!r}")
                 raise RuntimeError((result.stderr or result.stdout or "Certbot failed").strip())
             live = self.config_root / "live" / name
             certificate = (live / "cert.pem").read_text(encoding="utf-8")

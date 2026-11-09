@@ -22,6 +22,7 @@ from portwyrm.api.native import create_native_router
 from portwyrm.certificates import CertbotIssuer, CertificateMaterialStore, TableCertificateManager
 from portwyrm.config import PortwyrmSettings, engine_from_settings
 from portwyrm.runtime import ProxyHostHealthScheduler, TableRuntimeController, UpstreamProber
+from portwyrm.runtime.certificate_scheduler import CertificateRenewalScheduler
 from portwyrm.runtime.telemetry import NginxStatusClient
 from portwyrm.tables import (
     PORTWYRM_TABLES,
@@ -43,6 +44,7 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
     resources: TableResources | None = None
     runtime: TableRuntimeController | None = None
     health_scheduler: ProxyHostHealthScheduler | None = None
+    certificate_scheduler: CertificateRenewalScheduler | None = None
 
     @asynccontextmanager
     async def lifespan(_app: TigrblApp):
@@ -80,9 +82,13 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
             await runtime.reconcile()
         if health_scheduler is not None:
             health_scheduler.start()
+        if certificate_scheduler is not None:
+            certificate_scheduler.start()
         try:
             yield
         finally:
+            if certificate_scheduler is not None:
+                await certificate_scheduler.stop()
             if health_scheduler is not None:
                 await health_scheduler.stop()
 
@@ -110,7 +116,7 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
                 staging=os.getenv("PORTWYRM_ACME_STAGING", "0").lower() in {"1", "true", "yes"},
             ),
         ),
-        system_status=lambda: status_payload(settings.backend, runtime),
+        system_status=lambda: status_payload(settings.backend, runtime, certificate_scheduler),
     )
     resources = app.state.control_plane
     app.state.tigrbl_tables = PORTWYRM_TABLES
@@ -141,6 +147,9 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
             concurrency=settings.host_probe_concurrency,
         )
     app.state.health_scheduler = health_scheduler
+    if settings.certificate_renewal:
+        certificate_scheduler = CertificateRenewalScheduler(app)
+    app.state.certificate_scheduler = certificate_scheduler
     RoutingHostStore.configure_health_runtime(
         prober,
         freshness_seconds=settings.host_probe_freshness_seconds,
@@ -188,7 +197,11 @@ def _load_or_create_bootstrap_credentials(
     return resolved_email, password
 
 
-def status_payload(backend: str, runtime: TableRuntimeController | None = None) -> dict[str, Any]:
+def status_payload(
+    backend: str,
+    runtime: TableRuntimeController | None = None,
+    certificate_scheduler: CertificateRenewalScheduler | None = None,
+) -> dict[str, Any]:
     """Return dependency-neutral status for surfaces that require a sync callback."""
 
     nginx: dict[str, Any] = {
@@ -207,7 +220,10 @@ def status_payload(backend: str, runtime: TableRuntimeController | None = None) 
         "components": {
             "database": {"status": "ok", "backend": backend},
             "nginx": nginx,
-            "certificate_scheduler": {"enabled": False, "status": "idle"},
+            "certificate_scheduler": {
+                "enabled": certificate_scheduler is not None,
+                "status": certificate_scheduler.status if certificate_scheduler else "idle",
+            },
         },
         "checked_at": datetime.now(UTC).isoformat(),
     }

@@ -142,8 +142,9 @@ def test_schema_migration_adds_certificate_owner_to_existing_sqlite_database(
 def _npm_import_client(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
     client = TestClient(
         create_app(
-            settings=PortwyrmSettings(backend="sqlite", data_root=tmp_path),
-            engine=sqlitef(str(tmp_path / "npm-import.sqlite"), async_=False),
+            settings=PortwyrmSettings(
+                backend="sqlite", data_root=tmp_path, sqlite_path=tmp_path / "npm-import.sqlite"
+            ),
         )
     )
     credentials = {"email": "admin@example.test", "password": "test strong password"}
