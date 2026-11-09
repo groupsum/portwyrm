@@ -12,6 +12,7 @@ from enum import StrEnum
 from typing import Any, ClassVar, Literal, Self
 from uuid import uuid4
 
+from sqlalchemy import text
 from tigrbl import hook_ctx, op_alias, op_ctx, schema_ctx
 from tigrbl.factories.column import IO, F, S
 from tigrbl.types import (
@@ -644,6 +645,50 @@ class RoutingHostStore(ManagedPortwyrmTable):
             ctx["db"], payload.get("domain_names") or [], exclude_host_id=payload.get("id")
         )
         return {"valid": True}
+
+    @op_ctx(alias="check_import", target="custom", arity="collection", persist="skip")
+    async def check_import(cls, ctx: Any) -> dict[str, Any]:
+        payload = dict(ctx["payload"])
+        db = ctx["db"]
+        existing = await _await(db.get(cls, payload["id"]))
+        if existing is not None and existing.kind != payload["kind"]:
+            return {"reason": f"routing host ID {existing.id} is used by a {existing.kind} host"}
+        cls._validate_payload(payload)
+        try:
+            await cls._assert_source_collisions(
+                db, payload["domain_names"], exclude_host_id=payload["id"]
+            )
+        except CollisionError as exc:
+            return {"reason": str(exc)}
+        return {}
+
+    @op_ctx(alias="create_with_id", target="custom", arity="collection")
+    async def create_with_id(cls, ctx: Any) -> dict[str, Any]:
+        payload = dict(ctx["payload"])
+        db = ctx["db"]
+        host_id = int(payload["id"])
+        cls._validate_payload(payload)
+        postgresql = db.get_bind().dialect.name == "postgresql"
+        if postgresql:
+            # PostgreSQL explicit inserts do not advance the serial sequence.
+            # Serialize with normal inserts before reserving the source ID.
+            await _await(db.execute(text("LOCK TABLE routing_hosts IN SHARE ROW EXCLUSIVE MODE")))
+        await cls._assert_source_collisions(db, payload["domain_names"])
+        row = cls(id=host_id, **cls._host_values(payload))
+        db.add(row)
+        await cls._replace_children(db, host_id, payload)
+        if postgresql:
+            await _await(
+                db.execute(
+                    text(
+                        "SELECT setval(sequence_id, greatest(:host_id, nextval(sequence_id))) "
+                        "FROM (SELECT pg_get_serial_sequence('routing_hosts', 'id')::regclass "
+                        "AS sequence_id) AS routing_sequence"
+                    ),
+                    {"host_id": host_id},
+                )
+            )
+        return {"id": host_id, "kind": row.kind}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any]) -> None:

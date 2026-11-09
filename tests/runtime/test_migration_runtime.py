@@ -9,8 +9,11 @@ import bcrypt
 from tigrbl import TigrblApp
 from tigrbl.factories.engine import sqlitef
 
+from portwyrm.api import create_app
+from portwyrm.config import PortwyrmSettings
 from portwyrm.migration import preflight_npm, preflight_npm_sqlite
 from portwyrm.tables import PORTWYRM_TABLES, SchemaMigrationStore
+from tests.support import TestClient
 
 
 def test_npm_preflight_preserves_ids_metadata_and_quarantines_invalid_references() -> None:
@@ -134,3 +137,114 @@ def test_schema_migration_adds_certificate_owner_to_existing_sqlite_database(
     with sqlite3.connect(path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(certificates)")}
     assert "owner_principal_id" in columns
+
+
+def _npm_import_client(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
+    client = TestClient(
+        create_app(
+            settings=PortwyrmSettings(
+                backend="sqlite", data_root=tmp_path, sqlite_path=tmp_path / "npm-import.sqlite"
+            ),
+        )
+    )
+    credentials = {"email": "admin@example.test", "password": "test strong password"}
+    setup = client.post("/api/setup", json=credentials)
+    assert setup.status_code == 201, setup.text
+    login = client.post(
+        "/api/tokens",
+        json={"identity": credentials["email"], "secret": credentials["password"]},
+    )
+    assert login.status_code == 200, login.text
+    return client, {"Authorization": f"Bearer {login.json()['result']['token']}"}
+
+
+_NPM_HOST = {
+    "id": 7,
+    "domain_names": '["app.example.test"]',
+    "forward_scheme": "http",
+    "forward_host": "upstream.example.test",
+    "forward_port": 8080,
+    "enabled": 1,
+}
+
+
+def test_npm_routing_import_preserves_id_and_replays_as_unchanged(tmp_path: Path) -> None:
+    client, headers = _npm_import_client(tmp_path)
+    url = "/api/v2/migration/npm/import"
+    source = {"source": {"proxy_host": [_NPM_HOST]}}
+    preview = client.post(url, json=source, headers=headers)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["created"] == 1
+    assert client.get("/api/nginx/proxy-hosts", headers=headers).json() == []
+
+    applied = client.post(f"{url}?dry_run=false", json=source, headers=headers)
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["created"] == 1
+    hosts = client.get("/api/nginx/proxy-hosts", headers=headers).json()
+    assert [host["id"] for host in hosts] == [7]
+
+    for suffix in ("", "?dry_run=false"):
+        replay = client.post(f"{url}{suffix}", json=source, headers=headers)
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["created"] == 0
+        assert replay.json()["unchanged"] == 1
+        assert replay.json()["quarantined"] == 0
+    assert client.get("/api/nginx/proxy-hosts", headers=headers).json() == hosts
+
+
+def test_npm_routing_import_preview_and_apply_report_hostname_conflict(tmp_path: Path) -> None:
+    client, headers = _npm_import_client(tmp_path)
+    existing = client.post(
+        "/api/nginx/dead-hosts",
+        headers=headers,
+        json={"domain_names": ["app.example.test"]},
+    )
+    assert existing.status_code == 201, existing.text
+    url = "/api/v2/migration/npm/import"
+    source = {"source": {"proxy_host": [_NPM_HOST]}}
+    for suffix in ("?replace=true", "?replace=true&dry_run=false"):
+        response = client.post(f"{url}{suffix}", json=source, headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["created"] == 0
+        assert response.json()["quarantined"] == 1
+        assert (
+            "domain app.example.test is already used" in response.json()["conflicts"][0]["reason"]
+        )
+    assert client.get("/api/nginx/proxy-hosts", headers=headers).json() == []
+    assert (
+        client.get("/api/nginx/dead-hosts", headers=headers).json()[0]["id"]
+        == existing.json()["id"]
+    )
+
+
+def test_npm_routing_import_quarantines_same_batch_collisions(tmp_path: Path) -> None:
+    client, headers = _npm_import_client(tmp_path)
+    meta = {"managed_by": "npmctl", "owner": "edge", "resource_id": "proxy.app"}
+    source = {
+        "source": {
+            "proxy_host": [{**_NPM_HOST, "meta": meta}],
+            "dead_host": [
+                {"id": 7, "domain_names": ["different.example.test"]},
+                {"id": 8, "domain_names": ["APP.EXAMPLE.TEST."]},
+            ],
+        }
+    }
+    url = "/api/v2/migration/npm/import"
+    preview = client.post(url, json=source, headers=headers)
+    assert preview.status_code == 200, preview.text
+    assert client.get("/api/nginx/proxy-hosts", headers=headers).json() == []
+    applied = client.post(f"{url}?dry_run=false", json=source, headers=headers)
+    assert applied.status_code == 200, applied.text
+    assert applied.json() == {**preview.json(), "dry_run": False}
+    assert applied.json()["created"] == 1
+    assert applied.json()["quarantined"] == 2
+    assert [conflict["source_id"] for conflict in applied.json()["conflicts"]] == ["7", "8"]
+    hosts = client.get("/api/nginx/proxy-hosts", headers=headers).json()
+    assert [(host["id"], host["meta"]) for host in hosts] == [(7, meta)]
+    assert client.get("/api/nginx/dead-hosts", headers=headers).json() == []
+
+    replacement = {"source": {"proxy_host": [{**_NPM_HOST, "forward_port": 9000}]}}
+    applied = client.post(f"{url}?dry_run=false&replace=true", json=replacement, headers=headers)
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["quarantined"] == 1
+    assert client.get("/api/nginx/proxy-hosts", headers=headers).json() == hosts

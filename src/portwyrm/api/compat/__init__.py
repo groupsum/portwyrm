@@ -44,6 +44,7 @@ from portwyrm.api.security import (
     TableSecurityDependencies,
 )
 from portwyrm.certificates import DEFAULT_PROVIDER_CATALOG, provider_status
+from portwyrm.domain.routing import canonical_domains
 from portwyrm.identity.token_policy import (
     effective_token_authority,
     may_manage_foreign_tokens,
@@ -1383,6 +1384,16 @@ async def _service_audit(service: CompatibilityService, since: str | None) -> li
     return await _call_service(cast(Any, service).audit_since, since)
 
 
+_NPM_ROUTING_COLLECTIONS = {"proxy_hosts", "redirection_hosts", "dead_hosts"}
+_NPM_EXPORT_FIELDS = {"created_on", "modified_on", "is_deleted"}
+
+
+def _same_npm_routing_host(existing: Resource, source: Resource) -> bool:
+    return all(
+        existing.get(key) == value for key, value in source.items() if key not in _NPM_EXPORT_FIELDS
+    )
+
+
 async def _apply_npm_report(
     service: CompatibilityService,
     report: Any,
@@ -1390,33 +1401,82 @@ async def _apply_npm_report(
     dry_run: bool,
     replace: bool,
 ) -> Resource:
-    created = replaced = unchanged = conflicts = 0
+    created = replaced = unchanged = 0
+    conflicts = []
     unsupported = {"_credentials", "audit_log"}
+    writes = []
+    planned_hosts: set[int] = set()
+    planned_domains: dict[str, int] = {}
     for collection, records in report.records.items():
-        if collection in unsupported:
-            conflicts += len(records)
-            continue
-        for resource in records:
-            existing = await _maybe_await(service.get_resource(collection, resource["id"]))
-            if existing == resource:
-                unchanged += 1
-            elif existing is not None and not replace:
-                conflicts += 1
+        routing = collection in _NPM_ROUTING_COLLECTIONS
+        for source in records:
+            resource = dict(source)
+            resource_id = resource["id"]
+            existing = None
+            reason = None
+            if collection in unsupported:
+                reason = "unsupported import collection"
+            elif routing:
+                resource_id = resource["id"] = _resource_id(str(resource_id), allow_string=False)
+                resource["domain_names"] = list(
+                    canonical_domains(resource.get("domain_names") or [])
+                )
+                if resource_id in planned_hosts:
+                    reason = f"routing host ID {resource_id} is already planned"
+                else:
+                    for domain in resource["domain_names"]:
+                        if domain in planned_domains:
+                            reason = (
+                                f"domain {domain} is already planned for routing host "
+                                f"{planned_domains[domain]}"
+                            )
+                            break
+            if reason is None:
+                existing = await _maybe_await(service.get_resource(collection, resource_id))
+                if existing is not None and (
+                    _same_npm_routing_host(existing, resource) if routing else existing == resource
+                ):
+                    unchanged += 1
+                    continue
+                if existing is not None and not replace:
+                    reason = "target ID already exists"
+                elif existing is not None and (
+                    existing.get("owner_principal_id")
+                    or existing.get("owner_user_id")
+                    or (existing.get("meta") or {}).get("owner")
+                ):
+                    reason = "target resource is owned and requires explicit adoption"
+                elif routing:
+                    check = await service.check_routing_import(
+                        collection, {**(existing or {}), **resource}
+                    )
+                    reason = check.get("reason")
+            if reason is not None:
+                conflicts.append(
+                    {"collection": collection, "source_id": str(resource_id), "reason": reason}
+                )
+                continue
+            if routing:
+                planned_hosts.add(resource_id)
+                planned_domains.update(dict.fromkeys(resource["domain_names"], resource_id))
+            created += existing is None
+            replaced += existing is not None
+            writes.append((collection, resource, existing is None))
+
+    if not dry_run:
+        for collection, resource, create in writes:
+            if not create:
+                await _maybe_await(service.update_resource(collection, resource["id"], resource))
+            elif collection in _NPM_ROUTING_COLLECTIONS:
+                await service.create_routing_import(collection, resource)
             else:
-                created += existing is None
-                replaced += existing is not None
-                if not dry_run:
-                    if existing is None:
-                        await _maybe_await(service.create_resource(collection, resource))
-                    else:
-                        await _maybe_await(
-                            service.update_resource(collection, resource["id"], resource)
-                        )
+                await _maybe_await(service.create_resource(collection, resource))
     return {
         "created": created,
         "replaced": replaced,
         "unchanged": unchanged,
-        "quarantined": len(report.quarantine) + conflicts,
+        "quarantined": len(report.quarantine) + len(conflicts),
+        "conflicts": conflicts,
         "dry_run": dry_run,
     }
 
