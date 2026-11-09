@@ -170,6 +170,7 @@ _CREDENTIAL_FIELDS = {
     "cloudflare": ("dns_cloudflare_api_token",),
     "digitalocean": ("dns_digitalocean_token",),
     "duckdns": ("dns_duckdns_token",),
+    "namecheap": ("dns_namecheap_username", "dns_namecheap_api_key"),
     "route53": ("aws_access_key_id", "aws_secret_access_key"),
     "rfc2136": ("dns_rfc2136_server", "dns_rfc2136_name", "dns_rfc2136_secret"),
 }

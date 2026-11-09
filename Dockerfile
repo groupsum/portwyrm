@@ -16,12 +16,13 @@ LABEL org.opencontainers.image.title="Portwyrm" \
 COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates certbot git nginx libnginx-mod-stream zlib1g \
+    && apt-get install --no-install-recommends -y ca-certificates git nginx libnginx-mod-stream zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY . /app
-RUN uv pip install --system --no-cache "pip==26.1.2" .
+RUN uv pip install --system --no-cache "pip==26.1.2" "certbot==5.9.0" "certbot-dns-namecheap==1.0.0" "setuptools<81" . \
+    && certbot plugins --authenticators | grep -F dns-namecheap
 
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 RUN mkdir -p /data/acme /data/acme-challenge /data/nginx /data/logs /etc/letsencrypt/live /var/lib/nginx/cache/public
@@ -36,6 +37,7 @@ ENV PYTHONUNBUFFERED=1 \
     PORTWYRM_NGINX_ROOT=/data/nginx \
     PORTWYRM_CERTIFICATE_ROOT=/etc/letsencrypt/live \
     PORTWYRM_ACME_CONFIG_ROOT=/data/acme \
+    PORTWYRM_CERTIFICATE_RENEWAL=1 \
     PORTWYRM_ACME_WEBROOT=/data/acme-challenge \
     PORTWYRM_AUTO_BOOTSTRAP_ADMIN=1 \
     PORTWYRM_BOOTSTRAP_CREDENTIAL_FILE=/data/bootstrap-admin.json \

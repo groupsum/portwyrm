@@ -4,9 +4,11 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
-from portwyrm.api.compat import _service_create
+from portwyrm.api.compat import _certificate_request_payload, _service_create
 from portwyrm.api.compat.resources import TableResources
 from portwyrm.security import Principal
+from portwyrm.tables.certificates import CertificateStore, _certificate_metadata
+from portwyrm.tables.lifecycle import _details
 
 
 class RecordingCertificateStore:
@@ -71,3 +73,25 @@ def test_generic_npm_letsencrypt_create_dispatches_real_issuance_operation() -> 
     assert certificates.context is not None
     actor = certificates.context["principal"]
     assert (actor.id, actor.owner, actor.is_admin) == (7, "tigrbl-wt-video-demo", True)
+
+
+def test_npm_namecheap_credential_text_is_translated_into_dns01_input() -> None:
+    payload = _certificate_request_payload(
+        {
+            "meta": {
+                "dns_challenge": True,
+                "dns_provider": "namecheap",
+                "dns_provider_credentials": (
+                    "dns_namecheap_username = api-user\ndns_namecheap_api_key = example%key"
+                ),
+            },
+        }
+    )
+    assert payload["challenge_type"] == "dns-01"
+    assert payload["dns_provider"] == "namecheap"
+    assert payload["dns_credentials"] == {
+        "dns_namecheap_username": "api-user",
+        "dns_namecheap_api_key": "example%key",
+    }
+    assert "example%key" not in str(_certificate_metadata(payload))
+    assert "example%key" not in str(_details({"model": CertificateStore, "payload": payload}))
