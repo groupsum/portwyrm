@@ -168,6 +168,8 @@ def test_collection_and_internal_operation_surfaces_are_exact(tmp_path: Path) ->
             "disable",
             "validate",
             "preview",
+            "check_import",
+            "create_with_id",
             "runtime_read",
             "runtime_list",
             "health_read",

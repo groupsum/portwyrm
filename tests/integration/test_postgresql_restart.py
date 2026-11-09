@@ -80,3 +80,24 @@ def test_postgresql_identity_and_routing_survive_app_reconstruction(tmp_path: Pa
         assert persisted["forward_host"] == "backend"
 
     asyncio.run(run())
+
+
+def test_postgresql_routing_import_advances_generated_ids(tmp_path: Path) -> None:
+    async def run() -> None:
+        app = create_app(settings=_settings(tmp_path))
+        store = app.core.RoutingHostStore
+        highest_id = max((host["id"] for host in await store.list({})), default=0)
+        source_id = highest_id + 7
+        suffix = uuid4().hex
+        imported = await store.create_with_id(
+            {"id": source_id, "kind": "dead", "domain_names": [f"import-{suffix}.example.test"]}
+        )
+        assert imported["id"] == source_id
+        assert (await store.read({"id": source_id}))["id"] == source_id
+
+        generated = await store.create(
+            {"kind": "dead", "domain_names": [f"generated-{suffix}.example.test"]}
+        )
+        assert generated["id"] > source_id
+
+    asyncio.run(run())

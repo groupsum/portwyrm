@@ -123,6 +123,16 @@ class TableResources:
             await self._attach_authorization(projected)
         return projected
 
+    async def check_routing_import(self, collection: str, payload: Resource) -> Resource:
+        return await self.app.core.RoutingHostStore.check_import(
+            {**payload, "kind": _HOST_KIND[collection]}
+        )
+
+    async def create_routing_import(self, collection: str, payload: Resource) -> Resource:
+        return await self.app.core.RoutingHostStore.create_with_id(
+            {**payload, "kind": _HOST_KIND[collection]}
+        )
+
     async def create_resource(
         self, collection: str, payload: Resource, *, actor: Any | None = None
     ) -> Resource:

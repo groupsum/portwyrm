@@ -100,3 +100,15 @@ MySQL gate still requires publication and installation of `tigrbl_engine_mysql` 
 restart evidence can be produced.
 
 The same 7-test replay also passed against the rebuilt PostgreSQL-backed image. SQLite and PostgreSQL are now verified for the current npmctl compatibility slice; MySQL/MariaDB remains the documented engine exception.
+
+## NPM routing-host migration
+
+The NPM migration endpoint retains source integer IDs for proxy, redirection,
+and dead hosts. Those collections share Portwyrm's routing-host ID space. If an
+ID is already used by a different host type, the import quarantines the row.
+
+Preview and apply check canonical hostnames against the target and other rows
+planned in the same import. The `conflicts` entries give the collection, source ID,
+and reason for target-side conflicts. Preview performs no writes. Replaying an
+unchanged routing host reports it as unchanged, and replacement cannot adopt an
+owned target. NPM and npmctl resource routes continue to expose integer IDs.

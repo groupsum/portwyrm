@@ -28,6 +28,7 @@ _runtime_provider: Callable[[], Any] = _no_runtime
 
 _MUTATIONS = {
     "create",
+    "create_with_id",
     "update",
     "replace",
     "delete",
@@ -68,6 +69,7 @@ _OWNERSHIP_MUTATIONS = _MUTATIONS | {"probe"}
 _AUDIT_EXCLUDED_TABLES = {"audit_events", "runtime_leases"}
 _ACTION = {
     "create": "created",
+    "create_with_id": "created",
     "update": "updated",
     "replace": "replaced",
     "delete": "deleted",
@@ -547,6 +549,7 @@ async def schedule_committed_health_probe(ctx: dict[str, Any]) -> None:
 
     if _table_name(ctx) != "routing_hosts" or _alias(ctx) not in {
         "create",
+        "create_with_id",
         "update",
         "replace",
         "enable",
