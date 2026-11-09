@@ -25,7 +25,32 @@ uv run pytest
 uv run ssot-registry validate . --write-report
 ```
 
-Run the development control plane and open `http://localhost:81/ui/`:
+### UI accessibility tests
+
+From the repository root, set up the Python development environment, then install
+and build the frontend from `frontend/`:
+
+```shell
+uv sync --dev --locked
+cd frontend
+npm ci
+npm run build
+npx playwright install chromium
+npm run test:a11y
+```
+
+Use Node.js 22 as in CI. On Linux, use `npx playwright install --with-deps chromium`
+if Chromium's system dependencies are missing. Set `PORTWYRM_BROWSER_PATH` to
+use a specific Chromium or Chrome executable. Without an override, Windows uses
+`C:\Program Files\Google\Chrome\Application\chrome.exe`, and other platforms use
+Playwright's Chromium.
+
+Playwright starts a local Portwyrm instance on `127.0.0.1:18182` with a separate
+SQLite database and test data under `.a11y-runtime`.
+
+### Local control plane
+
+Start the server, then open `http://localhost:81/ui/`:
 
 ```shell
 uv run portwyrm --host 127.0.0.1 --port 81
