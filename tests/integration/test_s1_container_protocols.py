@@ -134,9 +134,9 @@ chmod +x /usr/local/bin/certbot""",
                         socket.create_connection(("127.0.0.1", tls_port), timeout=2) as raw,
                         context.wrap_socket(raw, server_hostname=host) as connection,
                     ):
-                        assert connection.getpeercert(
-                            binary_form=True
-                        ) == ssl.PEM_cert_to_DER_cert(certificate)
+                        assert connection.getpeercert(binary_form=True) == ssl.PEM_cert_to_DER_cert(
+                            certificate
+                        )
                         return
                 except OSError as error:
                     last_error = error
