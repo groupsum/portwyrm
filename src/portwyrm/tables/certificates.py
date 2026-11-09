@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import os
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,16 @@ _CERTIFICATE_KNOWN = {
     "created_at",
     "updated_at",
 }
+_DNS_SECRET_KEYS = {"dns_credentials", "dns_provider_credentials"}
+
+
+def _certificate_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = {key: value for key, value in payload.items() if key not in _DNS_SECRET_KEYS}
+    if isinstance(sanitized.get("meta"), Mapping):
+        sanitized["meta"] = {
+            key: value for key, value in sanitized["meta"].items() if key not in _DNS_SECRET_KEYS
+        }
+    return sanitized
 
 
 class CertificateStore(ManagedPortwyrmTable):
@@ -118,11 +129,18 @@ class CertificateStore(ManagedPortwyrmTable):
                 request,
                 actor=ctx.get("principal") or ctx.get("actor"),
                 owner_principal_id=_principal_id(ctx),
-                meta=dict(payload.get("meta") or {}),
+                meta=dict(_certificate_metadata(payload).get("meta") or {}),
             )
         if not request.provider or not isinstance(credentials, dict):
             raise ValueError("DNS-01 requires dns_provider and dns_credentials")
         normalized = {str(key): str(value) for key, value in credentials.items()}
+        if any(
+            not key.isascii()
+            or not key.replace("_", "").isalnum()
+            or any(character in value for character in "\r\n\x00")
+            for key, value in normalized.items()
+        ):
+            raise ValueError("invalid DNS credential fields")
         DEFAULT_PROVIDER_CATALOG.validate_credentials(request.provider, normalized)
         descriptor, name = tempfile.mkstemp(prefix="portwyrm-dns-", text=True)
         try:
@@ -135,7 +153,7 @@ class CertificateStore(ManagedPortwyrmTable):
                 credentials_file=Path(name),
                 actor=ctx.get("principal") or ctx.get("actor"),
                 owner_principal_id=_principal_id(ctx),
-                meta=dict(payload.get("meta") or {}),
+                meta=dict(_certificate_metadata(payload).get("meta") or {}),
             )
         finally:
             Path(name).unlink(missing_ok=True)
@@ -215,7 +233,7 @@ class CertificateStore(ManagedPortwyrmTable):
             "material_ref": payload.get("material_ref"),
             "expires_at": payload.get("expires_at"),
             "status": str(payload.get("status") or "pending"),
-            "metadata_json": extension_metadata(payload, _CERTIFICATE_KNOWN),
+            "metadata_json": extension_metadata(_certificate_metadata(payload), _CERTIFICATE_KNOWN),
         }
 
     @classmethod
@@ -231,7 +249,7 @@ class CertificateStore(ManagedPortwyrmTable):
                 )
             ).scalars()
         )
-        result = extensions(row)
+        result = _certificate_metadata(extensions(row))
         result.update(
             {
                 "id": row.id,

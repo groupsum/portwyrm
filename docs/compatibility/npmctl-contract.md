@@ -29,6 +29,23 @@ versioned API. npmctl is coupled to the facade, not to NPM's database or Nginx i
 | `/settings` | string or positive-integer IDs and name/value behavior |
 | `/audit-log` | read-only list and verbatim `since` query |
 
+The certificate request accepts native `dns_credentials` or NPM-style
+`meta.dns_provider_credentials` for DNS-01. For Namecheap, set the provider to
+`namecheap` and supply `dns_namecheap_username` and `dns_namecheap_api_key`.
+Credentials are write-only. Certificate reads, ownership metadata, and audit
+events exclude the values.
+
+The container includes the Namecheap Certbot plugin. It checks active Namecheap
+DNS-01 certificates hourly and attempts renewal within 30 days of expiry.
+Renewal uses a private credential file tied to the certificate ID and domain set.
+Keep the certificate volume and ACME configuration volume persistent and protect
+their backups. Set `PORTWYRM_CERTIFICATE_RENEWAL=0` to disable the scheduler.
+Reissue imported Namecheap certificates to establish their renewal credentials.
+
+Create the wildcard A record through a separate Wyrmctl DNS apply or the DNS
+provider console. Coordinate A-record edits with DNS-01 activity because
+Namecheap replaces the zone's host record list on each write.
+
 List operations return raw arrays. Creates and updates return objects containing IDs and
 identifying fields. Delete may return `true`, an empty object, or an empty body. Non-2xx
 responses are failures; error information must not be hidden in a 2xx envelope.

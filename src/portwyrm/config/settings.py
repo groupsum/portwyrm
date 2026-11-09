@@ -30,6 +30,7 @@ class PortwyrmSettings:
     nginx_root: Path = Path("/data/nginx")
     nginx_validate: bool = True
     nginx_reload: bool = False
+    certificate_renewal: bool = False
     host_probes: bool = False
     host_probe_interval_seconds: int = 30
     host_probe_freshness_seconds: int = 60
@@ -66,6 +67,7 @@ class PortwyrmSettings:
             nginx_root=Path(os.getenv("PORTWYRM_NGINX_ROOT", str(root / "nginx"))),
             nginx_validate=_flag("PORTWYRM_NGINX_VALIDATE", True),
             nginx_reload=_flag("PORTWYRM_NGINX_RELOAD"),
+            certificate_renewal=_flag("PORTWYRM_CERTIFICATE_RENEWAL"),
             host_probes=_flag("PORTWYRM_HOST_PROBES"),
             host_probe_interval_seconds=max(
                 1, int(os.getenv("PORTWYRM_HOST_PROBE_INTERVAL_SECONDS", "30"))

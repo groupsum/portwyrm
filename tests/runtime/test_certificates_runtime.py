@@ -7,6 +7,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,6 +28,7 @@ from portwyrm.certificates import (
     TableCertificateManager,
     provider_status,
 )
+from portwyrm.runtime.certificate_scheduler import CertificateRenewalScheduler
 
 CERTIFICATE = """-----BEGIN CERTIFICATE-----
 MIIB
@@ -353,6 +355,74 @@ def test_certificate_renewal_normalizes_adopted_legacy_acme_metadata(tmp_path: P
     asyncio.run(exercise())
     assert issuer.requests[0][1]["challenge_type"] == ChallengeType.HTTP_01
     assert issuer.requests[0][1]["key_type"] == "rsa"
+
+
+def test_namecheap_scheduler_renews_after_restart_with_protected_credentials(
+    tmp_path: Path,
+) -> None:
+    service = CertificateService()
+    store = CertificateMaterialStore(tmp_path / "live")
+    credentials = tmp_path / "initial.ini"
+    credentials.write_text("dns_namecheap_api_key = test-secret\n", encoding="utf-8")
+    now = datetime.now(UTC)
+    calls = []
+
+    class NamecheapIssuer:
+        def issue(self, domains, **kwargs):
+            assert domains == ("*.login.example.test",)
+            assert kwargs["provider"] == "namecheap"
+            assert "test-secret" in kwargs["credentials_file"].read_text(encoding="utf-8")
+            calls.append(kwargs)
+            expiry = now + timedelta(days=5 if len(calls) == 1 else 90)
+            return IssuedCertificate(CERTIFICATE, PRIVATE_KEY, CERTIFICATE, expiry)
+
+    class Operations:
+        async def list(self, _payload):
+            return await service.list_resources("certificates")
+
+        async def renew(self, payload):
+            return await restarted.renew(payload["id"])
+
+    manager = TableCertificateManager(service, store, issuer=NamecheapIssuer())
+    restarted = TableCertificateManager(service, store, issuer=NamecheapIssuer())
+    scheduler = CertificateRenewalScheduler(
+        SimpleNamespace(core=SimpleNamespace(CertificateStore=Operations()))
+    )
+
+    async def exercise():
+        request = CertificateRequest(
+            "Wildcard",
+            ("*.login.example.test",),
+            "ops@example.test",
+            ChallengeType.DNS_01,
+            provider="namecheap",
+        )
+        created = await manager.request(
+            request,
+            credentials_file=credentials,
+            meta={"managed_by": "npmctl", "owner": "pilot", "resource_id": "cert.pilot"},
+        )
+        assert "test-secret" not in str(created)
+        credentials.unlink()
+        await scheduler.sweep()
+        await scheduler.sweep()
+        assert len(calls) == 2
+        assert calls[0]["lineage"] == calls[1]["lineage"]
+        assert scheduler.status == "ok"
+        renewed = await service.get_resource("certificates", created["id"])
+        assert renewed["meta"] == created["meta"]
+        assert renewed["expires_at"] == int((now + timedelta(days=90)).timestamp())
+        retained_credentials = calls[-1]["credentials_file"]
+        await service.update_resource(
+            "certificates", created["id"], {"domain_names": ["*.different.example.test"]}
+        )
+        with pytest.raises(CertificateConflict, match="missing for this domain set"):
+            await restarted.renew(created["id"], force=True)
+        assert len(calls) == 2
+        await restarted.delete(created["id"])
+        assert not retained_credentials.exists()
+
+    asyncio.run(exercise())
 
 
 def test_certificate_renewal_publishes_material_before_reconcile_metadata(tmp_path: Path) -> None:
