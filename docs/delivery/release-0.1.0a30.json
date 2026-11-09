@@ -1,0 +1,50 @@
+{
+  "contract_version": "1.0.0",
+  "artifact_type": "release",
+  "id": "release-portwyrm-0.1.0a30",
+  "version": "0.1.0",
+  "owner": "Groupsum",
+  "status": "candidate",
+  "review_date": "2026-11-09",
+  "sources": [
+    "src/portwyrm/api/compat/__init__.py",
+    "src/portwyrm/tables/routing.py",
+    "tests/runtime/test_migration_runtime.py",
+    "tests/integration/test_postgresql_restart.py",
+    ".ssot/evidence/migration.npm/routing-import.junit.xml"
+  ],
+  "facts": [
+    "NPM routing-host imports preserve source integer IDs. Preview and apply quarantine hostname conflicts and report the reason. Replaying an unchanged import reports it as unchanged."
+  ],
+  "assumptions": [],
+  "inferences": [],
+  "dependencies": [],
+  "risks": [
+    "If an earlier import stored the hostname under a different ID, the new import reports the collision and leaves the existing host in place."
+  ],
+  "metrics": [
+    "PR #26 passed CI and Container. The focused JUnit evidence covers three SQLite HTTP regressions and one live PostgreSQL sequence regression."
+  ],
+  "acceptance_criteria": [
+    "Python Release and Container pass for v0.1.0a30.",
+    "The published OCI index resolves for linux/amd64 and linux/arm64 and identifies the release commit."
+  ],
+  "release_version": [
+    "0.1.0a30"
+  ],
+  "scope": [
+    "NPM routing-host ID preservation and preview/apply hostname conflict handling."
+  ],
+  "gates": [
+    "Portwyrm CI",
+    "Python Release",
+    "Signed immutable OCI image"
+  ],
+  "artifacts": [],
+  "rollout": [
+    "Publish the prerelease and verify the immutable OCI digest."
+  ],
+  "rollback": [
+    "Redeploy the prior verified image digest with the existing persistent volumes."
+  ]
+}
