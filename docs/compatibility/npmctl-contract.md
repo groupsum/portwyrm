@@ -38,6 +38,8 @@ events exclude the values.
 The container includes the Namecheap Certbot plugin. It checks active Namecheap
 DNS-01 certificates hourly and attempts renewal within 30 days of expiry.
 Renewal uses a private credential file tied to the certificate ID and domain set.
+Reconciliation tracks the public certificate chain for each TLS route, so
+renewal reloads Nginx when the chain changes under an existing certificate ID.
 Keep the certificate volume and ACME configuration volume persistent and protect
 their backups. Set `PORTWYRM_CERTIFICATE_RENEWAL=0` to disable the scheduler.
 Reissue imported Namecheap certificates to establish their renewal credentials.

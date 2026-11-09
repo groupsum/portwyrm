@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 import time
 from pathlib import Path
@@ -42,10 +43,12 @@ class TableRuntimeController:
         *,
         validate: bool = True,
         reload: bool = True,
+        certificate_root: Path = Path("/etc/letsencrypt/live"),
     ) -> None:
         self.resources = resources
         self.root = Path(root)
         self.current = self.root / "current"
+        self.certificate_root = certificate_root
         self._lock = asyncio.Lock()
         self._holder = uuid4().hex
         self._applying_host_ids: set[int] = set()
@@ -105,19 +108,47 @@ class TableRuntimeController:
         quic_routes = await self.resources.app.core.QuicPassthroughRouteStore.runtime_list({})
         access_lists = await self.resources.app.core.AccessListStore.runtime_list({})
         runtime_hosts = [RoutingHostStore.RuntimeHost.model_validate(row) for row in hosts["items"]]
-        return NginxRenderer().render(
+        runtime_streams = [
+            StreamRouteStore.RuntimeStream.model_validate(row) for row in streams["items"]
+        ]
+        rendered = NginxRenderer().render(
             proxy_hosts=[host for host in runtime_hosts if host.kind == "proxy"],
             redirection_hosts=[host for host in runtime_hosts if host.kind == "redirect"],
             dead_hosts=[host for host in runtime_hosts if host.kind == "dead"],
-            streams=[
-                StreamRouteStore.RuntimeStream.model_validate(row) for row in streams["items"]
-            ],
+            streams=runtime_streams,
             quic_passthrough_hosts=[
                 QuicPassthroughRouteStore.RuntimeRoute.model_validate(row)
                 for row in quic_routes["items"]
             ],
             access_lists=[RuntimeAccessList.model_validate(row) for row in access_lists["items"]],
         )
+        certificate_ids = {host.ssl.certificate_id for host in runtime_hosts}
+        certificate_ids.update(
+            stream.certificate_id
+            for stream in runtime_streams
+            if stream.enabled and stream.tcp_forwarding
+        )
+        certificate_ids.discard(0)
+        if not certificate_ids:
+            return rendered
+        fingerprints = await asyncio.to_thread(self._certificate_fingerprints, certificate_ids)
+        return RenderedConfiguration(
+            {**rendered.files, "certificates.json": json.dumps(fingerprints, sort_keys=True) + "\n"}
+        )
+
+    def _certificate_fingerprints(self, certificate_ids: set[int]) -> dict[int, str | None]:
+        fingerprints: dict[int, str | None] = {}
+        for certificate_id in sorted(certificate_ids):
+            chain = self.certificate_root / f"npm-{certificate_id}" / "fullchain.pem"
+            try:
+                with chain.open("rb") as material:
+                    fingerprints[certificate_id] = hashlib.file_digest(
+                        material, "sha256"
+                    ).hexdigest()
+            except FileNotFoundError:
+                # Nginx validation owns missing or invalid material diagnostics.
+                fingerprints[certificate_id] = None
+        return fingerprints
 
     async def stage(self, files: dict[str, str]) -> dict[str, Any]:
         generation = self.reconciler.store.generation_id(files)

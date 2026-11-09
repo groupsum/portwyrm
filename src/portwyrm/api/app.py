@@ -131,6 +131,7 @@ def create_app(*, settings: PortwyrmSettings | None = None, engine: Any | None =
             settings.nginx_root,
             validate=settings.nginx_validate,
             reload=settings.nginx_reload,
+            certificate_root=certificate_root,
         )
     GenerationStore.configure_runtime(runtime)
     app.state.runtime = runtime
