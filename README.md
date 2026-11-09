@@ -99,6 +99,45 @@ uv run portwyrm create proxy-hosts --token "$PORTWYRM_TOKEN" --data proxy-host.j
 The UI is packaged as standards-based browser assets. Node.js and npm are not required to
 build, install, deploy, or operate Portwyrm.
 
+## Preview an Nginx Proxy Manager migration
+
+Save this example as `npm-tables.json`. The keys are NPM table names and each
+value is an array of rows.
+
+```json
+{
+  "proxy_host": [
+    {
+      "id": 7,
+      "domain_names": "[\"app.example.test\"]",
+      "forward_scheme": "http",
+      "forward_host": "upstream.example.test",
+      "forward_port": 8080,
+      "enabled": 1
+    }
+  ]
+}
+```
+
+With a Portwyrm administrator token set in `PORTWYRM_TOKEN`, run preflight to
+validate and normalize the source rows and report any quarantined records.
+Then run the import preview to see what would be created, replaced, left
+unchanged, or quarantined. Preview checks for conflicts by record ID. Apply
+can still reject a write, for example when the target already has a proxy
+host with the same hostname under a different ID. Preflight and preview leave
+the target unchanged.
+
+```shell
+uv run portwyrm npm-preflight --data npm-tables.json
+uv run portwyrm npm-import --data npm-tables.json
+```
+
+Review the preview before writing to the target with `--apply`.
+
+```shell
+uv run portwyrm npm-import --data npm-tables.json --apply
+```
+
 ## Compatibility principles
 
 - Preserve the NPM-shaped `/api` surface used by npmctl.
