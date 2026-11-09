@@ -84,9 +84,11 @@ value is an array of rows.
 
 With a Portwyrm administrator token set in `PORTWYRM_TOKEN`, run preflight to
 validate and normalize the source rows and report any quarantined records.
-Then run the import preview to check how those rows would map to the target,
-including any conflicts with existing IDs. Both commands leave the target
-unchanged.
+Then run the import preview to see what would be created, replaced, left
+unchanged, or quarantined. Preview checks for conflicts by record ID. Apply
+can still reject a write, for example when the target already has a proxy
+host with the same hostname under a different ID. Preflight and preview leave
+the target unchanged.
 
 ```shell
 uv run portwyrm npm-preflight --data npm-tables.json
