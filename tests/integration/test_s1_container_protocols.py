@@ -8,6 +8,7 @@ import os
 import secrets
 import socket
 import socketserver
+import ssl
 import subprocess
 import sys
 import threading
@@ -27,6 +28,156 @@ pytestmark = pytest.mark.skipif(
     os.getenv("PORTWYRM_RUN_DOCKER_TESTS") != "1",
     reason="set PORTWYRM_RUN_DOCKER_TESTS=1 to run real container protocols",
 )
+
+
+def test_namecheap_renewal_reloads_the_certificate_served_by_nginx() -> None:
+    image = os.getenv("PORTWYRM_TEST_IMAGE", "portwyrm:s1-test")
+    container = f"portwyrm-renewal-{uuid.uuid4().hex[:10]}"
+    host = "tenant.login.example.test"
+    _docker(
+        "run",
+        "-d",
+        "--name",
+        container,
+        "-p",
+        "127.0.0.1::81",
+        "-p",
+        "127.0.0.1::443",
+        "-e",
+        "INITIAL_ADMIN_EMAIL=admin@example.test",
+        "-e",
+        "INITIAL_ADMIN_PASSWORD=correct-password",
+        "-e",
+        "PORTWYRM_INITIAL_ADMIN_REQUIRE_PASSWORD_CHANGE=0",
+        image,
+    )
+    try:
+        api_port = _published_port(container, "81/tcp")
+        tls_port = _published_port(container, "443/tcp")
+        _wait_ready(api_port, container)
+        # Replace the ACME client in this disposable container only. Nginx,
+        # the renewal API, and the persisted credential path stay real.
+        _docker(
+            "exec",
+            container,
+            "sh",
+            "-ec",
+            """cat > /usr/local/bin/certbot <<'CERTBOT'
+#!/bin/sh
+set -eu
+serial=1
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --cert-name) name=$2; shift ;;
+        --config-dir) config=$2; shift ;;
+        --dns-namecheap-credentials) credentials=$2; shift ;;
+        --force-renewal) serial=2 ;;
+    esac
+    shift
+done
+test -f "$credentials"
+if [ "$serial" = 2 ]; then
+    case "$credentials" in */.dns-credentials/*) ;; *) exit 1 ;; esac
+fi
+live="$config/live/$name"
+mkdir -p "$live"
+openssl req -x509 -nodes -newkey rsa:2048 -days 90 -set_serial "$serial" \
+    -subj '/CN=*.login.example.test' -addext 'subjectAltName=DNS:*.login.example.test' \
+    -keyout "$live/privkey.pem" -out "$live/cert.pem" >/dev/null 2>&1
+cp "$live/cert.pem" "$live/chain.pem"
+CERTBOT
+chmod +x /usr/local/bin/certbot""",
+        )
+        base = f"http://127.0.0.1:{api_port}/api"
+        token = _json_request(
+            f"{base}/tokens",
+            method="POST",
+            payload={
+                "identity": "admin@example.test",
+                "secret": "correct-password",
+                "scope": "user",
+            },
+        )["result"]["token"]
+        response = _json_request(
+            f"{base}/nginx/certificates/request",
+            method="POST",
+            token=token,
+            payload={
+                "domain_names": ["*.login.example.test"],
+                "email": "admin@example.test",
+                "challenge_type": "dns-01",
+                "dns_provider": "namecheap",
+                "dns_credentials": {
+                    "dns_namecheap_username": "test",
+                    "dns_namecheap_api_key": "test-key",
+                },
+            },
+        )
+        certificate_id = response.get("result", response)["id"]
+        _json_request(
+            f"{base}/nginx/dead-hosts",
+            method="POST",
+            token=token,
+            payload={"domain_names": ["*.login.example.test"], "certificate_id": certificate_id},
+        )
+
+        # Trust the disposable certificate directly, while keeping SNI and hostname validation.
+        def wait_for_certificate() -> None:
+            certificate = _docker(
+                "exec", container, "cat", f"/etc/letsencrypt/live/npm-{certificate_id}/cert.pem"
+            ).stdout
+            context = ssl.create_default_context(cadata=certificate)
+            last_error = None
+            for _attempt in range(40):
+                try:
+                    with (
+                        socket.create_connection(("127.0.0.1", tls_port), timeout=2) as raw,
+                        context.wrap_socket(raw, server_hostname=host) as connection,
+                    ):
+                        assert connection.getpeercert(
+                            binary_form=True
+                        ) == ssl.PEM_cert_to_DER_cert(certificate)
+                        return
+                except OSError as error:
+                    last_error = error
+                    time.sleep(0.25)
+            raise AssertionError(
+                "Nginx did not serve the current wildcard certificate"
+            ) from last_error
+
+        wait_for_certificate()
+        initial = _docker(
+            "exec",
+            container,
+            "openssl",
+            "x509",
+            "-noout",
+            "-serial",
+            "-in",
+            f"/etc/letsencrypt/live/npm-{certificate_id}/cert.pem",
+        ).stdout.strip()
+        assert initial == "serial=01"
+        _json_request(
+            f"{base}/nginx/certificates/{certificate_id}/renew?force=true",
+            method="POST",
+            token=token,
+        )
+        assert (
+            _docker(
+                "exec",
+                container,
+                "openssl",
+                "x509",
+                "-noout",
+                "-serial",
+                "-in",
+                f"/etc/letsencrypt/live/npm-{certificate_id}/cert.pem",
+            ).stdout.strip()
+            == "serial=02"
+        )
+        wait_for_certificate()
+    finally:
+        _docker("rm", "-f", container, check=False)
 
 
 class _HTTPHandler(BaseHTTPRequestHandler):
