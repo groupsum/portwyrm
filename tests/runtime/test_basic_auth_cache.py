@@ -48,7 +48,7 @@ def test_cache_coalesces_success_and_rotation_invalidates_it(tmp_path, monkeypat
         policy.unlink()
         assert await verifier.authorize(policy, _header(b"new")) == 401
 
-    asyncio.run(run)
+    asyncio.run(run())
 
 
 def test_rotation_during_bcrypt_rejects_the_inflight_credential(tmp_path, monkeypatch) -> None:
@@ -74,4 +74,4 @@ def test_rotation_during_bcrypt_rejects_the_inflight_credential(tmp_path, monkey
         assert await task == 401
         assert not verifier.accepted
 
-    asyncio.run(run)
+    asyncio.run(run())
