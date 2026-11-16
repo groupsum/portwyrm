@@ -7,6 +7,8 @@ from portwyrm.tables.access import RuntimeAccessCredential as AccessListCredenti
 from portwyrm.tables.access import RuntimeAccessList as AccessList
 from portwyrm.tables.routing import SSLSettings
 
+from .basic_auth import VERIFIER_LOCATION
+
 
 def indented(value: str, spaces: int = 2) -> str:
     prefix = " " * spaces
@@ -58,18 +60,23 @@ def force_ssl_lines(ssl: SSLSettings) -> list[str]:
     return [f"  if ({condition}) {{", "    return 301 https://$host$request_uri;", "  }"]
 
 
-def access_lines(access_list: AccessList | None, password_file: str | None = None) -> list[str]:
+def access_lines(
+    access_list: AccessList | None, password_file: str | None = None, *, cached: bool = False
+) -> list[str]:
     if access_list is None:
         return []
     lines: list[str] = []
     if access_list.credentials:
         # NGINX resolves this path relative to the generated nginx.conf.
-        lines.extend(
-            [
-                'auth_basic "Authorization required";',
-                f"auth_basic_user_file access/{password_file or access_list.id};",
-            ]
-        )
+        if cached:
+            lines.append(f"auth_request {VERIFIER_LOCATION};")
+        else:
+            lines.extend(
+                [
+                    'auth_basic "Authorization required";',
+                    f"auth_basic_user_file access/{password_file or access_list.id};",
+                ]
+            )
         if not access_list.pass_auth:
             lines.append('proxy_set_header Authorization "";')
     if access_list.clients:

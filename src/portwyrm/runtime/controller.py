@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -17,7 +18,8 @@ from portwyrm.tables.access import RuntimeAccessList
 from portwyrm.tables.quic_passthrough import QuicPassthroughRouteStore
 from portwyrm.tables.routing import RoutingHostStore, StreamRouteStore
 
-from .nginx import NginxRenderer, RenderedConfiguration
+from .basic_auth import CACHE_HOST_ENV
+from .nginx import NginxRenderer, PlatformConfig, RenderedConfiguration
 from .publisher import build_reconciler
 from .reconcile import ReconcileResult
 
@@ -111,7 +113,9 @@ class TableRuntimeController:
         runtime_streams = [
             StreamRouteStore.RuntimeStream.model_validate(row) for row in streams["items"]
         ]
-        rendered = NginxRenderer().render(
+        rendered = NginxRenderer(
+            PlatformConfig(basic_auth_cache_host=os.getenv(CACHE_HOST_ENV, "").strip().lower())
+        ).render(
             proxy_hosts=[host for host in runtime_hosts if host.kind == "proxy"],
             redirection_hosts=[host for host in runtime_hosts if host.kind == "redirect"],
             dead_hosts=[host for host in runtime_hosts if host.kind == "dead"],
