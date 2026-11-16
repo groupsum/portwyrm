@@ -131,3 +131,9 @@ planned in the same import. The `conflicts` entries give the collection, source 
 and reason for target-side conflicts. Preview performs no writes. Replaying an
 unchanged routing host reports it as unchanged, and replacement cannot adopt an
 owned target. NPM and npmctl resource routes continue to expose integer IDs.
+
+For a single bcrypt-only proxy hostname, the container operator can set
+`PORTWYRM_BASIC_AUTH_CACHE_HOST` to that hostname. NGINX uses a private verifier
+with a 60-second in-memory cache of successful checks. Verification uses the
+active generation’s credential file, so old credentials stop working at
+rotation. The NPM access-list API and Basic Auth challenge remain compatible.

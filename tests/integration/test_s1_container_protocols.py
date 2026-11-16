@@ -446,6 +446,8 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
             container,
             *network_args,
             "-e",
+            "PORTWYRM_BASIC_AUTH_CACHE_HOST=protected.example.test",
+            "-e",
             "INITIAL_ADMIN_EMAIL=admin@example.test",
             "-e",
             "INITIAL_ADMIN_PASSWORD=correct-password",
@@ -523,6 +525,14 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
                 "enabled": 1,
             },
         )
+        config = _docker(
+            "exec",
+            container,
+            "sh",
+            "-ec",
+            "grep -lF 'auth_request /.portwyrm/basic-auth;' /data/nginx/current/http/proxy-*.conf",
+        ).stdout
+        assert config.strip()
         anonymous = _wait_http(http_port, protected_host, "/", lambda result: result[0] == 401)
         assert anonymous[1]["www-authenticate"].startswith("Basic ")
 
@@ -533,6 +543,20 @@ def test_s1_real_http_websocket_cache_redirect_dead_tcp_and_udp() -> None:
         assert (rejected[0], accepted[0]) == (401, 200)
         assert rejected[1]["www-authenticate"].startswith("Basic ")
         assert accepted[2] == b"portwyrm-upstream:/"
+        assert _http(http_port, protected_host, authorization=f"Basic {approved}")[0] == 200
+        assert _http(http_port, protected_host, "/.portwyrm/basic-auth")[0] == 404
+        _json_request(
+            f"http://127.0.0.1:{api_port}/api/nginx/access-lists/{access_list['id']}",
+            method="PUT",
+            token=token,
+            payload={
+                "name": "Approved users",
+                "items": [{"username": "alice", "password": "rotated-password"}],
+            },
+        )
+        assert _http(http_port, protected_host, authorization=f"Basic {approved}")[0] == 401
+        rotated = base64.b64encode(b"alice:rotated-password").decode("ascii")
+        assert _http(http_port, protected_host, authorization=f"Basic {rotated}")[0] == 200
 
         create(
             "/api/nginx/proxy-hosts",

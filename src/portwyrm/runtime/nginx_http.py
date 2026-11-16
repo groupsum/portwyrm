@@ -5,6 +5,7 @@ from __future__ import annotations
 from portwyrm.tables.access import RuntimeAccessList as AccessList
 from portwyrm.tables.routing import DeadHost, ProxyHost, ProxyLocation, RedirectionHost
 
+from .basic_auth import VERIFIER_LOCATION, VERIFIER_PORT
 from .nginx_models import PlatformConfig
 from .nginx_primitives import (
     access_lines,
@@ -23,9 +24,11 @@ def _render_default_proxy_location(
     host: ProxyHost,
     access_list: AccessList | None,
     password_file: str | None = None,
+    *,
+    cached: bool = False,
 ) -> list[str]:
     lines = ["  location / {"]
-    lines.extend(f"    {line}" for line in access_lines(access_list, password_file))
+    lines.extend(f"    {line}" for line in access_lines(access_list, password_file, cached=cached))
     if host.allow_websocket_upgrade:
         lines.extend(
             [
@@ -43,6 +46,8 @@ def _render_location(
     host: ProxyHost,
     access_list: AccessList | None,
     password_file: str | None = None,
+    *,
+    cached: bool = False,
 ) -> list[str]:
     lines = [f"  location {location.path} {{"]
     if location.advanced_config:
@@ -58,7 +63,7 @@ def _render_location(
             f"{location.forward_port}{location.forward_path};",
         ]
     )
-    lines.extend(f"    {line}" for line in access_lines(access_list, password_file))
+    lines.extend(f"    {line}" for line in access_lines(access_list, password_file, cached=cached))
     if host.allow_websocket_upgrade:
         lines.extend(
             [
@@ -91,6 +96,8 @@ def render_proxy(
     host: ProxyHost,
     access_list: AccessList | None = None,
     password_file: str | None = None,
+    *,
+    cached: bool = False,
 ) -> str:
     if not host.enabled:
         return _render_disabled_host(platform, host, "proxy-host")
@@ -112,13 +119,30 @@ def render_proxy(
         lines.append(block_exploits().rstrip())
     if host.advanced_config:
         lines.append(indented(host.advanced_config.rstrip()))
+    if cached:
+        lines.extend(
+            [
+                f"  location = {VERIFIER_LOCATION} {{",
+                "    internal;",
+                "    access_log off;",
+                "    proxy_method GET;",
+                "    proxy_pass_request_body off;",
+                "    proxy_pass_request_headers off;",
+                '    proxy_set_header Content-Length "";',
+                "    proxy_set_header Authorization $http_authorization;",
+                f"    proxy_pass http://127.0.0.1:{VERIFIER_PORT}/{host.id};",
+                "  }",
+            ]
+        )
     if host.caching_enabled:
         lines.extend(indented(line) for line in asset_cache_lines())
     for location in sorted(host.locations, key=lambda item: item.path):
-        lines.extend(_render_location(location, host, access_list, password_file))
+        lines.extend(_render_location(location, host, access_list, password_file, cached=cached))
     has_location_root = any(location.path == "/" for location in host.locations)
     if not has_location_root and not has_root_location(host.advanced_config):
-        lines.extend(_render_default_proxy_location(host, access_list, password_file))
+        lines.extend(
+            _render_default_proxy_location(host, access_list, password_file, cached=cached)
+        )
     lines.extend(["  include custom/server_proxy.conf;", "}"])
     return "\n".join(lines) + "\n"
 

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from portwyrm.api import create_app
 from portwyrm.config import PortwyrmSettings
+from portwyrm.runtime.basic_auth import CACHE_HOST_ENV, VERIFIER_PORT
 from portwyrm.runtime.bootstrap import seed_demo_proxy_host
 from portwyrm.runtime.logs import LogRotator
 
@@ -78,6 +79,27 @@ def main() -> int:
             ]
         ),
     ]
+    if os.getenv(CACHE_HOST_ENV, "").strip():
+        children.append(
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "portwyrm.runtime.basic_auth:create_verifier",
+                    "--factory",
+                    "--interface",
+                    "asgi3",
+                    "--lifespan",
+                    "off",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(VERIFIER_PORT),
+                    "--no-access-log",
+                ]
+            )
+        )
     if os.getenv("PORTWYRM_QUIC_ROUTER", "0").casefold() in {"1", "true", "yes", "on"}:
         worker_count = quic_worker_count()
         for _worker in range(worker_count):

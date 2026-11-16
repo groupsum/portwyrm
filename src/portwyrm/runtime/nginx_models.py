@@ -17,6 +17,7 @@ class PlatformConfig:
     default_site: str = "444"
     default_redirect: str = ""
     default_html: str = ""
+    basic_auth_cache_host: str = ""
     custom_includes: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

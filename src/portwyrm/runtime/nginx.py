@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from portwyrm.tables.access import RuntimeAccessList as AccessList
 from portwyrm.tables.routing import DeadHost, ProxyHost, RedirectionHost, Stream
 
+from .basic_auth import BCRYPT_HASH
 from .nginx_http import render_dead, render_proxy, render_redirection
 from .nginx_models import PlatformConfig, RenderedConfiguration
 from .nginx_platform import (
@@ -78,7 +79,25 @@ class NginxRenderer:
             password_file = f"proxy-host-{host.id}" if len(selected) > 1 else None
             if password_file and effective is not None:
                 files[f"access/{password_file}"] = self.render_htpasswd(effective)
-            files[f"http/proxy-{host.id}.conf"] = self.render_proxy(host, effective, password_file)
+            cached = bool(
+                host.enabled
+                and self.platform.basic_auth_cache_host
+                and host.domain_names == (self.platform.basic_auth_cache_host,)
+                and effective is not None
+                and effective.credentials
+                and all(
+                    BCRYPT_HASH.fullmatch(item.password_hash.encode())
+                    for item in effective.credentials
+                )
+                and not host.caching_enabled
+                and not host.advanced_config
+                and not any(location.advanced_config for location in host.locations)
+            )
+            if cached and effective is not None:
+                files[f"access/cached-proxy-{host.id}"] = self.render_htpasswd(effective)
+            files[f"http/proxy-{host.id}.conf"] = self.render_proxy(
+                host, effective, password_file, cached=cached
+            )
         for host in sorted(redirection_hosts, key=lambda item: item.id):
             files[f"http/redirection-{host.id}.conf"] = self.render_redirection(host)
         for host in sorted(dead_hosts, key=lambda item: item.id):
@@ -125,8 +144,10 @@ class NginxRenderer:
         host: ProxyHost,
         access_list: AccessList | None = None,
         password_file: str | None = None,
+        *,
+        cached: bool = False,
     ) -> str:
-        return render_proxy(self.platform, host, access_list, password_file)
+        return render_proxy(self.platform, host, access_list, password_file, cached=cached)
 
     def render_redirection(self, host: RedirectionHost) -> str:
         return render_redirection(self.platform, host)
