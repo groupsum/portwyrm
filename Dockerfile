@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 
 ARG OCI_REVISION=unknown
 ARG OCI_VERSION=dev
@@ -17,6 +17,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates git nginx libnginx-mod-stream zlib1g \
+    && nginx_version="$(dpkg-query -W -f='${Version}' nginx)" \
+    && dpkg --compare-versions "$nginx_version" ge '1.26.3-3+deb13u11' \
+    && test "$(dpkg-query -W -f='${Version}' nginx-common)" = "$nginx_version" \
+    && test "$(dpkg-query -W -f='${Version}' libnginx-mod-stream)" = "$nginx_version" \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
