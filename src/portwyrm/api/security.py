@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -11,10 +12,19 @@ from tigrbl import HTTPBearer, HTTPException, Request
 from tigrbl_typing.status.mappings import status
 
 from portwyrm.identity.token_policy import (
+    DNS_PROVISIONER_SCOPE,
     effective_token_authority,
     may_manage_foreign_tokens,
 )
 from portwyrm.tables import PATRecord, SecurityPrincipal
+
+_PROVISIONER_LIST_MEMBER = r"nginx/(?:proxy-hosts|certificates)(?:/[1-9][0-9]*)?"
+_PROVISIONER_PATHS = {
+    "GET": rf"/api/(?:v2/dns-provisioner/capabilities|{_PROVISIONER_LIST_MEMBER})",
+    "POST": r"/api/nginx/(?:proxy-hosts|certificates/request|certificates/[1-9][0-9]*/renew)",
+    "PUT": r"/api/nginx/proxy-hosts/[1-9][0-9]*",
+    "DELETE": r"/api/nginx/(?:proxy-hosts|certificates)/[1-9][0-9]*",
+}
 
 
 async def _await(value: Any) -> Any:
@@ -307,6 +317,13 @@ class PrincipalSecurityDependency(HTTPBearer):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="password change required",
             )
+        if DNS_PROVISIONER_SCOPE in principal.scopes:
+            allowed = _PROVISIONER_PATHS.get(request.method)
+            if not allowed or not re.fullmatch(allowed, request.path):
+                raise HTTPException(
+                    status_code=403, detail="operation outside DNS provisioner scope"
+                )
+            principal = principal.model_copy(update={"visibility": "user", "is_admin": False})
         return principal
 
 

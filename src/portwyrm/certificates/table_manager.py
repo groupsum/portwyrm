@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from portwyrm.api.compat.resources import TableResources
+from portwyrm.identity.token_policy import DNS_PROVISIONER_SCOPE
 
 from .acme import CertificateLifecycle, ChallengeType
 from .manager import CertificateConflict, CertificateMaterialStore, CertificateRequest, Issuer
@@ -129,7 +130,8 @@ class TableCertificateManager:
         )
         if is_namecheap and credentials_file is None:
             raise ValueError("Namecheap DNS-01 requires a credentials file")
-        lineage = uuid.uuid4().hex if is_namecheap else None
+        provisioner = DNS_PROVISIONER_SCOPE in getattr(actor, "scopes", ())
+        lineage = uuid.uuid4().hex if is_namecheap or provisioner else None
         issuer_options = {"lineage": lineage} if lineage else {}
         issued = await asyncio.to_thread(
             self.issuer.issue,
@@ -155,6 +157,7 @@ class TableCertificateManager:
                 "owner_principal_id": owner_principal_id,
                 "meta": {
                     **dict(meta or {}),
+                    **({"provisioner_lineage": lineage} if provisioner else {}),
                     "email": request.email,
                     "dns_provider": request.provider,
                     "challenge_type": request.challenge_type.value,
@@ -165,7 +168,7 @@ class TableCertificateManager:
         )
         stored_credentials = None
         try:
-            if lineage and credentials_file is not None:
+            if is_namecheap and lineage and credentials_file is not None:
                 scope = self._credential_scope(int(record["id"]), request.domain_names)
                 stored_credentials = scope.with_name(f"{scope.name}-{lineage}.ini")
                 await asyncio.to_thread(
@@ -256,6 +259,19 @@ class TableCertificateManager:
         if self.issuer is None:
             raise RuntimeError("ACME issuer is not configured")
         issuer_options = {}
+        lineage = None
+        if request.challenge_type == ChallengeType.HTTP_01:
+            current = await self.resources.get_resource("certificates", certificate_id)
+            request_lineage = dict((current or {}).get("meta") or {}).get("provisioner_lineage")
+            if isinstance(request_lineage, str):
+                try:
+                    lineage = uuid.UUID(hex=request_lineage).hex
+                except ValueError as exc:
+                    raise CertificateConflict("invalid provisioner certificate lineage") from exc
+            if lineage:
+                issuer_options.update(lineage=lineage, force_renewal=force)
+        if DNS_PROVISIONER_SCOPE in getattr(actor, "scopes", ()) and not lineage:
+            raise CertificateConflict("provisioner certificate lineage is required")
         if request.challenge_type == ChallengeType.DNS_01 and request.provider == "namecheap":
             scope = self._credential_scope(certificate_id, request.domain_names)
             matches = list(scope.parent.glob(f"{scope.name}-*.ini"))

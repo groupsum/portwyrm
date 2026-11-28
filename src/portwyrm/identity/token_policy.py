@@ -22,6 +22,8 @@ TOKEN_SCOPE_SECTIONS = frozenset(
 )
 TOKEN_SCOPE_ACTIONS = frozenset(PERMISSION_ACTIONS)
 FULL_ACCOUNT_SCOPE = "user"
+DNS_PROVISIONER_SCOPE = "dns_provisioner:execute"
+DNS_PROVISIONER_SECTIONS = ("proxy_hosts", "certificates")
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +68,10 @@ def normalize_token_scopes(scopes: object) -> frozenset[str]:
     if normalized == {FULL_ACCOUNT_SCOPE}:
         return normalized
     resource_scopes = normalized - {FULL_ACCOUNT_SCOPE}
+    if DNS_PROVISIONER_SCOPE in resource_scopes:
+        if resource_scopes != {DNS_PROVISIONER_SCOPE}:
+            raise ValueError("DNS provisioner scope cannot be combined with other scopes")
+        return resource_scopes | {FULL_ACCOUNT_SCOPE}
     if not resource_scopes:
         raise ValueError("select at least one access scope")
     for scope in resource_scopes:
@@ -80,6 +86,15 @@ def validate_requested_scopes(
     is_admin: bool,
 ) -> frozenset[str]:
     normalized = normalize_token_scopes(scopes)
+    if DNS_PROVISIONER_SCOPE in normalized:
+        if is_admin or not all(
+            permission_allows(permissions.get(section), "read")
+            for section in DNS_PROVISIONER_SECTIONS
+        ):
+            raise ValueError(
+                "DNS provisioner scope requires a non-admin proxy and certificate principal"
+            )
+        return normalized
     if normalized == {FULL_ACCOUNT_SCOPE}:
         return normalized
     required = tuple(sorted(normalized - {FULL_ACCOUNT_SCOPE}))
@@ -100,6 +115,8 @@ def permissions_from_scopes(scopes: object) -> dict[str, dict[str, bool]]:
     normalized = normalize_token_scopes(scopes)
     permissions: dict[str, dict[str, bool]] = {}
     for scope in normalized - {FULL_ACCOUNT_SCOPE}:
+        if scope == DNS_PROVISIONER_SCOPE:
+            continue
         section, action = parse_scope(scope)
         permissions.setdefault(section, {})[action] = True
     return permissions
@@ -114,6 +131,20 @@ def effective_token_authority(
     """Intersect durable principal authority with the token's granted scopes."""
 
     normalized = normalize_token_scopes(scopes)
+    if DNS_PROVISIONER_SCOPE in normalized:
+        if is_admin:
+            return {}, False, normalized
+        return (
+            {
+                section: {
+                    action: permission_allows(permissions.get(section), action)
+                    for action in PERMISSION_ACTIONS
+                }
+                for section in DNS_PROVISIONER_SECTIONS
+            },
+            False,
+            normalized,
+        )
     if normalized == {FULL_ACCOUNT_SCOPE}:
         return dict(permissions), is_admin, normalized
     effective: dict[str, dict[str, bool]] = {}

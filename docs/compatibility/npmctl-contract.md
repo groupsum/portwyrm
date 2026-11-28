@@ -137,3 +137,21 @@ For a single bcrypt-only proxy hostname, the container operator can set
 with a 60-second in-memory cache of successful checks. Verification uses the
 active generation’s credential file, so old credentials stop working at
 rotation. The NPM access-list API and Basic Auth challenge remain compatible.
+
+## DNS provisioner API keys
+
+The Portwyrm extension scope `dns_provisioner:execute` is for dedicated non-admin
+service principals. Issue it by itself through
+`POST /api/v2/users/{principal_id}/tokens`. Grant the account the required proxy
+host and certificate actions. The key inherits any tighter current account
+permissions.
+
+The key can read its capability at `GET /api/v2/dns-provisioner/capabilities`.
+Its resource routes are restricted to owned provisioner proxy hosts and
+certificate metadata. Portwyrm uses both the authenticated principal's ID and
+provisioner metadata. Foreign rows and rows without provisioner provenance are
+omitted from collections and return 404 on individual requests. A proxy must
+reference an owned certificate for the same product and exact hostname.
+Certificate issuance accepts a single hostname via HTTP-01. Renewal and
+deletion require ownership. Certificate download, upload, export, token
+administration and all other privileged operations fall outside the scope.

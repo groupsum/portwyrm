@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import re
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from configparser import ConfigParser
@@ -46,6 +47,7 @@ from portwyrm.api.security import (
 from portwyrm.certificates import DEFAULT_PROVIDER_CATALOG, provider_status
 from portwyrm.domain.routing import canonical_domains
 from portwyrm.identity.token_policy import (
+    DNS_PROVISIONER_SCOPE,
     effective_token_authority,
     may_manage_foreign_tokens,
     validate_requested_scopes,
@@ -99,6 +101,15 @@ def create_compat_app(
     app.state.token_store = token_store
     app.state.certificate_manager = certificates
     app.add_middleware(ControlPlaneHTTPMiddleware)
+
+    @app.get("/api/v2/dns-provisioner/capabilities")
+    async def provisioner_capabilities(
+        principal: Principal = Depends(principal_from_bearer),
+    ) -> Resource:
+        if DNS_PROVISIONER_SCOPE not in principal.scopes:
+            raise HTTPException(status_code=403, detail="scoped DNS provisioner API key required")
+        return {"scope": DNS_PROVISIONER_SCOPE, "owned_only": True, "certificate_download": False}
+
     origins = [
         item.strip() for item in os.getenv("PORTWYRM_CORS_ORIGINS", "").split(",") if item.strip()
     ]
@@ -735,13 +746,21 @@ def create_compat_app(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="create")
+        if DNS_PROVISIONER_SCOPE in principal.scopes:
+            _validate_provisioner_payload(payload, _PROVISIONER_CERTIFICATE_FIELDS)
+            if (
+                payload.get("provider") != "letsencrypt"
+                or payload.get("challenge_type") != "http-01"
+            ):
+                raise HTTPException(status_code=422, detail="HTTP-01 issuance is required")
         domains = payload.get("domain_names")
         if not isinstance(domains, list):
             raise HTTPException(status_code=422, detail="domain_names must be an array")
         try:
-            return await app.core.CertificateStore.request(
+            created = await app.core.CertificateStore.request(
                 _certificate_request_payload(payload), ctx={"principal": _actor(principal)}
             )
+            return _copy_visible(created, principal)
         except (RuntimeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -753,15 +772,19 @@ def create_compat_app(
     ) -> Resource:
         force = _query_bool(request, "force")
         _authorize(principal, "certificates", admin_only=False, action="update")
-        return await app.core.CertificateStore.renew(
+        await _require_provisioner_certificate(service, principal, certificate_id)
+        renewed = await app.core.CertificateStore.renew(
             {"id": certificate_id, "force": force}, ctx={"principal": _actor(principal)}
         )
+        return _copy_visible(renewed, principal)
 
     @app.get("/api/nginx/certificates/{certificate_id}/download")
     async def download_certificate(
         certificate_id: int,
         principal: Principal = Depends(principal_from_bearer),
     ) -> Response:
+        if DNS_PROVISIONER_SCOPE in principal.scopes:
+            raise HTTPException(status_code=403, detail="certificate download is forbidden")
         _authorize(principal, "certificates", admin_only=False, action="read")
         try:
             content = await app.core.CertificateStore.download(
@@ -785,6 +808,7 @@ def create_compat_app(
         principal: Principal = Depends(principal_from_bearer),
     ) -> bool:
         _authorize(principal, "certificates", admin_only=False, action="delete")
+        await _require_provisioner_certificate(service, principal, certificate_id)
         await app.core.CertificateStore.remove(
             {"id": certificate_id}, ctx={"principal": _actor(principal)}
         )
@@ -885,7 +909,11 @@ def _list_handler(
     async def handler(principal: Principal = Depends(principal_dependency)) -> list[Resource]:
         _authorize(principal, collection, admin_only=admin_only, action="read")
         items = await _service_list(service, collection, principal)
-        return [_copy_visible(item, principal) for item in items if _is_visible(item, principal)]
+        return [
+            _copy_visible(item, principal)
+            for item in items
+            if await _resource_visible(service, collection, item, principal)
+        ]
 
     return handler
 
@@ -899,7 +927,7 @@ def _get_handler(
         _authorize(principal, collection, admin_only=admin_only, action="read")
         normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
         item = await _service_get(service, collection, normalized_id, principal)
-        if item is None or not _is_visible(item, principal):
+        if item is None or not await _resource_visible(service, collection, item, principal):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
         return _copy_visible(item, principal)
 
@@ -914,8 +942,10 @@ def _create_handler(
     ) -> Resource:
         _authorize(principal, collection, admin_only=admin_only, action="create")
         _validate_payload(payload)
+        if DNS_PROVISIONER_SCOPE in principal.scopes:
+            await _validate_provisioner_proxy(service, principal, payload)
         created = await _service_create(service, collection, dict(payload), principal)
-        return _valid_resource(created, collection)
+        return _copy_visible(_valid_resource(created, collection), principal)
 
     return handler
 
@@ -960,13 +990,20 @@ def _replace_handler(
         if existing is None or not _is_visible(existing, principal):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
         replacement = dict(payload)
+        if DNS_PROVISIONER_SCOPE in principal.scopes:
+            await _validate_provisioner_proxy(service, principal, payload)
+            if any(
+                existing["meta"].get(key) != value for key, value in payload["meta"].items()
+            ) or payload["domain_names"] != existing.get("domain_names"):
+                raise HTTPException(status_code=409, detail="resource identity is immutable")
+            replacement["owner_principal_id"] = int(principal.user_id)
         replacement["id"] = existing["id"]
         replaced = await _service_replace(
             service, collection, normalized_id, replacement, principal
         )
         if replaced is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
-        return _valid_resource(replaced, collection)
+        return _copy_visible(_valid_resource(replaced, collection), principal)
 
     return handler
 
@@ -1058,13 +1095,151 @@ def _require_admin(principal: Principal) -> None:
 
 
 def _is_visible(item: Mapping[str, Any], principal: Principal) -> bool:
+    if DNS_PROVISIONER_SCOPE in principal.scopes:
+        owner = item.get("owner_user_id", item.get("owner_principal_id", item.get("owner_id")))
+        meta = item.get("meta")
+        return (
+            owner is not None
+            and str(owner) == str(principal.user_id)
+            and isinstance(meta, Mapping)
+            and meta.get("managed_by") == "domain-provisioner"
+        )
     if principal.is_admin or principal.visibility == "all":
         return True
     owner = item.get("owner_user_id", item.get("owner_id"))
     return owner is not None and str(owner) == str(principal.user_id)
 
 
-def _copy_visible(item: Mapping[str, Any], _: Principal) -> Resource:
+async def _resource_visible(
+    service: CompatibilityService, collection: str, item: Resource, principal: Principal
+) -> bool:
+    if not _is_visible(item, principal):
+        return False
+    if DNS_PROVISIONER_SCOPE not in principal.scopes or collection != "proxy_hosts":
+        return True
+    certificate_id = item.get("certificate_id")
+    if type(certificate_id) is not int or certificate_id < 1:
+        return False
+    cert = await _service_get(service, "certificates", certificate_id, principal)
+    return (
+        cert is not None
+        and _is_visible(cert, principal)
+        and cert.get("domain_names") == item.get("domain_names")
+        and cert["meta"].get("owner") == item["meta"].get("owner")
+    )
+
+
+_PROVISIONER_CERTIFICATE_FIELDS = frozenset(
+    {
+        "nice_name",
+        "domain_names",
+        "provider",
+        "challenge_type",
+        "key_type",
+        "email",
+        "meta",
+    }
+)
+_PROVISIONER_PROXY_FIELDS = frozenset(
+    {
+        "domain_names",
+        "forward_scheme",
+        "forward_host",
+        "forward_port",
+        "certificate_id",
+        "ssl_forced",
+        "http2_support",
+        "hsts_enabled",
+        "hsts_subdomains",
+        "enabled",
+        "meta",
+    }
+)
+
+
+def _validate_provisioner_payload(payload: Resource, allowed: frozenset[str]) -> None:
+    meta = payload.get("meta")
+    domains = payload.get("domain_names")
+    if (
+        payload.keys() - allowed
+        or not isinstance(meta, dict)
+        or set(meta) != {"managed_by", "owner", "resource_id"}
+        or meta.get("managed_by") != "domain-provisioner"
+        or not all(
+            isinstance(meta.get(key), str) and re.fullmatch(r"[0-9A-Za-z]{22}", meta[key])
+            for key in ("owner", "resource_id")
+        )
+        or not isinstance(domains, list)
+        or len(domains) != 1
+        or not isinstance(domains[0], str)
+        or "*" in domains[0]
+    ):
+        raise HTTPException(status_code=422, detail="invalid DNS provisioner resource")
+    try:
+        canonical = list(canonical_domains(domains))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid hostname") from exc
+    if canonical != domains:
+        raise HTTPException(status_code=422, detail="hostname must be canonical")
+
+
+async def _require_provisioner_certificate(
+    service: CompatibilityService, principal: Principal, certificate_id: int
+) -> Resource | None:
+    if DNS_PROVISIONER_SCOPE not in principal.scopes:
+        return None
+    cert = await _service_get(service, "certificates", certificate_id, principal)
+    if cert is None or not _is_visible(cert, principal):
+        raise HTTPException(status_code=404, detail="resource not found")
+    return cert
+
+
+async def _validate_provisioner_proxy(
+    service: CompatibilityService, principal: Principal, payload: Resource
+) -> None:
+    _validate_provisioner_payload(payload, _PROVISIONER_PROXY_FIELDS)
+    certificate_id = payload.get("certificate_id")
+    if type(certificate_id) is not int or certificate_id < 1:
+        raise HTTPException(status_code=422, detail="owned certificate required")
+    cert = await _require_provisioner_certificate(service, principal, certificate_id)
+    if (
+        cert is None
+        or cert.get("domain_names") != payload["domain_names"]
+        or cert["meta"].get("owner") != payload["meta"]["owner"]
+    ):
+        raise HTTPException(status_code=422, detail="certificate must cover the exact hostname")
+
+
+def _copy_visible(item: Mapping[str, Any], principal: Principal) -> Resource:
+    if DNS_PROVISIONER_SCOPE in principal.scopes:
+        if not _is_visible(item, principal):
+            raise HTTPException(status_code=404, detail="resource not found")
+        public = {
+            "id",
+            "domain_names",
+            "provider",
+            "nice_name",
+            "expires_on",
+            "expires_at",
+            "status",
+            "forward_scheme",
+            "forward_host",
+            "forward_port",
+            "certificate_id",
+            "enabled",
+            "ssl_forced",
+            "http2_support",
+            "hsts_enabled",
+            "hsts_subdomains",
+        }
+        return {
+            **{k: v for k, v in item.items() if k in public},
+            "meta": {
+                k: item["meta"][k]
+                for k in ("managed_by", "owner", "resource_id")
+                if k in item["meta"]
+            },
+        }
     return dict(item)
 
 
