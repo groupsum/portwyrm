@@ -9,7 +9,7 @@ export const PERMISSION_RESOURCES: Array<{id: PermissionResource; label: string;
   {id: 'certificates', label: 'TLS Certificates', shortLabel: 'Certs'},
 ];
 
-export const PERMISSION_ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete'];
+export const PERMISSION_ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete', 'download'];
 export const HOST_PERMISSION_RESOURCES: PermissionResource[] = ['proxy_hosts', 'redirection_hosts', 'dead_hosts', 'streams'];
 
 export function emptyGrant(): CrudPermission {
@@ -34,6 +34,7 @@ export function normalizeGrant(value: unknown): CrudPermission {
     read: grant.read === true,
     update: grant.update === true,
     delete: grant.delete === true,
+    ...(grant.download === true ? {download: true} : {}),
   };
 }
 
@@ -51,8 +52,8 @@ export function hostPermissionResource(type: HostType): PermissionResource {
 }
 
 export function grantSummary(grant: CrudPermission): string {
-  const enabled = PERMISSION_ACTIONS.filter(action => grant[action]);
-  if (enabled.length === 4) return 'CRUD';
-  if (enabled.length === 0) return 'None';
-  return enabled.map(action => action[0].toUpperCase()).join('');
+  const crud = PERMISSION_ACTIONS.filter(action => action !== 'download' && grant[action])
+    .map(action => action[0].toUpperCase()).join('');
+  if (!grant.download) return crud || 'None';
+  return crud ? `${crud} + download` : 'Download';
 }

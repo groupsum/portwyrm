@@ -13,7 +13,7 @@ from configparser import ConfigParser
 from configparser import Error as ConfigError
 from copy import deepcopy
 from types import SimpleNamespace
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from tigrbl import (
     CORSMiddleware,
@@ -45,6 +45,7 @@ from portwyrm.api.security import (
 )
 from portwyrm.certificates import DEFAULT_PROVIDER_CATALOG, provider_status
 from portwyrm.domain.routing import canonical_domains
+from portwyrm.identity.permissions import PermissionAction
 from portwyrm.identity.token_policy import (
     effective_token_authority,
     may_manage_foreign_tokens,
@@ -717,6 +718,10 @@ def create_compat_app(
         payload: dict[str, Any], principal: Principal = Depends(principal_from_bearer)
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="create")
+        if "id" in payload:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="id is server assigned"
+            )
         return await app.core.CertificateStore.upload(payload, ctx={"principal": _actor(principal)})
 
     @app.post("/api/nginx/certificates/{certificate_id}/upload")
@@ -726,8 +731,9 @@ def create_compat_app(
         principal: Principal = Depends(principal_from_bearer),
     ) -> Resource:
         _authorize(principal, "certificates", admin_only=False, action="update")
+        await _require_managed_resource(service, "certificates", certificate_id, principal)
         return await app.core.CertificateStore.upload(
-            {"id": certificate_id, **payload}, ctx={"principal": _actor(principal)}
+            {**payload, "id": certificate_id}, ctx={"principal": _actor(principal)}
         )
 
     @app.post("/api/nginx/certificates/request", status_code=status.HTTP_201_CREATED)
@@ -753,6 +759,7 @@ def create_compat_app(
     ) -> Resource:
         force = _query_bool(request, "force")
         _authorize(principal, "certificates", admin_only=False, action="update")
+        await _require_managed_resource(service, "certificates", certificate_id, principal)
         return await app.core.CertificateStore.renew(
             {"id": certificate_id, "force": force}, ctx={"principal": _actor(principal)}
         )
@@ -762,7 +769,8 @@ def create_compat_app(
         certificate_id: int,
         principal: Principal = Depends(principal_from_bearer),
     ) -> Response:
-        _authorize(principal, "certificates", admin_only=False, action="read")
+        _authorize(principal, "certificates", admin_only=False, action="download")
+        await _require_managed_resource(service, "certificates", certificate_id, principal)
         try:
             content = await app.core.CertificateStore.download(
                 {"id": certificate_id}, ctx={"principal": _actor(principal)}
@@ -771,11 +779,12 @@ def create_compat_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return Response(
             content=content,
-            media_type="application/zip",
             headers={
+                "Content-Type": "application/zip",
+                "Cache-Control": "no-store",
                 "Content-Disposition": (
                     f'attachment; filename="portwyrm-certificate-{certificate_id}.zip"'
-                )
+                ),
             },
         )
 
@@ -785,6 +794,7 @@ def create_compat_app(
         principal: Principal = Depends(principal_from_bearer),
     ) -> bool:
         _authorize(principal, "certificates", admin_only=False, action="delete")
+        await _require_managed_resource(service, "certificates", certificate_id, principal)
         await app.core.CertificateStore.remove(
             {"id": certificate_id}, ctx={"principal": _actor(principal)}
         )
@@ -914,6 +924,12 @@ def _create_handler(
     ) -> Resource:
         _authorize(principal, collection, admin_only=admin_only, action="create")
         _validate_payload(payload)
+        if collection == "certificates" and not principal.is_admin:
+            payload = {
+                **payload,
+                "owner_principal_id": int(principal.user_id),
+                "owner_user_id": int(principal.user_id),
+            }
         created = await _service_create(service, collection, dict(payload), principal)
         return _valid_resource(created, collection)
 
@@ -931,12 +947,13 @@ def _update_handler(
         _authorize(principal, collection, admin_only=admin_only, action="update")
         _validate_payload(payload)
         normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
-        existing = await _service_get(service, collection, normalized_id, principal)
-        if existing is None or not _is_visible(existing, principal):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        existing = await _require_managed_resource(service, collection, normalized_id, principal)
         merged = dict(existing)
         merged.update(payload)
         merged["id"] = existing["id"]
+        if collection == "certificates" and not principal.is_admin:
+            merged["owner_principal_id"] = int(principal.user_id)
+            merged["owner_user_id"] = int(principal.user_id)
         updated = await _service_update(service, collection, normalized_id, merged, principal)
         if updated is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
@@ -956,11 +973,12 @@ def _replace_handler(
         _authorize(principal, collection, admin_only=admin_only, action="update")
         _validate_payload(payload)
         normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
-        existing = await _service_get(service, collection, normalized_id, principal)
-        if existing is None or not _is_visible(existing, principal):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        existing = await _require_managed_resource(service, collection, normalized_id, principal)
         replacement = dict(payload)
         replacement["id"] = existing["id"]
+        if collection == "certificates" and not principal.is_admin:
+            replacement["owner_principal_id"] = int(principal.user_id)
+            replacement["owner_user_id"] = int(principal.user_id)
         replaced = await _service_replace(
             service, collection, normalized_id, replacement, principal
         )
@@ -979,9 +997,7 @@ def _delete_handler(
     ) -> bool:
         _authorize(principal, collection, admin_only=admin_only, action="delete")
         normalized_id = _resource_id(resource_id, allow_string=collection == "settings")
-        existing = await _service_get(service, collection, normalized_id, principal)
-        if existing is None or not _is_visible(existing, principal):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        existing = await _require_managed_resource(service, collection, normalized_id, principal)
         if (
             collection == "users"
             and str(normalized_id) == str(principal.user_id)
@@ -1008,9 +1024,7 @@ def _toggle_handler(
     ) -> Resource:
         _authorize(principal, collection, admin_only=admin_only, action="update")
         normalized_id = _resource_id(resource_id, allow_string=False)
-        existing = await _service_get(service, collection, normalized_id, principal)
-        if existing is None or not _is_visible(existing, principal):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+        await _require_managed_resource(service, collection, normalized_id, principal)
         updated = await _service_toggle(
             service, collection, normalized_id, enabled=enabled, principal=principal
         )
@@ -1042,7 +1056,7 @@ def _authorize(
     collection: str,
     *,
     admin_only: bool,
-    action: Literal["create", "read", "update", "delete"],
+    action: PermissionAction,
 ) -> None:
     if admin_only:
         _require_admin(principal)
@@ -1060,8 +1074,25 @@ def _require_admin(principal: Principal) -> None:
 def _is_visible(item: Mapping[str, Any], principal: Principal) -> bool:
     if principal.is_admin or principal.visibility == "all":
         return True
-    owner = item.get("owner_user_id", item.get("owner_id"))
+    return _owns_resource(item, principal)
+
+
+def _owns_resource(item: Mapping[str, Any], principal: Principal) -> bool:
+    owner = item.get("owner_user_id", item.get("owner_principal_id", item.get("owner_id")))
     return owner is not None and str(owner) == str(principal.user_id)
+
+
+async def _require_managed_resource(
+    service: CompatibilityService, collection: str, resource_id: int | str, principal: Principal
+) -> Resource:
+    item = await _service_get(service, collection, resource_id, principal)
+    if item is None or not (
+        principal.is_admin
+        or (collection != "certificates" and principal.visibility == "all")
+        or _owns_resource(item, principal)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="resource not found")
+    return item
 
 
 def _copy_visible(item: Mapping[str, Any], _: Principal) -> Resource:

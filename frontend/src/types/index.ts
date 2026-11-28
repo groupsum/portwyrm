@@ -112,9 +112,9 @@ export interface AccessList {
 
 export type UserRole = 'Administrator' | 'Operator' | 'Viewer';
 
-export type PermissionAction = 'create' | 'read' | 'update' | 'delete';
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'download';
 export type PermissionResource = 'proxy_hosts' | 'redirection_hosts' | 'dead_hosts' | 'streams' | 'access_lists' | 'certificates';
-export type CrudPermission = Record<PermissionAction, boolean>;
+export type CrudPermission = Record<Exclude<PermissionAction, 'download'>, boolean> & {download?: boolean};
 export type UserPermissions = Record<PermissionResource, CrudPermission>;
 
 export interface User {

@@ -20,7 +20,7 @@ TOKEN_SCOPE_SECTIONS = frozenset(
         "certificates",
     }
 )
-TOKEN_SCOPE_ACTIONS = frozenset(PERMISSION_ACTIONS)
+TOKEN_SCOPE_ACTIONS = frozenset((*PERMISSION_ACTIONS, "download"))
 FULL_ACCOUNT_SCOPE = "user"
 
 
@@ -54,6 +54,8 @@ def parse_scope(scope: str) -> tuple[str, PermissionAction]:
     section, separator, action = normalized.partition(":")
     if not separator or section not in TOKEN_SCOPE_SECTIONS or action not in TOKEN_SCOPE_ACTIONS:
         raise ValueError("invalid token scopes")
+    if action == "download" and section != "certificates":
+        raise ValueError("download scope is only available for certificates")
     return section, action  # type: ignore[return-value]
 
 

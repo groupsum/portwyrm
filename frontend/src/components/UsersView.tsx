@@ -650,15 +650,16 @@ export default function UsersView({
                       {PERMISSION_RESOURCES.map(resource => <tr key={resource.id}>
                         <th scope="row" className="px-3 py-2.5 text-left font-bold text-slate-800 dark:text-zinc-200">{resource.label}</th>
                         {PERMISSION_ACTIONS.map(action => {
+                          if (action === 'download' && resource.id !== 'certificates') return <td key={action} />;
                           const forced = role === 'Administrator' || (role === 'Viewer' && action !== 'read');
                           const checked = role === 'Administrator' ? true : role === 'Viewer' && action !== 'read' ? false : permissionMatrix[resource.id][action];
-                          return <td key={action} className="px-3 py-2.5 text-center"><input type="checkbox" checked={checked} disabled={forced} onChange={event => setPermission(resource.id, action, event.target.checked)} aria-label={`${resource.label}: allow ${action}`} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50" /></td>;
+                          return <td key={action} className="px-3 py-2.5 text-center"><input type="checkbox" checked={checked === true} disabled={forced} onChange={event => setPermission(resource.id, action, event.target.checked)} aria-label={`${resource.label}: allow ${action}`} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50" /></td>;
                         })}
                       </tr>)}
                     </tbody>
                   </table>
                 </div>
-                <p className="text-[10px] leading-relaxed text-slate-500">Create, read, update, and delete are enforced independently by the API. Visibility still limits which records a non-administrator may read or mutate.</p>
+                <p className="text-[10px] leading-relaxed text-slate-500">Certificate downloads require a separate grant. Only the certificate owner and administrators can change it or download its material.</p>
               </div>
 
               {/* Status Toggle */}
