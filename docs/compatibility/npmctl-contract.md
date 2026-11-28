@@ -137,3 +137,18 @@ For a single bcrypt-only proxy hostname, the container operator can set
 with a 60-second in-memory cache of successful checks. Verification uses the
 active generation’s credential file, so old credentials stop working at
 rotation. The NPM access-list API and Basic Auth challenge remain compatible.
+
+## Certificate ownership and downloads
+
+A non-administrator can renew, delete, or download only certificates owned by
+their Portwyrm account, even when their account can view metadata for all
+certificates. Foreign and unassigned certificates return 404 on these routes
+after the operation grant is checked. Administrators keep access to all
+certificates.
+
+Certificate metadata uses the existing read permission. Downloading an archive
+requires an explicit `certificates.download` account grant and, for scoped API
+keys, the `certificates:download` scope. Existing read scopes and legacy
+`view` and `manage` grants do not grant downloads. Download-only keys can
+retrieve an owned archive by ID without permission to list or read metadata.
+The archive is served as an attachment and marked `Cache-Control: no-store`.

@@ -6,14 +6,14 @@ from collections.abc import Mapping
 from typing import Literal
 
 PermissionLevel = Literal["hidden", "view", "manage"]
-PermissionAction = Literal["create", "read", "update", "delete"]
+PermissionAction = Literal["create", "read", "update", "delete", "download"]
 PermissionGrant = PermissionLevel | dict[str, bool]
 PERMISSION_ACTIONS: tuple[PermissionAction, ...] = ("create", "read", "update", "delete")
 
 
 def permission_allows(grant: object, action: PermissionAction) -> bool:
     if grant == "manage":
-        return True
+        return action != "download"
     if grant == "view":
         return action == "read"
     if grant == "hidden" or grant is None:

@@ -9,7 +9,7 @@ const RESOURCES: {id: PermissionResource; label: string}[] = [
   {id: 'dead_hosts', label: 'Dead hosts'}, {id: 'streams', label: 'Streams'},
   {id: 'access_lists', label: 'Access lists'}, {id: 'certificates', label: 'Certificates'},
 ];
-const ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete'];
+const ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete', 'download'];
 
 interface Props {
   currentUser: User;
@@ -61,6 +61,7 @@ export default function AccessTokensView({currentUser, users, onList, onCreate, 
   }, [selectedUserId]);
 
   const permittedScopes = useMemo(() => RESOURCES.flatMap(resource => ACTIONS
+    .filter(action => action !== 'download' || resource.id === 'certificates')
     .filter(action => selectedUser.role === 'Administrator' || selectedUser.permissions[resource.id][action])
     .map(action => `${resource.id}:${action}`)), [selectedUser]);
   const readScopes = permittedScopes.filter(scope => scope.endsWith(':read'));

@@ -198,7 +198,8 @@ async def enforce_ownership(ctx: dict[str, Any]) -> None:
     """Assign row ownership and reject foreign mutation at the table boundary."""
 
     alias = _alias(ctx)
-    if alias not in _OWNERSHIP_MUTATIONS:
+    certificate = _table_name(ctx) == "certificates"
+    if alias not in _OWNERSHIP_MUTATIONS and not (certificate and alias == "download"):
         return
     model = ctx.get("model")
     payload = ctx.get("payload")
@@ -234,8 +235,11 @@ async def enforce_ownership(ctx: dict[str, Any]) -> None:
     if _principal_value(ctx, "is_admin"):
         return
     row_owner = getattr(row, "owner_principal_id", None)
-    if row_owner is not None and principal_id is not None and int(row_owner) != principal_id:
-        raise OwnershipError("foreign-owned resources cannot be mutated")
+    if principal_id is not None and (
+        (row_owner is None and certificate)
+        or (row_owner is not None and int(row_owner) != principal_id)
+    ):
+        raise OwnershipError("resource is not owned by the authenticated account")
     ownership = _ownership_from_row(row)
     actor_owner = _principal_value(ctx, "owner")
     if ownership is not None and actor_owner is not None and ownership.owner != actor_owner:
@@ -251,6 +255,16 @@ async def enforce_authorization(ctx: dict[str, Any]) -> None:
     alias = _alias(ctx)
     action = _ACTION_BY_ALIAS.get(alias)
     table_name = _table_name(ctx)
+    if table_name == "certificates":
+        action = {
+            "renew": "update",
+            "remove": "delete",
+            "download": "download",
+            "request": "create",
+            "upload": "create",
+        }.get(alias, action)
+        if alias == "upload" and (ctx.get("payload") or {}).get("id") is not None:
+            action = "update"
     if action is None:
         return
     if table_name in {"principals", "settings"}:
