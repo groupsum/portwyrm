@@ -16,7 +16,9 @@ LABEL org.opencontainers.image.title="Portwyrm" \
 COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y ca-certificates git nginx libnginx-mod-stream zlib1g \
+    && apt-get install --no-install-recommends -y ca-certificates git nginx libnginx-mod-stream libzstd1 zlib1g \
+    && zstd_version="$(dpkg-query -W -f='${Version}' libzstd1)" \
+    && dpkg --compare-versions "$zstd_version" ge '1.5.7+dfsg-1+deb13u1' \
     && nginx_version="$(dpkg-query -W -f='${Version}' nginx)" \
     && dpkg --compare-versions "$nginx_version" ge '1.26.3-3+deb13u11' \
     && test "$(dpkg-query -W -f='${Version}' nginx-common)" = "$nginx_version" \
